@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -9,9 +10,19 @@ public class EnemyAI : MonoBehaviour
     public EnemyState currentState = EnemyState.Patrol;
     public Transform[] patrolPoints;
 
+    [Header("FOV Settings")]
+    public float viewRadius = 10f;
+    [Range(0, 360)]
+    public float viewAngle = 90f;
+    public LayerMask playerMask;
+    public LayerMask obstacleMask;
+    public float fovTickRate = 0.2f;
+
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
     private Transform _playerTransform;
+    private Vector3 _lastKnownPlayerPosition;
+    private Coroutine _fovCoroutine;
 
     private void Awake()
     {
@@ -31,6 +42,7 @@ public class EnemyAI : MonoBehaviour
         }
 
         MoveToNextPatrolPoint();
+        _fovCoroutine = StartCoroutine(FOVRoutine());
     }
 
     private void OnDestroy()
@@ -38,6 +50,10 @@ public class EnemyAI : MonoBehaviour
         if (StateManager.Instance != null)
         {
             StateManager.Instance.OnNoiseLevelChanged -= HandleNoiseLevel;
+        }
+        if (_fovCoroutine != null)
+        {
+            StopCoroutine(_fovCoroutine);
         }
     }
 
@@ -57,6 +73,7 @@ public class EnemyAI : MonoBehaviour
                 {
                     Debug.Log("탐색 완료. 순찰로 복귀합니다.");
                     currentState = EnemyState.Patrol;
+                    MoveToNextPatrolPoint();
                 }
                 break;
 
@@ -66,6 +83,56 @@ public class EnemyAI : MonoBehaviour
                     _agent.SetDestination(_playerTransform.position);
                 }
                 break;
+        }
+    }
+
+    private IEnumerator FOVRoutine()
+    {
+        WaitForSeconds wait = new WaitForSeconds(fovTickRate);
+        while (true)
+        {
+            yield return wait;
+            FindVisibleTargets();
+        }
+    }
+
+    private void FindVisibleTargets()
+    {
+        bool canSeePlayer = false;
+        Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, viewRadius, playerMask);
+
+        for (int i = 0; i < targetsInViewRadius.Length; i++)
+        {
+            Transform target = targetsInViewRadius[i].transform;
+            Vector3 dirToTarget = (target.position - transform.position).normalized;
+
+            if (Vector3.Angle(transform.forward, dirToTarget) < viewAngle / 2)
+            {
+                float dstToTarget = Vector3.Distance(transform.position, target.position);
+                if (!Physics.Raycast(transform.position, dirToTarget, dstToTarget, obstacleMask))
+                {
+                    canSeePlayer = true;
+                    _lastKnownPlayerPosition = target.position;
+                }
+            }
+        }
+
+        if (canSeePlayer)
+        {
+            if (currentState != EnemyState.Chase)
+            {
+                Debug.Log("플레이어 시야 확보: 추격 시작!");
+                currentState = EnemyState.Chase;
+            }
+        }
+        else
+        {
+            if (currentState == EnemyState.Chase)
+            {
+                Debug.Log("시야 상실: 마지막 목격 지점 탐색으로 전환합니다.");
+                currentState = EnemyState.Investigate;
+                _agent.SetDestination(_lastKnownPlayerPosition);
+            }
         }
     }
 
@@ -84,7 +151,7 @@ public class EnemyAI : MonoBehaviour
 
     private void MoveToNextPatrolPoint()
     {
-        if (patrolPoints.Length == 0) return;
+        if (patrolPoints == null || patrolPoints.Length == 0) return;
 
         _agent.SetDestination(patrolPoints[_currentPatrolIndex].position);
         _currentPatrolIndex = (_currentPatrolIndex + 1) % patrolPoints.Length;

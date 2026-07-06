@@ -50,6 +50,11 @@ public class EnemyAI : MonoBehaviour
         if (StateManager.Instance != null)
         {
             StateManager.Instance.OnNoiseLevelChanged -= HandleNoiseLevel;
+
+            if (currentState == EnemyState.Chase)
+            {
+                StateManager.Instance.RemoveThreat();
+            }
         }
         if (_fovCoroutine != null)
         {
@@ -72,7 +77,7 @@ public class EnemyAI : MonoBehaviour
                 if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
                 {
                     Debug.Log("탐색 완료. 순찰로 복귀합니다.");
-                    currentState = EnemyState.Patrol;
+                    ChangeState(EnemyState.Patrol);
                     MoveToNextPatrolPoint();
                 }
                 break;
@@ -84,6 +89,32 @@ public class EnemyAI : MonoBehaviour
                 }
                 break;
         }
+    }
+
+    // 신규 추가: 중앙 통제형 상태 변경 함수 (위협 카운트 누수 방지)
+    private void ChangeState(EnemyState newState)
+    {
+        if (currentState == newState) return;
+
+        // 기존 상태가 Chase였다면 벗어날 때 무조건 위협 해제
+        if (currentState == EnemyState.Chase)
+        {
+            if (StateManager.Instance != null)
+            {
+                StateManager.Instance.RemoveThreat();
+            }
+        }
+
+        // 새로운 상태가 Chase라면 무조건 위협 추가
+        if (newState == EnemyState.Chase)
+        {
+            if (StateManager.Instance != null)
+            {
+                StateManager.Instance.AddThreat();
+            }
+        }
+
+        currentState = newState;
     }
 
     private IEnumerator FOVRoutine()
@@ -122,7 +153,7 @@ public class EnemyAI : MonoBehaviour
             if (currentState != EnemyState.Chase)
             {
                 Debug.Log("플레이어 시야 확보: 추격 시작!");
-                currentState = EnemyState.Chase;
+                ChangeState(EnemyState.Chase);
             }
         }
         else
@@ -130,7 +161,7 @@ public class EnemyAI : MonoBehaviour
             if (currentState == EnemyState.Chase)
             {
                 Debug.Log("시야 상실: 마지막 목격 지점 탐색으로 전환합니다.");
-                currentState = EnemyState.Investigate;
+                ChangeState(EnemyState.Investigate);
                 _agent.SetDestination(_lastKnownPlayerPosition);
             }
         }
@@ -140,11 +171,14 @@ public class EnemyAI : MonoBehaviour
     {
         if (level == NoiseLevel.High || level == NoiseLevel.Critical)
         {
-            currentState = EnemyState.Investigate;
-            if (_playerTransform != null)
+            if (currentState != EnemyState.Chase)
             {
-                _agent.SetDestination(_playerTransform.position);
-                Debug.Log("큰 소음 감지: 해당 위치로 탐색 이동합니다.");
+                ChangeState(EnemyState.Investigate);
+                if (_playerTransform != null)
+                {
+                    _agent.SetDestination(_playerTransform.position);
+                    Debug.Log("큰 소음 감지: 해당 위치로 탐색 이동합니다.");
+                }
             }
         }
     }

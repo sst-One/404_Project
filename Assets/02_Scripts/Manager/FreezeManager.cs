@@ -14,7 +14,7 @@ public class FreezeManager : MonoBehaviour
 
     private Coroutine _heartbeatCoroutine;
     private bool _isOverloaded;
-    private bool _requireInputReset; // 신규 추가: 입력 해제 강제 변수
+    private bool _requireInputReset;
 
     private void Awake()
     {
@@ -49,14 +49,13 @@ public class FreezeManager : MonoBehaviour
 
         bool isFreezeInput = InputManager.Instance.GetInput().IsFreezing();
 
-        // 신규 추가: 오버로드 이후 키를 떼었는지 검사하는 가드 로직
         if (_requireInputReset)
         {
             if (!isFreezeInput)
             {
-                _requireInputReset = false; // 키를 떼면 잠금 해제
+                _requireInputReset = false;
             }
-            return; // 잠금이 풀리기 전까지는 상태 변화 무시
+            return;
         }
 
         if (isFreezeInput && !IsFreezing)
@@ -86,10 +85,8 @@ public class FreezeManager : MonoBehaviour
             _heartbeatCoroutine = null;
         }
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.ResetHeartbeat();
-        }
+        // 기획 변경: 즉시 초기화(ResetHeartbeat) 로직 삭제 완료
+        // 심장박동은 StateManager의 자연 회복 코루틴에 의해서만 서서히 감소합니다.
     }
 
     private IEnumerator HeartbeatIncreaseRoutine()
@@ -138,13 +135,10 @@ public class FreezeManager : MonoBehaviour
     {
         yield return new WaitForSeconds(2.0f);
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.ResetHeartbeat();
-        }
+        // 기획 변경: 오버로드 회복 시 즉시 초기화(ResetHeartbeat) 로직 삭제 완료
 
         _isOverloaded = false;
-        _requireInputReset = true; // 신규 추가: 회복 후 무조건 입력을 떼도록 강제
+        _requireInputReset = true;
         Debug.Log("오버로드 상태 회복됨. 스페이스바를 떼었다가 다시 눌러야 정지 가능합니다.");
     }
 }

@@ -11,6 +11,8 @@ namespace Mediapipe.Unity.Sample.HandLandmarkDetection
 {
     public class HandLandmarkerRunner : VisionTaskApiRunner<HandLandmarker>
     {
+        public static System.Action<HandLandmarkerResult> OnHandTracked;
+
         [SerializeField] private HandLandmarkerResultAnnotationController _handLandmarkerResultAnnotationController;
 
         [Header("테스트용 동영상 (Plan C)")]
@@ -113,6 +115,7 @@ namespace Mediapipe.Unity.Sample.HandLandmarkDetection
         private void OnHandLandmarkDetectionOutput(HandLandmarkerResult result, Image image, long timestamp)
         {
             _handLandmarkerResultAnnotationController.DrawLater(result);
+            OnHandTracked?.Invoke(result);
         }
     }
 }

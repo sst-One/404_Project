@@ -130,16 +130,30 @@ public class EnemyAI : MonoBehaviour
     private void FindVisibleTargets()
     {
         bool canSeePlayer = false;
-        Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, viewRadius, playerMask);
+
+        // [핵심 연동] SYS-005 & FEAT-007: Freeze 상태에 따른 시각적 감지 반경 동적 축소
+        float currentViewRadius = viewRadius;
+        bool isPlayerFreezing = false;
+
+        if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing)
+        {
+            isPlayerFreezing = true;
+            currentViewRadius = viewRadius * 0.3f; // Freeze 성공 시 감지 반경 70% 감소 (근접이 아니면 발각 불가)
+        }
+
+        // 축소된 반경(currentViewRadius)을 기준으로 플레이어 탐색
+        Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, currentViewRadius, playerMask);
 
         for (int i = 0; i < targetsInViewRadius.Length; i++)
         {
             Transform target = targetsInViewRadius[i].transform;
             Vector3 dirToTarget = (target.position - transform.position).normalized;
 
+            // 시야각(FOV) 내에 존재하는지 확인
             if (Vector3.Angle(transform.forward, dirToTarget) < viewAngle / 2)
             {
                 float dstToTarget = Vector3.Distance(transform.position, target.position);
+                // 장애물에 가려져 있는지 레이캐스트로 확인
                 if (!Physics.Raycast(transform.position, dirToTarget, dstToTarget, obstacleMask))
                 {
                     canSeePlayer = true;
@@ -152,7 +166,7 @@ public class EnemyAI : MonoBehaviour
         {
             if (currentState != EnemyState.Chase)
             {
-                Debug.Log("플레이어 시야 확보: 추격 시작!");
+                Debug.Log($"[EnemyAI] 플레이어 발각! (Freeze 상태: {isPlayerFreezing}) - 추격을 시작합니다!");
                 ChangeState(EnemyState.Chase);
             }
         }
@@ -160,9 +174,13 @@ public class EnemyAI : MonoBehaviour
         {
             if (currentState == EnemyState.Chase)
             {
-                Debug.Log("시야 상실: 마지막 목격 지점 탐색으로 전환합니다.");
+                Debug.Log("[EnemyAI] 시야 상실: 마지막 목격 지점 탐색으로 전환합니다.");
                 ChangeState(EnemyState.Investigate);
-                _agent.SetDestination(_lastKnownPlayerPosition);
+
+                if (_agent.isOnNavMesh)
+                {
+                    _agent.SetDestination(_lastKnownPlayerPosition);
+                }
             }
         }
     }

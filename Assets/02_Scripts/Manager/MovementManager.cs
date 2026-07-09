@@ -35,8 +35,8 @@ public class MovementManager : MonoBehaviour
     {
         IsMoving = true;
 
-        // 샌드박스 검증용: 카메라를 직접 이동 (본 게임에서는 플레이어 루트 객체로 변경 필요)
-        Transform playerTransform = Camera.main.transform;
+        // [TPM 핫픽스] 카메라 단독 이동 버그 수정: 카메라의 최상위 부모(Player_Root)를 통째로 이동시킵니다.
+        Transform playerTransform = Camera.main.transform.root;
 
         // 플레이어가 바닥에 파묻히지 않도록 기존 Y축 높이 유지
         Vector3 startPos = playerTransform.position;
@@ -60,6 +60,6 @@ public class MovementManager : MonoBehaviour
             StateManager.Instance.AddNoise(0.2f);
         }
 
-        Debug.Log("이동 완료: 소음이 발생했습니다.");
+        Debug.Log("[MovementManager] 이동 완료: 소음이 발생했습니다.");
     }
 }

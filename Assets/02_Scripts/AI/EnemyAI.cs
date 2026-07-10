@@ -2,7 +2,8 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
 
-public enum EnemyState { Patrol, Investigate, Chase }
+// [수정 1] Suspect(의심) 상태 신규 추가
+public enum EnemyState { Patrol, Suspect, Investigate, Chase }
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyAI : MonoBehaviour
@@ -22,7 +23,9 @@ public class EnemyAI : MonoBehaviour
     private NavMeshAgent _agent;
     private Transform _playerTransform;
     private Vector3 _lastKnownPlayerPosition;
+
     private Coroutine _fovCoroutine;
+    private Coroutine _suspectCoroutine; // 의심 상태 제어용 코루틴
 
     private void Awake()
     {
@@ -33,11 +36,12 @@ public class EnemyAI : MonoBehaviour
     {
         if (Camera.main != null)
         {
-            _playerTransform = Camera.main.transform;
+            _playerTransform = Camera.main.transform.root;
         }
 
         if (StateManager.Instance != null)
         {
+            // 이벤트 구독 (파라미터가 2개인 새로운 델리게이트와 매핑)
             StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
         }
 
@@ -56,10 +60,8 @@ public class EnemyAI : MonoBehaviour
                 StateManager.Instance.RemoveThreat();
             }
         }
-        if (_fovCoroutine != null)
-        {
-            StopCoroutine(_fovCoroutine);
-        }
+        if (_fovCoroutine != null) StopCoroutine(_fovCoroutine);
+        if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
     }
 
     private void Update()
@@ -73,10 +75,14 @@ public class EnemyAI : MonoBehaviour
                 }
                 break;
 
+            case EnemyState.Suspect:
+                // SuspectRoutine 코루틴에서 제어하므로 Update에선 대기
+                break;
+
             case EnemyState.Investigate:
                 if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
                 {
-                    Debug.Log("탐색 완료. 순찰로 복귀합니다.");
+                    Debug.Log("[EnemyAI] 수색 완료. 단서를 찾지 못해 순찰로 복귀합니다.");
                     ChangeState(EnemyState.Patrol);
                     MoveToNextPatrolPoint();
                 }
@@ -91,27 +97,18 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    // 신규 추가: 중앙 통제형 상태 변경 함수 (위협 카운트 누수 방지)
     private void ChangeState(EnemyState newState)
     {
         if (currentState == newState) return;
 
-        // 기존 상태가 Chase였다면 벗어날 때 무조건 위협 해제
-        if (currentState == EnemyState.Chase)
+        if (currentState == EnemyState.Chase && StateManager.Instance != null)
         {
-            if (StateManager.Instance != null)
-            {
-                StateManager.Instance.RemoveThreat();
-            }
+            StateManager.Instance.RemoveThreat();
         }
 
-        // 새로운 상태가 Chase라면 무조건 위협 추가
-        if (newState == EnemyState.Chase)
+        if (newState == EnemyState.Chase && StateManager.Instance != null)
         {
-            if (StateManager.Instance != null)
-            {
-                StateManager.Instance.AddThreat();
-            }
+            StateManager.Instance.AddThreat();
         }
 
         currentState = newState;
@@ -130,18 +127,15 @@ public class EnemyAI : MonoBehaviour
     private void FindVisibleTargets()
     {
         bool canSeePlayer = false;
-
-        // [핵심 연동] SYS-005 & FEAT-007: Freeze 상태에 따른 시각적 감지 반경 동적 축소
         float currentViewRadius = viewRadius;
         bool isPlayerFreezing = false;
 
         if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing)
         {
             isPlayerFreezing = true;
-            currentViewRadius = viewRadius * 0.3f; // Freeze 성공 시 감지 반경 70% 감소 (근접이 아니면 발각 불가)
+            currentViewRadius = viewRadius * 0.3f;
         }
 
-        // 축소된 반경(currentViewRadius)을 기준으로 플레이어 탐색
         Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, currentViewRadius, playerMask);
 
         for (int i = 0; i < targetsInViewRadius.Length; i++)
@@ -149,11 +143,9 @@ public class EnemyAI : MonoBehaviour
             Transform target = targetsInViewRadius[i].transform;
             Vector3 dirToTarget = (target.position - transform.position).normalized;
 
-            // 시야각(FOV) 내에 존재하는지 확인
             if (Vector3.Angle(transform.forward, dirToTarget) < viewAngle / 2)
             {
                 float dstToTarget = Vector3.Distance(transform.position, target.position);
-                // 장애물에 가려져 있는지 레이캐스트로 확인
                 if (!Physics.Raycast(transform.position, dirToTarget, dstToTarget, obstacleMask))
                 {
                     canSeePlayer = true;
@@ -166,7 +158,9 @@ public class EnemyAI : MonoBehaviour
         {
             if (currentState != EnemyState.Chase)
             {
-                Debug.Log($"[EnemyAI] 플레이어 발각! (Freeze 상태: {isPlayerFreezing}) - 추격을 시작합니다!");
+                Debug.Log($"[EnemyAI] 플레이어 발각! (Freeze: {isPlayerFreezing}) - 추격 시작!");
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
             }
         }
@@ -176,28 +170,70 @@ public class EnemyAI : MonoBehaviour
             {
                 Debug.Log("[EnemyAI] 시야 상실: 마지막 목격 지점 탐색으로 전환합니다.");
                 ChangeState(EnemyState.Investigate);
-
-                if (_agent.isOnNavMesh)
-                {
-                    _agent.SetDestination(_lastKnownPlayerPosition);
-                }
+                if (_agent.isOnNavMesh) _agent.SetDestination(_lastKnownPlayerPosition);
             }
         }
     }
 
-    private void HandleNoiseLevel(NoiseLevel level)
+    // [수정 2] 소음 이벤트 핸들러 (위치 기반 지능적 수색)
+    private void HandleNoiseLevel(NoiseLevel level, Vector3 noisePosition)
     {
-        if (level == NoiseLevel.High || level == NoiseLevel.Critical)
+        // 추격(Chase) 중일 때는 시야와 목표물이 최우선이므로 소음에 다른 반응을 하지 않음
+        if (currentState == EnemyState.Chase) return;
+
+        switch (level)
         {
-            if (currentState != EnemyState.Chase)
-            {
-                ChangeState(EnemyState.Investigate);
-                if (_playerTransform != null)
+            case NoiseLevel.Low:
+                // 무시 (순찰 유지)
+                break;
+
+            case NoiseLevel.Mid:
+                // 순찰이나 수색 중일 때 제자리에 멈춰서 의심(Suspect)
+                if (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate)
                 {
-                    _agent.SetDestination(_playerTransform.position);
-                    Debug.Log("큰 소음 감지: 해당 위치로 탐색 이동합니다.");
+                    Debug.Log("[EnemyAI] 중간 소음 감지: 제자리에 멈춰 주변을 살핍니다.");
+                    if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                    _suspectCoroutine = StartCoroutine(SuspectRoutine());
                 }
-            }
+                break;
+
+            case NoiseLevel.High:
+                // 소음이 발생한 '해당 좌표'로 수색(Investigate) 이동
+                Debug.Log($"[EnemyAI] 큰 소음 감지: 진원지({noisePosition})로 수색을 시작합니다.");
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                if (_agent.isOnNavMesh) _agent.isStopped = false;
+
+                ChangeState(EnemyState.Investigate);
+                if (_agent.isOnNavMesh) _agent.SetDestination(noisePosition);
+                break;
+
+            case NoiseLevel.Critical:
+                // 즉시 발각 및 추격(Chase) 시작
+                Debug.Log("[EnemyAI] 치명적 소음 감지: 즉시 추격을 시작합니다!");
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                if (_agent.isOnNavMesh) _agent.isStopped = false;
+
+                _lastKnownPlayerPosition = noisePosition; // 소음원 기준점 저장
+                ChangeState(EnemyState.Chase);
+                break;
+        }
+    }
+
+    private IEnumerator SuspectRoutine()
+    {
+        ChangeState(EnemyState.Suspect);
+        if (_agent.isOnNavMesh) _agent.isStopped = true; // 이동 강제 정지
+
+        // 3초간 두리번거림 대기 (향후 애니메이션 연결부)
+        yield return new WaitForSeconds(3f);
+
+        // 의심이 풀리면 다시 순찰로 복귀
+        if (currentState == EnemyState.Suspect)
+        {
+            Debug.Log("[EnemyAI] 이상 없음: 순찰로 복귀합니다.");
+            if (_agent.isOnNavMesh) _agent.isStopped = false;
+            ChangeState(EnemyState.Patrol);
+            MoveToNextPatrolPoint();
         }
     }
 
@@ -205,7 +241,11 @@ public class EnemyAI : MonoBehaviour
     {
         if (patrolPoints == null || patrolPoints.Length == 0) return;
 
-        _agent.SetDestination(patrolPoints[_currentPatrolIndex].position);
+        if (_agent.isOnNavMesh)
+        {
+            _agent.isStopped = false;
+            _agent.SetDestination(patrolPoints[_currentPatrolIndex].position);
+        }
         _currentPatrolIndex = (_currentPatrolIndex + 1) % patrolPoints.Length;
     }
 }

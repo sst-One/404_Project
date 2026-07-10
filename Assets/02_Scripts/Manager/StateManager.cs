@@ -9,7 +9,7 @@ public class StateManager : MonoBehaviour
 {
     public static StateManager Instance { get; private set; }
 
-    public event Action<NoiseLevel> OnNoiseLevelChanged;
+    public event Action<NoiseLevel, Vector3> OnNoiseLevelChanged;
     public event Action<HeartbeatLevel> OnHeartbeatLevelChanged;
 
     private float _currentNoiseValue = 0f;
@@ -20,6 +20,7 @@ public class StateManager : MonoBehaviour
 
     private int _threatCount = 0;
     private Coroutine _threatCoroutine;
+    private Vector3 _lastNoisePosition;
 
     private void Awake()
     {
@@ -34,30 +35,59 @@ public class StateManager : MonoBehaviour
 
     private void Start()
     {
-        // 신규 추가: 자연 회복 코루틴 상시 가동
         StartCoroutine(HeartbeatCooldownRoutine());
+        StartCoroutine(NoiseCooldownRoutine()); // [TPM 핫픽스] 소음 자연 감소 코루틴 상시 가동
     }
 
-    public void AddNoise(float amount)
+    // =========================================================
+    // 소음 (Noise) 시스템
+    // =========================================================
+
+    public void AddNoise(float amount, Vector3 noiseSourcePosition = default)
     {
         _currentNoiseValue = Mathf.Clamp(_currentNoiseValue + amount, 0f, 1f);
-        UpdateNoiseLevel();
-    }
+        _lastNoisePosition = noiseSourcePosition == default ? Camera.main.transform.position : noiseSourcePosition;
 
-    private void UpdateNoiseLevel()
-    {
         NoiseLevel newLevel = NoiseLevel.Low;
         if (_currentNoiseValue > 0.75f) newLevel = NoiseLevel.Critical;
         else if (_currentNoiseValue > 0.5f) newLevel = NoiseLevel.High;
         else if (_currentNoiseValue > 0.25f) newLevel = NoiseLevel.Mid;
 
-        if (newLevel != _currentNoiseLevel)
+        _currentNoiseLevel = newLevel;
+
+        // [TPM 핫픽스] 단계 변경 여부와 상관없이, Mid(0.25) 이상부터는 행동할 때마다 AI에게 핑(Ping)을 찍어 호출합니다.
+        if (_currentNoiseLevel != NoiseLevel.Low)
         {
-            _currentNoiseLevel = newLevel;
-            Debug.Log("[StateManager] 소음 레벨 변경: " + _currentNoiseLevel);
-            OnNoiseLevelChanged?.Invoke(_currentNoiseLevel);
+            Debug.Log($"[StateManager] 소음 발생: {_currentNoiseLevel} (누적치: {_currentNoiseValue:F2} / 위치: {_lastNoisePosition})");
+            OnNoiseLevelChanged?.Invoke(_currentNoiseLevel, _lastNoisePosition);
         }
     }
+
+    private IEnumerator NoiseCooldownRoutine()
+    {
+        WaitForSeconds wait = new WaitForSeconds(1.0f);
+        while (true)
+        {
+            yield return wait;
+            // 1초마다 소음 누적치를 0.05씩 깎아줍니다. (가만히 있으면 조용해짐)
+            if (_currentNoiseValue > 0f)
+            {
+                _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.05f, 0f, 1f);
+
+                // AI를 자극하지 않고 내부적으로만 단계(Tier)를 낮춥니다.
+                NoiseLevel newLevel = NoiseLevel.Low;
+                if (_currentNoiseValue > 0.75f) newLevel = NoiseLevel.Critical;
+                else if (_currentNoiseValue > 0.5f) newLevel = NoiseLevel.High;
+                else if (_currentNoiseValue > 0.25f) newLevel = NoiseLevel.Mid;
+
+                _currentNoiseLevel = newLevel;
+            }
+        }
+    }
+
+    // =========================================================
+    // 심장박동 (Heartbeat) 및 위협(Threat) 시스템
+    // =========================================================
 
     public void AddHeartbeat(int amount)
     {
@@ -77,7 +107,7 @@ public class StateManager : MonoBehaviour
         if (newLevel != _currentHeartbeatLevel)
         {
             _currentHeartbeatLevel = newLevel;
-            Debug.Log("[StateManager] 심장박동 레벨 변경: " + _currentHeartbeatLevel);
+            Debug.Log($"[StateManager] 심장박동 레벨 변경: {_currentHeartbeatLevel}");
             OnHeartbeatLevelChanged?.Invoke(_currentHeartbeatLevel);
         }
     }
@@ -117,7 +147,6 @@ public class StateManager : MonoBehaviour
         }
     }
 
-    // 신규 추가: 자연 회복(Cooldown) 알고리즘
     private IEnumerator HeartbeatCooldownRoutine()
     {
         WaitForSeconds wait = new WaitForSeconds(1.5f);
@@ -131,11 +160,9 @@ public class StateManager : MonoBehaviour
                 isFreezing = FreezeManager.Instance.IsFreezing;
             }
 
-            // 위협이 없고, 숨을 참고 있지 않으며, 심장박동이 0보다 클 때만 감소
             if (_threatCount == 0 && !isFreezing && _currentHeartbeatValue > 0)
             {
                 AddHeartbeat(-1);
-                Debug.Log("[StateManager] 심장박동 자연 안정화 중...");
             }
         }
     }

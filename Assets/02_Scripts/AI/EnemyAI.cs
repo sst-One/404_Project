@@ -34,6 +34,8 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
+        _agent = GetComponent<NavMeshAgent>(); // 컴포넌트 재확인
+
         if (Camera.main != null)
         {
             _playerTransform = Camera.main.transform.root;
@@ -41,10 +43,25 @@ public class EnemyAI : MonoBehaviour
 
         if (StateManager.Instance != null)
         {
-            // 이벤트 구독 (파라미터가 2개인 새로운 델리게이트와 매핑)
             StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
         }
 
+        // ====================================================================
+        // [TPM 핫픽스] 런타임 자동 안착(Warp) 시스템 (Boundary Lock 방지)
+        // ====================================================================
+        // 적 AI의 현재 위치 기준 반경 5m 이내에서 가장 가까운 파란색 NavMesh 영역을 찾습니다.
+        if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))
+        {
+            // 에이전트를 해당 위치로 강제 순간이동 시켜 안착시킵니다.
+            _agent.Warp(hit.position);
+            Debug.Log($"[EnemyAI] 적 AI가 내비메쉬 유효 영역({hit.position})에 안전하게 강제 안착되었습니다.");
+        }
+        else
+        {
+            Debug.LogError("[EnemyAI] 치명적 오류: 적 주변 5미터 이내에 파란색 내비메쉬 길이 없습니다! 에디터 배치를 확인하세요.");
+        }
+
+        // 안착이 완료된 후 순찰 및 시야 감지 가동
         MoveToNextPatrolPoint();
         _fovCoroutine = StartCoroutine(FOVRoutine());
     }
@@ -69,9 +86,13 @@ public class EnemyAI : MonoBehaviour
         switch (currentState)
         {
             case EnemyState.Patrol:
-                if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
+                // [TPM 핫픽스] 에이전트가 NavMesh 위에 정상적으로 안착했을 때만 거리 계산 수행
+                if (_agent.isOnNavMesh)
                 {
-                    MoveToNextPatrolPoint();
+                    if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
+                    {
+                        MoveToNextPatrolPoint();
+                    }
                 }
                 break;
 
@@ -80,16 +101,19 @@ public class EnemyAI : MonoBehaviour
                 break;
 
             case EnemyState.Investigate:
-                if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
+                if (_agent.isOnNavMesh)
                 {
-                    Debug.Log("[EnemyAI] 수색 완료. 단서를 찾지 못해 순찰로 복귀합니다.");
-                    ChangeState(EnemyState.Patrol);
-                    MoveToNextPatrolPoint();
+                    if (!_agent.pathPending && _agent.remainingDistance < 0.5f)
+                    {
+                        Debug.Log("[EnemyAI] 수색 완료. 단서를 찾지 못해 순찰로 복귀합니다.");
+                        ChangeState(EnemyState.Patrol);
+                        MoveToNextPatrolPoint();
+                    }
                 }
                 break;
 
             case EnemyState.Chase:
-                if (_playerTransform != null)
+                if (_playerTransform != null && _agent.isOnNavMesh)
                 {
                     _agent.SetDestination(_playerTransform.position);
                 }

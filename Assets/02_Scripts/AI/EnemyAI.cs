@@ -87,6 +87,7 @@ public class EnemyAI : MonoBehaviour
     private void FindVisibleTargets()
     {
         bool canSeePlayer = false;
+        // [수정] 스페이스바 입력을 통한 Freeze 상태를 확실하게 받아옵니다.
         bool isPlayerFreezing = (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing);
         float currentDistanceToPlayer = float.MaxValue;
 
@@ -110,25 +111,22 @@ public class EnemyAI : MonoBehaviour
 
         if (canSeePlayer)
         {
+            // [핵심 변경] Freeze 상태라면 절대 Chase로 가지 않음
+            if (isPlayerFreezing && currentDistanceToPlayer > criticalDetectionDistance)
+            {
+                Debug.Log($"[EnemyAI] 플레이어 발견했으나 Freeze 상태(은신)이므로 추격하지 않음. 거리: {currentDistanceToPlayer:F1}m");
+                // 추격 중이었다면 Investigate로 상태 전이
+                if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
+                return;
+            }
+
+            // 그 외의 경우에만 발각 처리
             if (currentState != EnemyState.Chase)
             {
-                // [핵심 연동] Origin Freeze 상태 판별 (SYS-005)
-                if (isPlayerFreezing && currentDistanceToPlayer > criticalDetectionDistance)
-                {
-                    if (currentState != EnemyState.Suspect)
-                    {
-                        Debug.Log("[EnemyAI] 플레이어 식별됨, 그러나 Freeze 상태 유지 중 -> 의심(Suspect) 진입");
-                        if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-                        _suspectCoroutine = StartCoroutine(SuspectRoutine(isVisualDetection: true));
-                    }
-                }
-                else
-                {
-                    Debug.Log($"[EnemyAI] 발각 확정! (Freeze: {isPlayerFreezing}, 거리: {currentDistanceToPlayer:F1}m)");
-                    if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-                    if (_agent.isOnNavMesh) _agent.isStopped = false;
-                    ChangeState(EnemyState.Chase);
-                }
+                Debug.Log($"[EnemyAI] 발각! Freeze 아님 또는 초근접 거리. 거리: {currentDistanceToPlayer:F1}m");
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                if (_agent.isOnNavMesh) _agent.isStopped = false;
+                ChangeState(EnemyState.Chase);
             }
         }
         else if (currentState == EnemyState.Chase)

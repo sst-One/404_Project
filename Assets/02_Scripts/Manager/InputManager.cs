@@ -1,11 +1,17 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class InputManager : MonoBehaviour
 {
     public static InputManager Instance { get; private set; }
 
+    [Header("디버그 및 테스트 환경 (SYS-009)")]
+    [Tooltip("체크 시 웹캠(비전 AI)을 무시하고 키보드/마우스 입력 모드를 강제합니다.")]
+    public bool forceFallbackMode = true; // PC 테스트를 위해 기본값을 true로 설정
+
     private IPlayerInput _currentInputProcessor;
-    private IPlayerInput _fallbackProcessor; // 예외 상황용 키보드 입력
+    private IPlayerInput _fallbackProcessor;
+    private PlayerInputMapper _visionProcessor;
 
     private void Awake()
     {
@@ -23,23 +29,41 @@ public class InputManager : MonoBehaviour
     private void InitializeProcessors()
     {
         _fallbackProcessor = new KeyboardInputProcessor();
+        _visionProcessor = FindObjectOfType<PlayerInputMapper>();
 
-        // 씬 내에 배치된 PlayerInputMapper(비전 AI)를 최우선으로 찾음
-        var mapper = FindObjectOfType<PlayerInputMapper>();
-        if (mapper != null)
+        UpdateInputProcessor();
+    }
+
+    private void Update()
+    {
+        // [F1] 키를 통한 런타임 강제 입력 모드 스위칭
+        if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame)
         {
-            _currentInputProcessor = mapper;
-            Debug.Log("[InputManager] PlayerInputMapper (Vision AI) 연동 완료.");
+            forceFallbackMode = !forceFallbackMode;
+            UpdateInputProcessor();
+            Debug.Log($"[InputManager] 입력 모드 실시간 변경: {(forceFallbackMode ? "키보드/마우스 (Fallback)" : "웹캠 (Vision AI)")}");
+        }
+    }
+
+    private void UpdateInputProcessor()
+    {
+        if (forceFallbackMode || _visionProcessor == null)
+        {
+            _currentInputProcessor = _fallbackProcessor;
         }
         else
         {
-            _currentInputProcessor = _fallbackProcessor;
-            Debug.LogWarning("[InputManager] PlayerInputMapper를 찾을 수 없어 Fallback(Keyboard) 모드로 전환합니다.");
+            _currentInputProcessor = _visionProcessor;
         }
     }
 
     public IPlayerInput GetInput()
     {
+        // 타 스크립트(InteractionManager 등)에서 GetInput 호출 시 null 방어
+        if (_currentInputProcessor == null)
+        {
+            UpdateInputProcessor();
+        }
         return _currentInputProcessor;
     }
 }

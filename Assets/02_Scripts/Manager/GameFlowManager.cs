@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using System;
 
 public enum GameStage
@@ -22,7 +23,6 @@ public class GameFlowManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        DontDestroyOnLoad(gameObject);
     }
 
     public void AdvanceToStage(GameStage nextStage)
@@ -31,13 +31,40 @@ public class GameFlowManager : MonoBehaviour
 
         Debug.Log($"[GameFlowManager] 스테이지 전환: {currentStage} -> {nextStage}");
         currentStage = nextStage;
+
+        string targetScene = GetSceneNameForStage(nextStage);
+        if (SceneManager.GetActiveScene().name != targetScene)
+        {
+            Debug.Log($"[GameFlowManager] 물리적 씬 로드 요청: {targetScene}");
+            SceneManager.LoadScene(targetScene);
+        }
+
         OnStageChanged?.Invoke(currentStage);
 
-        // 핵심 스테이지 진입 시 자동 체크포인트 저장 (POL-010)
         if (nextStage == GameStage.Stage1_Elevator || nextStage == GameStage.Stage6_Blackout ||
             nextStage == GameStage.Stage8_Intruder || nextStage == GameStage.Stage11_Call)
         {
             SaveCheckpoint(nextStage);
+        }
+    }
+
+    private string GetSceneNameForStage(GameStage stage)
+    {
+        switch (stage)
+        {
+            case GameStage.Title:
+                return "01_Title";
+            case GameStage.Stage1_Elevator:
+            case GameStage.Stage3_Anomaly:
+            case GameStage.Stage4_Man:
+                return "02_Elevator";
+            case GameStage.Stage7_Gem:
+                return "03_Corridor_4F";
+            case GameStage.Stage12_Police:
+            case GameStage.Stage13_Ending:
+                return "05_Ending";
+            default:
+                return "04_Room404";
         }
     }
 
@@ -55,7 +82,6 @@ public class GameFlowManager : MonoBehaviour
         if (StateManager.Instance != null)
         {
             StateManager.Instance.RemoveThreat();
-            // Heartbeat, Noise 등 상태 초기화 로직 추가 호출
         }
     }
 }

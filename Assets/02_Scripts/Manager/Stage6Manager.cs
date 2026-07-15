@@ -3,77 +3,49 @@ using UnityEngine;
 
 public class Stage6Manager : MonoBehaviour
 {
-    [Header("조명 설정")]
-    public Light mainRoomLight;
-    public Light phoneFlashlightProxy;
+    public static Stage6Manager Instance { get; private set; }
 
-    [Header("상호작용 대상")]
-    public InteractableItem fuseBox;
-    public GameObject hallucinationObject;
+    [Header("Scene References (Room404 전용)")]
+    public Light mainLight;
+    public Light phoneFlashlight;
+    public InteractableItem fuseBoxItem;
 
-    [Header("환각 파라미터 (PARAM-038)")]
-    public float hallucinationDuration = 2.5f;
+    [Header("Parameters (PARAM-038)")]
+    public float hallucinationDuration = 2.0f;
 
-    private void Start()
+    private void Awake()
     {
-        InitializeBlackout();
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
 
-        if (fuseBox != null)
-        {
-            fuseBox.onInteractEvent.AddListener(HandleFuseBoxInteracted);
-        }
+        // 씬 전용이므로 DontDestroyOnLoad를 절대 사용하지 않습니다.
+        Debug.Log("[Stage6Manager] Room404 씬 로컬 매니저 활성화 완료.");
     }
 
-    private void OnDestroy()
+    public void TriggerBlackout()
     {
-        if (fuseBox != null)
-        {
-            fuseBox.onInteractEvent.RemoveListener(HandleFuseBoxInteracted);
-        }
+        Debug.Log("[Stage6Manager] 정전 발생! (Stage 6 진입)");
+        if (mainLight != null) mainLight.enabled = false;
+        if (phoneFlashlight != null) phoneFlashlight.enabled = true;
+
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
     }
 
-    private void InitializeBlackout()
+    public void RestorePower()
     {
-        if (mainRoomLight != null) mainRoomLight.enabled = false;
-        if (phoneFlashlightProxy != null) phoneFlashlightProxy.enabled = true;
-        if (hallucinationObject != null) hallucinationObject.SetActive(false);
+        Debug.Log("[Stage6Manager] 두꺼비집 복구 성공. 조명 재가동.");
+        if (phoneFlashlight != null) phoneFlashlight.enabled = false;
+        if (mainLight != null) mainLight.enabled = true;
 
-        Debug.Log("[Stage6Manager] 암전 발생: 두꺼비집을 찾으십시오.");
+        StartCoroutine(HallucinationRoutine());
     }
 
-    private void HandleFuseBoxInteracted()
+    private IEnumerator HallucinationRoutine()
     {
-        Debug.Log("[Stage6Manager] 두꺼비집 조작 감지: 전기를 복구합니다.");
-        StartCoroutine(HallucinationSequence());
-    }
-
-    private IEnumerator HallucinationSequence()
-    {
-        // 1. 전기 복구
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
-        if (phoneFlashlightProxy != null) phoneFlashlightProxy.enabled = false;
-
-        // 2. 환각 노출 (Threat)
-        if (hallucinationObject != null)
-        {
-            hallucinationObject.SetActive(true);
-            Debug.Log("[Stage6Manager] 피/얼굴 환각 발생!");
-        }
-
-        // 3. Heartbeat 급상승 (SYS-003)
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(2); // High 단계로 즉시 상승
-        }
-
-        // 4. 유지 시간 대기
+        Debug.Log("[Stage6Manager] 환각 노출 연출 시작 (피/얼굴 가죽)");
         yield return new WaitForSeconds(hallucinationDuration);
+        Debug.Log("[Stage6Manager] 환각 종료 및 현실 복구");
 
-        // 5. 환각 종료
-        if (hallucinationObject != null)
-        {
-            hallucinationObject.SetActive(false);
-            Debug.Log("[Stage6Manager] 환각 소거 완료. 상황 종료.");
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
     }
 }

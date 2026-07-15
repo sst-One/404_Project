@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public class KeyboardInputProcessor : IPlayerInput
+public class KeyboardInputProcessor : MonoBehaviour, IPlayerInput
 {
     private Camera _mainCamera;
     private Transform _currentHoverTarget;

@@ -19,19 +19,27 @@ public class EndingSequenceController : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if (scene.name == "04_Room404" || scene.name == "05_Ending")
+        // 로드된 씬이 폰이나 보석을 포함하지 않는다면 바인딩 시도 자체를 중단함
+        if (scene.name != "04_Room404" && scene.name != "05_Ending") return;
+
+        GameObject phoneObj = GameObject.Find("Item_Phone");
+        if (phoneObj != null)
         {
-            GameObject phoneObj = GameObject.Find("Item_Phone");
-            if (phoneObj != null)
+            phoneController = phoneObj.GetComponent<PhoneController>();
+            if (phoneController != null) // 안전 장치 추가
             {
-                phoneController = phoneObj.GetComponent<PhoneController>();
+                phoneController.onCallSuccess.RemoveAllListeners(); // 중복 등록 방지
                 phoneController.onCallSuccess.AddListener(OnStage11Completed);
             }
+        }
 
-            GameObject gemObj = GameObject.Find("Item_EndingGem");
-            if (gemObj != null)
+        GameObject gemObj = GameObject.Find("Item_EndingGem");
+        if (gemObj != null)
+        {
+            endingGem = gemObj.GetComponent<InteractableItem>();
+            if (endingGem != null)
             {
-                endingGem = gemObj.GetComponent<InteractableItem>();
+                endingGem.onInteractEvent.RemoveAllListeners();
                 endingGem.onInteractEvent.AddListener(OnStage13Completed);
                 endingGem.gameObject.SetActive(GameFlowManager.Instance.currentStage == GameStage.Stage13_Ending);
             }

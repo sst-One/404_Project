@@ -7,6 +7,9 @@ public enum EnemyState { Patrol, Suspect, Investigate, Chase }
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyAI : MonoBehaviour
 {
+    [Header("Narrative Settings")]
+    public bool isNarrativeMode = false;
+
     public EnemyState currentState = EnemyState.Patrol;
     public Transform[] patrolPoints;
 
@@ -52,6 +55,13 @@ public class EnemyAI : MonoBehaviour
 
     private void Update()
     {
+        // [수정] 내러티브 모드일 경우 순찰/추격 로직을 원천 차단하고 제자리 대기
+        if (isNarrativeMode)
+        {
+            if (_agent.isOnNavMesh) _agent.isStopped = true;
+            return;
+        }
+
         if (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate)
         {
             if (_agent.isOnNavMesh && !_agent.pathPending && _agent.remainingDistance < 0.5f)
@@ -86,8 +96,9 @@ public class EnemyAI : MonoBehaviour
 
     private void FindVisibleTargets()
     {
+        if (isNarrativeMode) return;
+
         bool canSeePlayer = false;
-        // [수정] 스페이스바 입력을 통한 Freeze 상태를 확실하게 받아옵니다.
         bool isPlayerFreezing = (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing);
         float currentDistanceToPlayer = float.MaxValue;
 
@@ -111,19 +122,14 @@ public class EnemyAI : MonoBehaviour
 
         if (canSeePlayer)
         {
-            // [핵심 변경] Freeze 상태라면 절대 Chase로 가지 않음
-            if (isPlayerFreezing && currentDistanceToPlayer > criticalDetectionDistance)
+            if (isPlayerFreezing && Vector3.Distance(transform.position, _playerTransform.position) > criticalDetectionDistance)
             {
-                Debug.Log($"[EnemyAI] 플레이어 발견했으나 Freeze 상태(은신)이므로 추격하지 않음. 거리: {currentDistanceToPlayer:F1}m");
-                // 추격 중이었다면 Investigate로 상태 전이
                 if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
                 return;
             }
 
-            // 그 외의 경우에만 발각 처리
             if (currentState != EnemyState.Chase)
             {
-                Debug.Log($"[EnemyAI] 발각! Freeze 아님 또는 초근접 거리. 거리: {currentDistanceToPlayer:F1}m");
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
@@ -138,7 +144,7 @@ public class EnemyAI : MonoBehaviour
 
     private void HandleNoiseLevel(NoiseLevel level, Vector3 noisePosition)
     {
-        if (currentState == EnemyState.Chase) return;
+        if (isNarrativeMode || currentState == EnemyState.Chase) return;
 
         if (level == NoiseLevel.Mid && (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate))
         {

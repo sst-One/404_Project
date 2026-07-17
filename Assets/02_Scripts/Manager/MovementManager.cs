@@ -6,7 +6,7 @@ public class MovementManager : MonoBehaviour
     public static MovementManager Instance { get; private set; }
 
     public bool IsMoving { get; private set; }
-    public float moveDuration = 1.5f;
+    public float moveSpeed = 3.0f;
 
     private void Awake()
     {
@@ -22,11 +22,7 @@ public class MovementManager : MonoBehaviour
     public void MoveTo(Vector3 targetPosition)
     {
         if (IsMoving) return;
-        if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing)
-        {
-            Debug.Log("Freeze 상태에서는 이동할 수 없습니다.");
-            return;
-        }
+        if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing) return;
 
         StartCoroutine(MoveRoutine(targetPosition));
     }
@@ -34,32 +30,42 @@ public class MovementManager : MonoBehaviour
     private IEnumerator MoveRoutine(Vector3 targetPosition)
     {
         IsMoving = true;
-
-        // [TPM 핫픽스] 카메라 단독 이동 버그 수정: 카메라의 최상위 부모(Player_Root)를 통째로 이동시킵니다.
         Transform playerTransform = Camera.main.transform.root;
 
-        // 플레이어가 바닥에 파묻히지 않도록 기존 Y축 높이 유지
+        // 샌드박스 검증 로직: 물리 충돌 차단
+        CharacterController cc = playerTransform.GetComponent<CharacterController>();
+        if (cc != null) cc.enabled = false;
+
         Vector3 startPos = playerTransform.position;
+        // Y축 락킹
         Vector3 endPos = new Vector3(targetPosition.x, startPos.y, targetPosition.z);
 
+        float distance = Vector3.Distance(startPos, endPos);
+        float duration = distance / moveSpeed;
         float elapsedTime = 0f;
 
-        while (elapsedTime < moveDuration)
+        if (duration > 0.01f)
         {
-            playerTransform.position = Vector3.Lerp(startPos, endPos, elapsedTime / moveDuration);
-            elapsedTime += Time.deltaTime;
-            yield return null;
+            while (elapsedTime < duration)
+            {
+                float t = Mathf.Clamp01(elapsedTime / duration);
+                float smoothT = Mathf.SmoothStep(0f, 1f, t);
+
+                playerTransform.position = Vector3.Lerp(startPos, endPos, smoothT);
+                elapsedTime += Time.deltaTime;
+                yield return null;
+            }
         }
 
         playerTransform.position = endPos;
+
+        // 이동 완료 후 물리 엔진 복원
+        if (cc != null) cc.enabled = true;
         IsMoving = false;
 
-        // 이동 완료 후 시스템 연동: 소음(Noise) 증가
         if (StateManager.Instance != null)
         {
             StateManager.Instance.AddNoise(0.2f);
         }
-
-        Debug.Log("[MovementManager] 이동 완료: 소음이 발생했습니다.");
     }
 }

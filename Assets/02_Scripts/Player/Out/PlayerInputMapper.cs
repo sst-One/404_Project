@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI; // NavMesh 사용
 using Mediapipe.Tasks.Vision.HandLandmarker;
 
 public class VisionInputData
@@ -10,7 +11,6 @@ public class VisionInputData
 
 public class PlayerInputMapper : MonoBehaviour, IPlayerInput
 {
-    // ... [기존 Inspector 변수 및 LPF/상태머신 변수 동일 유지 (생략 없이 원본 유지)] ...
     [Header("시각적 피드백")]
     public RectTransform handCursor;
     public Camera mainCamera;
@@ -31,6 +31,10 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
     public float readyTimeThreshold = 0.5f;
     public float loseFocusGraceTime = 0.5f;
 
+    [Header("바닥 동적 탐색 (추가)")]
+    public LayerMask floorLayer;
+    public GameObject moveUIIndicator;
+
     private readonly object _lockObj = new object();
     private VisionInputData _latestData = new VisionInputData();
     private bool _hasNewData = false;
@@ -48,7 +52,7 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
     private float _leanTimer = 0f;
     private bool _leanCommittedThisFrame = false;
 
-    // [신규 통합 브릿지용 변수]
+    // 브릿지 변수
     private Transform _currentHoverTarget;
     private Vector3 _currentHitPoint;
     private Vector3 _currentHitNormal;
@@ -84,6 +88,7 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
     private void Start()
     {
         _smoothedHandPosition = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        if (moveUIIndicator != null) moveUIIndicator.SetActive(false);
         Invoke(nameof(CalibrateBaseline), 3.0f);
     }
 
@@ -112,10 +117,9 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
         ProcessGazeInteraction();
     }
 
-    // ... [ProcessGripLogic, ProcessFreezeLogic, ProcessLeanLogic 기존 동일 유지 (생략)] ...
-    private void ProcessGripLogic() { /* 동일 */ _gripToggledThisFrame = false; if (_currentMainThreadData.IsGripActive && !_wasGripActive) _gripTimer = 0f; else if (_currentMainThreadData.IsGripActive) _gripTimer += Time.deltaTime; else if (!_currentMainThreadData.IsGripActive && _wasGripActive) { if (_gripTimer >= 0.15f && _gripTimer <= 0.35f) _gripToggledThisFrame = true; } _wasGripActive = _currentMainThreadData.IsGripActive; }
-    private void ProcessFreezeLogic() { /* 동일 */ float movementVariance = Vector2.Distance(_currentMainThreadData.RawHandScreenPosition, _lastRawPos); if (movementVariance < freezeVarianceThreshold) { _varianceTimer += Time.deltaTime; if (_varianceTimer >= 1.0f) _isFreezing = true; } else { _varianceTimer = 0f; _isFreezing = false; } _lastRawPos = _currentMainThreadData.RawHandScreenPosition; }
-    private void ProcessLeanLogic() { /* 동일 */ _leanCommittedThisFrame = false; bool isCurrentlyLeaning = (_currentMainThreadData.WristZ < _baselineWristZ - leanZThreshold); if (isCurrentlyLeaning && !_isLeaning) { _isLeaning = true; _leanTimer = 0f; } else if (isCurrentlyLeaning) _leanTimer += Time.deltaTime; else if (!isCurrentlyLeaning && _isLeaning) { if (_leanTimer <= leanCommitMaxTime && _leanTimer > 0.1f) _leanCommittedThisFrame = true; _isLeaning = false; } }
+    private void ProcessGripLogic() { /* 원본 유지 */ _gripToggledThisFrame = false; if (_currentMainThreadData.IsGripActive && !_wasGripActive) _gripTimer = 0f; else if (_currentMainThreadData.IsGripActive) _gripTimer += Time.deltaTime; else if (!_currentMainThreadData.IsGripActive && _wasGripActive) { if (_gripTimer >= 0.15f && _gripTimer <= 0.35f) _gripToggledThisFrame = true; } _wasGripActive = _currentMainThreadData.IsGripActive; }
+    private void ProcessFreezeLogic() { /* 원본 유지 */ float movementVariance = Vector2.Distance(_currentMainThreadData.RawHandScreenPosition, _lastRawPos); if (movementVariance < freezeVarianceThreshold) { _varianceTimer += Time.deltaTime; if (_varianceTimer >= 1.0f) _isFreezing = true; } else { _varianceTimer = 0f; _isFreezing = false; } _lastRawPos = _currentMainThreadData.RawHandScreenPosition; }
+    private void ProcessLeanLogic() { /* 원본 유지 */ _leanCommittedThisFrame = false; bool isCurrentlyLeaning = (_currentMainThreadData.WristZ < _baselineWristZ - leanZThreshold); if (isCurrentlyLeaning && !_isLeaning) { _isLeaning = true; _leanTimer = 0f; } else if (isCurrentlyLeaning) _leanTimer += Time.deltaTime; else if (!isCurrentlyLeaning && _isLeaning) { if (_leanTimer <= leanCommitMaxTime && _leanTimer > 0.1f) _leanCommittedThisFrame = true; _isLeaning = false; } }
 
     private void ProcessGazeInteraction()
     {
@@ -123,18 +127,22 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
         Ray ray = mainCamera.ScreenPointToRay(_smoothedHandPosition);
         RaycastHit hit;
 
+        bool hitValidObject = false;
+
+        // 1. 오브젝트 타겟 (Interactable 등) 탐색
         if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask))
         {
-            Transform hitTarget = hit.transform;
             Vector3 dirToTarget = hit.point - mainCamera.transform.position;
 
             if (!Physics.Raycast(mainCamera.transform.position, dirToTarget.normalized, dirToTarget.magnitude, obstacleMask))
             {
-                // 충돌 정보 캐싱 (브릿지용)
+                hitValidObject = true;
+                if (moveUIIndicator != null) moveUIIndicator.SetActive(false); // 오브젝트를 볼 땐 이동 마커 끔
+
                 _currentHitPoint = hit.point;
                 _currentHitNormal = hit.normal;
 
-                if (_currentHoverTarget == hitTarget)
+                if (_currentHoverTarget == hit.transform)
                 {
                     _currentGraceTimer = 0f;
                     if (!_isReadyTriggered)
@@ -149,12 +157,41 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
                 else
                 {
                     ResetGazeState();
-                    _currentHoverTarget = hitTarget;
+                    _currentHoverTarget = hit.transform;
                 }
             }
-            else ApplyGracePeriod();
         }
-        else ApplyGracePeriod();
+
+        // 2. 오브젝트를 보고 있지 않을 때 바닥(Floor) NavMesh 탐색
+        if (!hitValidObject)
+        {
+            ApplyGracePeriod();
+
+            if (Physics.Raycast(ray, out hit, maxGazeDistance, floorLayer))
+            {
+                NavMeshHit navHit;
+                if (NavMesh.SamplePosition(hit.point, out navHit, 0.5f, NavMesh.AllAreas))
+                {
+                    _currentHitPoint = navHit.position; // 외부 매니저가 이 좌표를 읽어감
+                    _currentHitNormal = Vector3.up;
+
+                    // 이동 마커 UI 동적 렌더링
+                    if (moveUIIndicator != null)
+                    {
+                        moveUIIndicator.transform.position = navHit.position + Vector3.up * 0.05f;
+                        moveUIIndicator.SetActive(true);
+                    }
+                }
+                else
+                {
+                    if (moveUIIndicator != null) moveUIIndicator.SetActive(false);
+                }
+            }
+            else
+            {
+                if (moveUIIndicator != null) moveUIIndicator.SetActive(false);
+            }
+        }
     }
 
     private void ApplyGracePeriod()
@@ -174,9 +211,7 @@ public class PlayerInputMapper : MonoBehaviour, IPlayerInput
         _isReadyTriggered = false;
     }
 
-    // ====================================================================
-    // IPlayerInput 인터페이스 통합 반환부
-    // ====================================================================
+    // 인터페이스 반환부 (외부 InteractionManager 등이 이 값들을 가져가 MovementManager로 넘깁니다)
     public Vector3 GetHandAimTarget() { return _smoothedHandPosition; }
     public bool IsGripToggled() { return _gripToggledThisFrame; }
     public bool IsLeanCommitted() { return _leanCommittedThisFrame; }

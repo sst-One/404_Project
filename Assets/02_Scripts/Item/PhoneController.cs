@@ -45,14 +45,26 @@ public class PhoneController : MonoBehaviour, IInteractable
 
     public void OnLean() { }
 
+    // PhoneController.cs 내부의 RecoverPhone 메서드 수정
     private void RecoverPhone()
     {
         currentState = PhoneState.Recovered;
-        Debug.Log("[PhoneController] 휴대폰 회수 성공. 다시 좌클릭(Reach)하여 112 신고를 시작하십시오.");
+        Debug.Log("[PhoneController] 휴대폰 회수. UI 없이 즉시 신고 모드 진입. (스페이스바 유지 필요)");
 
         if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.5f);
 
+        // UI 호출 로직을 건너뛰고 바로 신고 시퀀스(통화) 시작
+        StartCallSequence();
+
         onPhoneRecovered?.Invoke();
+
+        // 휴대폰 외형 감추기
+        MeshRenderer renderer = GetComponent<MeshRenderer>();
+        if (renderer != null) renderer.enabled = false;
+
+        // 콜라이더를 꺼서 중복 상호작용 방지
+        Collider col = GetComponent<Collider>();
+        if (col != null) col.enabled = false;
     }
 
     private void StartCallSequence()

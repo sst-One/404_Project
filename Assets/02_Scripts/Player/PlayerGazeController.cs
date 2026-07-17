@@ -42,14 +42,12 @@ public class PlayerGazeController : MonoBehaviour
     {
         IsFloorValid = false;
         Ray ray = mainCamera.ScreenPointToRay(inputProvider.GazeScreenPosition);
-        RayOrigin = ray.origin - new Vector3(0, 0.2f, 0); // 화면 중앙(눈)보다 살짝 아래(어깨/손)에서 선이 나가도록 보정
-        RayEndPoint = ray.origin + ray.direction * maxGazeDistance; // 기본값은 최대 사거리 (허공)
+        RayEndPoint = ray.origin + ray.direction * maxGazeDistance;
 
         RaycastHit hit;
-        // targetMask와 obstacleMask를 합쳐서 쏴야 모든 지형지물에 선이 막힙니다.
         if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask | obstacleMask))
         {
-            RayEndPoint = hit.point; // 물체에 닿은 실제 좌표로 끝점 갱신
+            RayEndPoint = hit.point;
 
             if ((obstacleMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
@@ -57,17 +55,21 @@ public class PlayerGazeController : MonoBehaviour
                 return;
             }
 
-            if (hit.transform.gameObject.layer == LayerMask.NameToLayer("Floor"))
+            // [수정] 이동 가능 지점(Walkable) 또는 은신처(HidingSpot) 판정
+            int walkableLayer = LayerMask.NameToLayer("Walkable");
+            int hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
+
+            if (hit.transform.gameObject.layer == walkableLayer || hit.transform.gameObject.layer == hidingSpotLayer)
             {
-                ResetObjectTarget();
-                if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 0.5f, NavMesh.AllAreas))
+                if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 3.0f, NavMesh.AllAreas))
                 {
                     CurrentFloorHitPoint = navHit.position;
-                    IsFloorValid = true;
+                    IsFloorValid = true; // 이제 두 레이어 모두 이동 가능 지점으로 판정됨
                 }
             }
             else if ((targetMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
+                // 상호작용 오브젝트 로직 유지
                 if (CurrentHoverTarget == hit.transform)
                 {
                     if (!IsTargetReady)
@@ -95,5 +97,6 @@ public class PlayerGazeController : MonoBehaviour
         CurrentHoverTarget = null;
         currentReadyTimer = 0f;
         IsTargetReady = false;
+        IsFloorValid = false; // [수정] 포커스 리셋 시 이동 불가 처리
     }
 }

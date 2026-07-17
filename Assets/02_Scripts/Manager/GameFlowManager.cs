@@ -56,29 +56,35 @@ public class GameFlowManager : MonoBehaviour
                 return "01_Title";
 
             case GameStage.Stage1_Elevator:
-            case GameStage.Stage3_Anomaly:
-            case GameStage.Stage4_Man:
-                return "02_Elevator";
+                return "02_Stage1";
 
             case GameStage.Stage2_Room:
+                return "03_Stage2";
+
+            case GameStage.Stage3_Anomaly:
+            case GameStage.Stage4_Man:
+                return "04_Stage3_4";
+
             case GameStage.Stage5_Clue:
             case GameStage.Stage6_Blackout:
+                return "05_Stage5_6";
+
+            case GameStage.Stage7_Gem:
+                return "06_Stage7";
+
             case GameStage.Stage8_Intruder:
             case GameStage.Stage9_Hide:
             case GameStage.Stage10_Pressure:
             case GameStage.Stage11_Call:
-                return "04_Room404";
-
-            case GameStage.Stage7_Gem:
-                return "03_Corridor_4F";
+                return "07_Stage8_11";
 
             case GameStage.Stage12_Police:
             case GameStage.Stage13_Ending:
-                return "05_Ending";
+                return "08_Stage12_13";
 
             default:
-                Debug.LogError($"[GameFlowManager] 정의되지 않은 스테이지 로드 시도: {stage}");
-                return "04_Room404"; // 안전장치 유지
+                Debug.LogError("[GameFlowManager] 정의되지 않은 스테이지 로드 시도: " + stage);
+                return "01_Title";
         }
     }
 

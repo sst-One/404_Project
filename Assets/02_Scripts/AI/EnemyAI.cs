@@ -36,7 +36,16 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
-        if (Camera.main != null) _playerTransform = Camera.main.transform.root;
+        // [수정 핵심] 카메라 루트 대신 우리가 만든 PlayerMovement 인스턴스를 직접 추적
+        if (PlayerMovement.Instance != null)
+        {
+            _playerTransform = PlayerMovement.Instance.transform;
+        }
+        else if (Camera.main != null)
+        {
+            _playerTransform = Camera.main.transform.root;
+        }
+
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))
@@ -122,14 +131,32 @@ public class EnemyAI : MonoBehaviour
 
         if (canSeePlayer)
         {
-            if (isPlayerFreezing && Vector3.Distance(transform.position, _playerTransform.position) > criticalDetectionDistance)
+            // 1. 임계 거리 이내면 Freeze 여부 상관없이 즉시 추격 (강제 발각)
+            if (currentDistanceToPlayer <= criticalDetectionDistance)
+            {
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                if (_agent.isOnNavMesh) _agent.isStopped = false;
+                ChangeState(EnemyState.Chase);
+                return;
+            }
+
+            // 2. Freeze 상태를 유지 중이라면 못 본 척 무시 (또는 Investigate로 강등)
+            if (isPlayerFreezing)
             {
                 if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
                 return;
             }
 
-            if (currentState != EnemyState.Chase)
+            // 3. [핵심 수정] Freeze 실패(움직임) 상태로 시야에 들어왔을 때의 공정성 처리
+            if (currentState == EnemyState.Patrol)
             {
+                // 순찰 중이었다면 즉시 추격하지 않고 경고(Suspect) 부여
+                if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
+                _suspectCoroutine = StartCoroutine(SuspectRoutine(_lastKnownPlayerPosition));
+            }
+            else if (currentState == EnemyState.Suspect || currentState == EnemyState.Investigate)
+            {
+                // 이미 의심/조사 중인데 눈에 띄었다면 추격 시작
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
@@ -146,10 +173,12 @@ public class EnemyAI : MonoBehaviour
     {
         if (isNarrativeMode || currentState == EnemyState.Chase) return;
 
-        if (level == NoiseLevel.Mid && (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate))
+        // [수정] Investigate 상태에서는 Mid 소음에 의해 Suspect로 강등되지 않음. Patrol 상태에서만 반응.
+        if (level == NoiseLevel.Mid && currentState == EnemyState.Patrol)
         {
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-            _suspectCoroutine = StartCoroutine(SuspectRoutine(isVisualDetection: false));
+            // [수정] 소음이 발생한 위치 좌표를 전달
+            _suspectCoroutine = StartCoroutine(SuspectRoutine(noisePosition));
         }
         else if (level == NoiseLevel.High || level == NoiseLevel.Critical)
         {
@@ -169,19 +198,21 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    private IEnumerator SuspectRoutine(bool isVisualDetection)
+    // [수정] bool 매개변수 대신 의심스러운 좌표를 직접 받음
+    private IEnumerator SuspectRoutine(Vector3 targetPos)
     {
         ChangeState(EnemyState.Suspect);
         if (_agent.isOnNavMesh) _agent.isStopped = true;
 
-        // 시야에 의한 의심일 경우 플레이어 방향을 응시하며 3초 대기
-        if (isVisualDetection)
+        // [수정] 소리가 났거나 시야에 포착된 곳을 향해 몸을 회전
+        Vector3 lookDir = (targetPos - transform.position).normalized;
+        lookDir.y = 0;
+        if (lookDir != Vector3.zero)
         {
-            Vector3 lookDir = (_lastKnownPlayerPosition - transform.position).normalized;
-            lookDir.y = 0;
             transform.rotation = Quaternion.LookRotation(lookDir);
         }
 
+        // 3초 대기 (이때 플레이어가 추가 소음을 내거나 시야에 노출되면 상태가 덮어씌워짐)
         yield return new WaitForSeconds(3f);
 
         if (currentState == EnemyState.Suspect)

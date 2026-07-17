@@ -36,7 +36,16 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
-        if (Camera.main != null) _playerTransform = Camera.main.transform.root;
+        // [수정 핵심] 카메라 루트 대신 우리가 만든 PlayerMovement 인스턴스를 직접 추적
+        if (PlayerMovement.Instance != null)
+        {
+            _playerTransform = PlayerMovement.Instance.transform;
+        }
+        else if (Camera.main != null)
+        {
+            _playerTransform = Camera.main.transform.root;
+        }
+
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))

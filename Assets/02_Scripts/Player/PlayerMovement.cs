@@ -1,18 +1,19 @@
 using System.Collections;
 using UnityEngine;
 
-/// <summary>
-/// 역할: 입력 신호(Lean)와 목적지(Gaze) 데이터를 조합하여 물리 충돌 없이 플레이어를 이동시키는 모듈.
-/// </summary>
 [RequireComponent(typeof(PlayerInputProvider))]
 [RequireComponent(typeof(PlayerGazeController))]
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
 {
+    // [수정] EnemyAI가 추적할 수 있도록 싱글톤 보장
+    public static PlayerMovement Instance { get; private set; }
+
     [Header("Movement Settings")]
     public float moveSpeed = 3.0f;
 
-    private bool isMoving = false;
+    // [수정] PlayerUIController에서 에러 없이 접근 가능하도록 대문자 IsMoving 프로퍼티 하나로 통일
+    public bool IsMoving { get; private set; }
 
     private PlayerInputProvider inputProvider;
     private PlayerGazeController gazeController;
@@ -20,6 +21,9 @@ public class PlayerMovement : MonoBehaviour
 
     private void Awake()
     {
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+
         inputProvider = GetComponent<PlayerInputProvider>();
         gazeController = GetComponent<PlayerGazeController>();
         cc = GetComponent<CharacterController>();
@@ -27,12 +31,9 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
-        if (isMoving) return;
-
-        // 전역 Freeze 상태라면 이동 불가 (기존 FreezeManager 연동)
+        if (IsMoving) return;
         if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing) return;
 
-        // 1. 유효한 바닥을 보고 있고, 2. 이동(Lean/W키) 입력이 들어왔다면
         if (gazeController.IsFloorValid && inputProvider.IsLeanTriggered)
         {
             StartCoroutine(MoveRoutine(gazeController.CurrentFloorHitPoint));
@@ -41,13 +42,11 @@ public class PlayerMovement : MonoBehaviour
 
     private IEnumerator MoveRoutine(Vector3 targetPosition)
     {
-        isMoving = true;
+        IsMoving = true;
 
-        // 이동 중 물리 엔진(CharacterController) 충돌 차단
         if (cc != null) cc.enabled = false;
 
         Vector3 startPos = transform.position;
-        // Y축 높이를 현재 플레이어 높이로 강제 고정하여 지형 파고들기 차단
         Vector3 endPos = new Vector3(targetPosition.x, startPos.y, targetPosition.z);
 
         float distance = Vector3.Distance(startPos, endPos);
@@ -69,16 +68,10 @@ public class PlayerMovement : MonoBehaviour
 
         transform.position = endPos;
 
-        // 이동 완료 후 물리 엔진 복원
         if (cc != null) cc.enabled = true;
-        isMoving = false;
 
-        // 이동 완료 소음 발생 (기존 StateManager 연동)
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddNoise(0.2f);
-        }
+        IsMoving = false;
 
-        Debug.Log("[PlayerMovement] 안전한 이동 완료");
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.2f);
     }
 }

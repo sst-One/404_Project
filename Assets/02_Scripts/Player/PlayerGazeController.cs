@@ -1,10 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
 
-/// <summary>
-/// 역할: 플레이어의 시선(Raycast) 판정 및 0.5초 응시(Ready) 상태를 계산하는 모듈.
-/// 결과값은 UI 컨트롤러와 이동/상호작용 매니저가 가져다 사용합니다.
-/// </summary>
 [RequireComponent(typeof(PlayerInputProvider))]
 public class PlayerGazeController : MonoBehaviour
 {
@@ -13,21 +9,20 @@ public class PlayerGazeController : MonoBehaviour
 
     [Header("Raycast Settings")]
     public float maxGazeDistance = 15f;
-    public LayerMask targetMask;   // Interactable, Floor, Threat 등 선택
-    public LayerMask obstacleMask; // 시야를 가리는 Obstacle 선택
+    public LayerMask targetMask;
+    public LayerMask obstacleMask;
 
     [Header("Gaze Rules (PARAM-002)")]
     public float readyTimeThreshold = 0.5f;
 
-    // --- [외부에서 읽어갈 결과 데이터 (Read Only)] ---
+    [HideInInspector] public bool IsFloorValid;
+    [HideInInspector] public Vector3 CurrentFloorHitPoint;
+    [HideInInspector] public Transform CurrentHoverTarget;
+    [HideInInspector] public bool IsTargetReady;
 
-    [HideInInspector] public bool IsFloorValid;          // 바닥(NavMesh)을 바라보고 있는가?
-    [HideInInspector] public Vector3 CurrentFloorHitPoint; // 이동 가능한 바닥의 최종 좌표
-
-    [HideInInspector] public Transform CurrentHoverTarget; // 현재 응시 중인 오브젝트 (Interactable/Threat)
-    [HideInInspector] public bool IsTargetReady;           // 해당 오브젝트를 0.5초 이상 응시했는가?
-
-    // -------------------------------------------------
+    // UI 인디케이터(선) 렌더링을 위한 좌표 데이터
+    [HideInInspector] public Vector3 RayOrigin;
+    [HideInInspector] public Vector3 RayEndPoint;
 
     private PlayerInputProvider inputProvider;
     private float currentReadyTimer = 0f;
@@ -40,69 +35,58 @@ public class PlayerGazeController : MonoBehaviour
     private void Update()
     {
         if (mainCamera == null) return;
-
         ProcessGazeRaycast();
     }
 
     private void ProcessGazeRaycast()
     {
-        // 1. 매 프레임 상태 초기화 (Raycast가 빗나갈 경우를 대비)
         IsFloorValid = false;
-
-        // 입력부에서 마우스 스크린 좌표 가져오기
         Ray ray = mainCamera.ScreenPointToRay(inputProvider.GazeScreenPosition);
+        RayOrigin = ray.origin - new Vector3(0, 0.2f, 0); // 화면 중앙(눈)보다 살짝 아래(어깨/손)에서 선이 나가도록 보정
+        RayEndPoint = ray.origin + ray.direction * maxGazeDistance; // 기본값은 최대 사거리 (허공)
+
         RaycastHit hit;
-
-        if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask))
+        // targetMask와 obstacleMask를 합쳐서 쏴야 모든 지형지물에 선이 막힙니다.
+        if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask | obstacleMask))
         {
-            Vector3 dirToTarget = hit.point - mainCamera.transform.position;
+            RayEndPoint = hit.point; // 물체에 닿은 실제 좌표로 끝점 갱신
 
-            // 2. 장애물(Obstacle)에 가려졌는지 검증
-            if (!Physics.Raycast(mainCamera.transform.position, dirToTarget.normalized, dirToTarget.magnitude, obstacleMask))
+            if ((obstacleMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
-                // 3. 타겟이 바닥(Floor)인 경우: NavMesh 검증
-                if (hit.transform.gameObject.layer == LayerMask.NameToLayer("Floor"))
-                {
-                    ResetObjectTarget(); // 바닥을 볼 땐 오브젝트 타겟팅 해제
+                ResetObjectTarget();
+                return;
+            }
 
-                    if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 0.5f, NavMesh.AllAreas))
-                    {
-                        CurrentFloorHitPoint = navHit.position;
-                        IsFloorValid = true;
-                    }
-                }
-                // 4. 타겟이 오브젝트(Interactable, Threat 등)인 경우: Ready 타이머 계산
-                else
+            if (hit.transform.gameObject.layer == LayerMask.NameToLayer("Floor"))
+            {
+                ResetObjectTarget();
+                if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 0.5f, NavMesh.AllAreas))
                 {
-                    if (CurrentHoverTarget == hit.transform)
-                    {
-                        // 계속 같은 오브젝트를 보고 있다면 타이머 증가
-                        if (!IsTargetReady)
-                        {
-                            currentReadyTimer += Time.deltaTime;
-                            if (currentReadyTimer >= readyTimeThreshold)
-                            {
-                                IsTargetReady = true;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // 새로운 오브젝트를 보게 되면 타이머 리셋
-                        CurrentHoverTarget = hit.transform;
-                        currentReadyTimer = 0f;
-                        IsTargetReady = false;
-                    }
+                    CurrentFloorHitPoint = navHit.position;
+                    IsFloorValid = true;
                 }
             }
-            else
+            else if ((targetMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
-                ResetObjectTarget(); // 장애물에 가려짐
+                if (CurrentHoverTarget == hit.transform)
+                {
+                    if (!IsTargetReady)
+                    {
+                        currentReadyTimer += Time.deltaTime;
+                        if (currentReadyTimer >= readyTimeThreshold) IsTargetReady = true;
+                    }
+                }
+                else
+                {
+                    CurrentHoverTarget = hit.transform;
+                    currentReadyTimer = 0f;
+                    IsTargetReady = false;
+                }
             }
         }
         else
         {
-            ResetObjectTarget(); // 아무것도 안 봄
+            ResetObjectTarget();
         }
     }
 

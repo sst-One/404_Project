@@ -44,30 +44,21 @@ public class PlayerInputProvider : MonoBehaviour
 
     private void ProcessPCInput()
     {
-        // Gaze: 마우스 현재 스크린 좌표 갱신 (INP-001 명세)
         if (Mouse.current != null)
         {
+            // [수정 1] 정중앙 강제 고정 해제 -> 실제 마우스 포인터 좌표 추적
             GazeScreenPosition = Mouse.current.position.ReadValue();
 
-            // Grip: 마우스 좌클릭 시 상호작용 트리거
             if (Mouse.current.leftButton.wasPressedThisFrame)
             {
                 IsGripTriggered = true;
             }
         }
 
-        // Lean & Freeze: 키보드 입력 갱신
         if (Keyboard.current != null)
         {
-            if (Keyboard.current.wKey.wasPressedThisFrame)
-            {
-                IsLeanTriggered = true;
-            }
-
-            if (Keyboard.current.spaceKey.isPressed)
-            {
-                IsFreezeActive = true;
-            }
+            if (Keyboard.current.wKey.wasPressedThisFrame) IsLeanTriggered = true;
+            if (Keyboard.current.spaceKey.isPressed) IsFreezeActive = true;
         }
     }
 }

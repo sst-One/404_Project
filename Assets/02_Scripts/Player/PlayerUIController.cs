@@ -1,54 +1,73 @@
 using UnityEngine;
+using UnityEngine.UI;
 
-/// <summary>
-/// 역할: PlayerGazeController의 판정 결과를 바탕으로 시각적 UI(인디케이터 등)만 업데이트하는 모듈.
-/// </summary>
 [RequireComponent(typeof(PlayerGazeController))]
+[RequireComponent(typeof(PlayerInputProvider))]
 public class PlayerUIController : MonoBehaviour
 {
-    [Header("UI References")]
-    [Tooltip("바닥 이동 가능 구역을 표시할 인디케이터 오브젝트 (콜라이더 제거 필수)")]
-    public GameObject moveUIIndicator;
+    [Header("UI Reference")]
+    public RectTransform indicatorRect;
+    private Image indicatorImage;
+
+    [Header("Color Settings (투명도 Alpha 조정됨)")]
+    [Tooltip("허공, 장애물 등을 바라볼 때 (기본 연한 투명)")]
+    public Color defaultColor = new Color(1f, 1f, 1f, 0.3f); // Alpha 30%
+
+    [Tooltip("오브젝트를 스칠 때 (사물이 잘 보이도록 매우 투명)")]
+    public Color hoverColor = new Color(1f, 0.92f, 0.016f, 0.15f); // Yellow 계열, Alpha 15%
+
+    [Tooltip("오브젝트/바닥 응시 완료 시 (사물이 잘 보이도록 매우 투명)")]
+    public Color readyColor = new Color(0f, 1f, 1f, 0.15f); // Cyan 계열, Alpha 15%
+
+    [Tooltip("실제 이동 중")]
+    public Color moveColor = new Color(1f, 0f, 1f, 0.3f); // Magenta 계열, Alpha 30%
 
     private PlayerGazeController gazeController;
+    private PlayerInputProvider inputProvider;
+    private PlayerMovement playerMovement;
 
     private void Awake()
     {
         gazeController = GetComponent<PlayerGazeController>();
-    }
+        inputProvider = GetComponent<PlayerInputProvider>();
+        playerMovement = GetComponent<PlayerMovement>();
 
-    private void Start()
-    {
-        if (moveUIIndicator != null) moveUIIndicator.SetActive(false);
+        if (indicatorRect != null)
+        {
+            indicatorImage = indicatorRect.GetComponent<Image>();
+        }
     }
 
     private void Update()
     {
-        UpdateFloorIndicator();
-    }
+        if (indicatorRect == null || indicatorImage == null) return;
 
-    private void UpdateFloorIndicator()
-    {
-        if (moveUIIndicator == null) return;
+        // 1. UI 인디케이터 위치를 마우스 포인터(시점) 화면 좌표와 1:1로 동기화
+        indicatorRect.position = inputProvider.GazeScreenPosition;
 
-        // GazeController가 "지금 보는 곳이 유효한 바닥이다"라고 판정했다면
-        if (gazeController.IsFloorValid)
+        // 2. 상태에 따른 즉각적인 색상 및 투명도 변형
+        if (playerMovement != null && playerMovement.IsMoving)
         {
-            // 인디케이터를 활성화하고, 판정된 바닥 좌표보다 아주 살짝 위(Z-Fighting 방지)에 렌더링
-            moveUIIndicator.transform.position = gazeController.CurrentFloorHitPoint + Vector3.up * 0.05f;
-
-            if (!moveUIIndicator.activeSelf)
+            indicatorImage.color = moveColor;
+        }
+        else if (gazeController.IsFloorValid)
+        {
+            indicatorImage.color = readyColor;
+        }
+        else if (gazeController.CurrentHoverTarget != null)
+        {
+            if (gazeController.IsTargetReady)
             {
-                moveUIIndicator.SetActive(true);
+                indicatorImage.color = readyColor;
+            }
+            else
+            {
+                indicatorImage.color = hoverColor;
             }
         }
         else
         {
-            // 허공을 보거나 오브젝트를 보면 즉시 끔
-            if (moveUIIndicator.activeSelf)
-            {
-                moveUIIndicator.SetActive(false);
-            }
+            indicatorImage.color = defaultColor;
         }
     }
 }

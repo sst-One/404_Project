@@ -1,50 +1,59 @@
+using System;
 using System.Collections;
 using UnityEngine;
 
 public class OnboardingController : MonoBehaviour
 {
-    private enum OnboardingState { PermissionRequest, Calibration, Tutorial, Complete }
-    private OnboardingState _currentState = OnboardingState.PermissionRequest;
+    public static OnboardingController Instance { get; private set; }
 
-    private void Start()
+    private enum OnboardingState { None, PermissionRequest, Calibration, Tutorial, Complete }
+    private OnboardingState _currentState = OnboardingState.None;
+
+    private void Awake()
     {
-        // 게임 시작 시 GameFlowManager의 상태를 Title로 고정
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage != GameStage.Title)
-        {
-            return;
-        }
-
-        StartCoroutine(ProcessOnboardingFlow());
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
     }
 
-    private IEnumerator ProcessOnboardingFlow()
+    // MainMenuController에서 게임 시작 버튼을 누를 때 호출됨
+    public void StartOnboarding(Action onComplete)
     {
-        // 1. 권한 요청 가상 대기 (SCN-001)
+        StartCoroutine(ProcessOnboardingFlow(onComplete));
+    }
+
+    private IEnumerator ProcessOnboardingFlow(Action onComplete)
+    {
+        // 1. 권한 요청 대기 (SCN-001)
+        _currentState = OnboardingState.PermissionRequest;
         Debug.Log("[Onboarding] 1단계: 카메라/마이크 권한을 확인합니다...");
-        yield return new WaitForSeconds(2.0f);
+        yield return new WaitForSecondsRealtime(2.0f);
 
         // 2. 캘리브레이션 진입
         _currentState = OnboardingState.Calibration;
         Debug.Log("[Onboarding] 2단계: 캘리브레이션 단계 진입.");
 
         bool isCalibrated = false;
-        CalibrationManager.Instance.OnCalibrationSuccess += () => isCalibrated = true;
-        CalibrationManager.Instance.StartCalibration();
+        if (CalibrationManager.Instance != null)
+        {
+            CalibrationManager.Instance.OnCalibrationSuccess += () => isCalibrated = true;
+            CalibrationManager.Instance.StartCalibration();
+            yield return new WaitUntil(() => isCalibrated);
+        }
+        else
+        {
+            Debug.LogWarning("[Onboarding] CalibrationManager가 감지되지 않아 임시 대기합니다.");
+            yield return new WaitForSecondsRealtime(1.0f);
+        }
 
-        yield return new WaitUntil(() => isCalibrated);
-
-        // 3. 튜토리얼 텍스트 연출 (추후 UI 캔버스와 연동)
+        // 3. 튜토리얼 텍스트 연출
         _currentState = OnboardingState.Tutorial;
         Debug.Log("[Onboarding] 3단계: 기본 인터랙션(Gaze, Reach, Lean, Freeze) 튜토리얼 가이드 출력.");
-        yield return new WaitForSeconds(3.0f); // 튜토리얼 UI 확인 시간
+        yield return new WaitForSecondsRealtime(3.0f);
 
-        // 4. 본 게임 진입
+        // 4. 완료 후 콜백 실행 (페이드 연출 및 씬 로드)
         _currentState = OnboardingState.Complete;
-        Debug.Log("[Onboarding] 온보딩 완료. Stage 1 엘리베이터로 진입합니다.");
+        Debug.Log("[Onboarding] 온보딩 완료. 씬 전환 시퀀스로 넘어갑니다.");
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);
-        }
+        onComplete?.Invoke();
     }
 }

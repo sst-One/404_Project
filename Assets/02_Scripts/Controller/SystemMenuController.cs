@@ -5,8 +5,10 @@ using UnityEngine.InputSystem;
 public class SystemMenuController : MonoBehaviour
 {
     public static SystemMenuController Instance { get; private set; }
-
     public bool IsPaused { get; private set; } = false;
+
+    [Header("UI Reference")]
+    public GameObject systemMenuPanel;
 
     private void Awake()
     {
@@ -15,11 +17,21 @@ public class SystemMenuController : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
+    private void Start()
+    {
+        if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
+        // 씬 로드 시 예외 방지를 위해 타임스케일 강제 정상화
+        Time.timeScale = 1f;
+        IsPaused = false;
+    }
+
     private void Update()
     {
-        // ESC 키 입력 감지 (Fallback/디버그 포함)
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
+            // 타이틀 화면에서는 ESC 메뉴 호출 차단
+            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title) return;
+
             TogglePause();
         }
     }
@@ -32,27 +44,53 @@ public class SystemMenuController : MonoBehaviour
 
     private void PauseGame()
     {
+        if (IsPaused) return;
+
         IsPaused = true;
         Time.timeScale = 0f;
-        Debug.Log("[SystemMenu] 게임 일시정지 (ESC). 모든 입력이 차단됩니다.");
 
-        // 향후 UI 매니저를 통해 일시정지 메뉴 캔버스 활성화 로직 추가
+        if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
+
+        // 메뉴 조작을 위해 커서 해제 및 가시화
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        Debug.Log("[SystemMenu] 게임 일시정지 (ESC). 커서 활성화.");
     }
 
-    private void ResumeGame()
+    public void ResumeGame()
     {
-        Debug.Log("[SystemMenu] 게임 복귀 대기 중 (0.2s 유예)...");
-        // 입력 중복(Bounce) 방지를 위해 코루틴으로 지연 복귀 처리 (POL-009)
+        if (!IsPaused) return;
+
+        // UI 비활성화 및 커서 숨김 처리는 지연 없이 즉시 실행
+        if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
+
+        Cursor.lockState = CursorLockMode.Confined;
+        Cursor.visible = false;
+
         StartCoroutine(ResumeRoutine());
     }
 
     private IEnumerator ResumeRoutine()
     {
-        // UI가 닫히는 페이드 효과 시간을 위한 Unscaled Time 대기
-        yield return new WaitForSecondsRealtime(0.2f);
+        // 중복 입력 방지를 위한 최소 프레임 대기 후 시간 정상화
+        yield return new WaitForSecondsRealtime(0.1f);
 
         Time.timeScale = 1f;
         IsPaused = false;
-        Debug.Log("[SystemMenu] 게임 복귀 완료. 입력이 활성화됩니다.");
+        Debug.Log("[SystemMenu] 게임 복귀 완료. 타임스케일 정상화.");
+    }
+
+    // UI 버튼 (계속하기) 에서 호출
+    public void OnClickResume()
+    {
+        ResumeGame();
+    }
+
+    // UI 버튼 (종료하기) 에서 호출
+    public void OnClickQuit()
+    {
+        Debug.Log("[SystemMenu] 게임 종료 요청.");
+        Application.Quit();
     }
 }

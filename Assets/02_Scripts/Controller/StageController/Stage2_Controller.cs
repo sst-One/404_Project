@@ -51,8 +51,11 @@ public class Stage2_Controller : MonoBehaviour
     private IEnumerator TvNewsAndSleepSequence()
     {
         // FEAT-013: 뉴스 재생. 추후 UI/사운드 매니저 호출 코드 삽입 위치.
-        Debug.Log("[Stage2_Controller] TV 켜짐. 뉴스 오디오/자막 재생 중 (12초 대기)...");
-        yield return new WaitForSeconds(2.0f);// 나중에 12초로 바꾸기
+        Debug.Log("[Stage2_Controller] TV 켜짐. 뉴스 대사 출력 대기...");
+        if (SubtitleController.Instance != null)
+        {
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day1_TVNews));
+        }
 
         // 수면 페이드 연출. 추후 VFX 카메라 페이드 아웃 호출 위치.
         Debug.Log("[Stage2_Controller] 뉴스 종료. 수면 페이드 아웃 연출 (2초 대기)...");

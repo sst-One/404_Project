@@ -14,15 +14,19 @@ public class EnemyAI : MonoBehaviour
     public Transform[] patrolPoints;
 
     [Header("FOV Settings")]
-    public float viewRadius = 10f;
+    public float viewRadius = 3f;
     [Range(0, 360)]
-    public float viewAngle = 90f;
+    public float viewAngle = 50f;
     public LayerMask playerMask;
     public LayerMask obstacleMask;
     public float fovTickRate = 0.2f;
 
+    [Header("Speed Settings")]
+    public float patrolSpeed = 0.8f;
+    public float chaseSpeed = 1.1f;
+
     [Header("Detection Settings (SYS-005)")]
-    public float criticalDetectionDistance = 2.0f; // 이 거리 이내면 Freeze 무시 강제 발각
+    public float criticalDetectionDistance = 1.0f; // 이 거리 이내면 Freeze 무시 강제 발각
 
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
@@ -90,7 +94,21 @@ public class EnemyAI : MonoBehaviour
         if (currentState == newState) return;
         if (currentState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.RemoveThreat();
         if (newState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.AddThreat();
+
         currentState = newState;
+
+        // [수정됨] 상태에 따른 이동 속도 동적 변경 적용
+        if (_agent != null)
+        {
+            if (currentState == EnemyState.Chase)
+            {
+                _agent.speed = chaseSpeed;
+            }
+            else
+            {
+                _agent.speed = patrolSpeed;
+            }
+        }
     }
 
     private IEnumerator FOVRoutine()

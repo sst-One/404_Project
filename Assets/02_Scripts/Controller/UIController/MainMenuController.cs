@@ -37,34 +37,25 @@ public class MainMenuController : MonoBehaviour
         Debug.Log("[MainMenu] 게임 시작 클릭. 온보딩 및 페이드 연출 시작.");
         if (mainMenuPanel != null) mainMenuPanel.SetActive(false);
 
-        // OnboardingController가 존재하면 온보딩 후 게임 시작, 없으면 바로 시작
         if (OnboardingController.Instance != null)
         {
             OnboardingController.Instance.StartOnboarding(() =>
             {
-                StartCoroutine(StartGameRoutine());
+                StartGameAction();
             });
         }
         else
         {
-            StartCoroutine(StartGameRoutine());
+            StartGameAction();
         }
     }
 
-    private IEnumerator StartGameRoutine()
+    private void StartGameAction()
     {
-        // 인게임 플레이를 위해 커서 즉시 잠금
+        // 커서 잠금 처리 후 GameFlowManager에게 씬 전환(페이드 포함) 위임
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = false;
 
-        // 1. TitleController를 호출하여 'Day 1' 페이드 연출 실행
-        if (TitleController.Instance != null)
-        {
-            TitleController.Instance.ShowTitleFade("Day 1", 2.0f);
-            yield return new WaitForSecondsRealtime(3.1f);
-        }
-
-        // 2. Stage1 로드 요청
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);

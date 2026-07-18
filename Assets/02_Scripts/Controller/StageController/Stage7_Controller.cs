@@ -48,11 +48,13 @@ public class Stage7_Controller : MonoBehaviour
     {
         Debug.Log("[Stage7_Controller] Stage 7 시작. 남자 대사 재생 중...");
 
-        // EVT-017: 남자 대사 대기 "위험하잖아요. 조심하세요... 이거요." (임시 6초 할당)
-        // 추후 오디오 매니저 연동 시 대사 오디오 클립의 길이에 맞춰 대기 시간 동기화 필요
-        yield return new WaitForSeconds(6.0f);
+        if (SubtitleController.Instance != null)
+        {
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_1));
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_2));
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_3));
+        }
 
-        Debug.Log("[Stage7_Controller] 대사 종료. 보석 상호작용(Reach) 활성화.");
         if (gemItem != null)
         {
             gemItem.enabled = true;

@@ -64,4 +64,63 @@ public class TitleController : MonoBehaviour
 
         titlePanel.SetActive(false);
     }
+
+    public void FadeOutWithText(string text, float duration)
+    {
+        if (titlePanel == null) return;
+        StartCoroutine(FadeOutTextRoutine(text, duration));
+    }
+
+    public void FadeInOnly(float duration)
+    {
+        if (titlePanel == null) return;
+        StartCoroutine(FadeInRoutine(duration));
+    }
+
+    private IEnumerator FadeOutTextRoutine(string text, float duration)
+    {
+        titlePanel.SetActive(true);
+        titleText.text = text;
+
+        Color bgColor = fadeBackground.color;
+        Color textColor = titleText.color;
+
+        float timer = 0f;
+        while (timer < duration)
+        {
+            timer += Time.unscaledDeltaTime;
+            float alpha = Mathf.Lerp(0f, 1f, timer / duration);
+
+            bgColor.a = alpha;
+            fadeBackground.color = bgColor;
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                textColor.a = alpha;
+                titleText.color = textColor;
+            }
+            yield return null;
+        }
+    }
+
+    private IEnumerator FadeInRoutine(float duration)
+    {
+        Color bgColor = fadeBackground.color;
+        Color textColor = titleText.color;
+
+        float timer = 0f;
+        while (timer < duration)
+        {
+            timer += Time.unscaledDeltaTime;
+            float alpha = Mathf.Lerp(1f, 0f, timer / duration);
+
+            bgColor.a = alpha;
+            fadeBackground.color = bgColor;
+            textColor.a = alpha;
+            titleText.color = textColor;
+            yield return null;
+        }
+
+        titlePanel.SetActive(false);
+    }
 }

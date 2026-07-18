@@ -46,18 +46,37 @@ public class PlayerInputProvider : MonoBehaviour
     {
         if (Mouse.current != null)
         {
-            // [수정 1] 정중앙 강제 고정 해제 -> 실제 마우스 포인터 좌표 추적
             GazeScreenPosition = Mouse.current.position.ReadValue();
 
             if (Mouse.current.leftButton.wasPressedThisFrame)
             {
-                IsGripTriggered = true;
+                // [핵심 차단 로직] 대사가 진행 중일 때는 게임 내 상호작용(Reach) 신호 발생 금지
+                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
+                {
+                    // SubtitleController가 직접 클릭을 감지해서 대사를 넘기므로 여기서는 무시합니다.
+                }
+                else
+                {
+                    IsGripTriggered = true;
+                }
             }
         }
 
         if (Keyboard.current != null)
         {
-            if (Keyboard.current.wKey.wasPressedThisFrame) IsLeanTriggered = true;
+            if (Keyboard.current.wKey.wasPressedThisFrame)
+            {
+                // [핵심 차단 로직] 대사가 진행 중일 때는 이동(Lean) 신호 발생 금지
+                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
+                {
+                    // 무시
+                }
+                else
+                {
+                    IsLeanTriggered = true;
+                }
+            }
+
             if (Keyboard.current.spaceKey.isPressed) IsFreezeActive = true;
         }
     }

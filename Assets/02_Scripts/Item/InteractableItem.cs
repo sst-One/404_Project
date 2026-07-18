@@ -37,6 +37,11 @@ public class InteractableItem : MonoBehaviour, IInteractable
 
     public void OnInteract()
     {
+        if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
+        {
+            return;
+        }
+
         Debug.Log($"[InteractableItem] '{itemName}' Reach 상호작용 완수");
 
         // [핵심 연동] PARAM-013 규격에 맞춘 소음(Noise) 발생

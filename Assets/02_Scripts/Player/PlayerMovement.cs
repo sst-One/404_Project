@@ -10,7 +10,7 @@ public class PlayerMovement : MonoBehaviour
     public static PlayerMovement Instance { get; private set; }
 
     [Header("Movement Settings")]
-    public float moveSpeed = 3.0f;
+    public float moveSpeed = 1.0f;
 
     // [수정] PlayerUIController에서 에러 없이 접근 가능하도록 대문자 IsMoving 프로퍼티 하나로 통일
     public bool IsMoving { get; private set; }

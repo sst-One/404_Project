@@ -97,8 +97,13 @@ public class Stage3_4_Controller : MonoBehaviour
             doorController.OpenDoors();
         }
 
-        // 남자 대사 및 응시 대기
-        yield return new WaitForSeconds(8.0f);
+        Debug.Log("[Stage3_4] 남자 대사 출력 대기...");
+        if (SubtitleController.Instance != null)
+        {
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_1));
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_2));
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_3));
+        }
 
         Debug.Log("[Stage3_4] 대사 종료. 404호(Stage 5_6) 씬 로드 요청.");
         GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);

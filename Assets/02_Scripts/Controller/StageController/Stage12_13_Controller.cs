@@ -13,6 +13,8 @@ public class Stage12_13_Controller : MonoBehaviour
     public AudioSource tinnitusSource;
     public AudioSource gemDropSource;
 
+    private bool isPhoneAnswered = false;
+
     private void Start()
     {
         // 초기화: 보석은 숨기고 전화기 상호작용 이벤트 바인딩
@@ -42,6 +44,9 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private void OnPhoneAnswered()
     {
+        if (isPhoneAnswered) return;
+        isPhoneAnswered = true;
+
         // 입력 잠금 처리 (POL-017)
         if (crackedPhone != null)
         {
@@ -56,17 +61,20 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator CallAndNewsSequence()
     {
-        // 1. 경찰 전화 음성 (EVT-054)
-        Debug.Log("[Stage12_13] 경찰 통화: 용의자 석방 안내 (약 8초 재생).");
-        yield return new WaitForSeconds(8.0f);
+        Debug.Log("[Stage12_13] 경찰 통화 대사 출력 대기...");
+        if (SubtitleController.Instance != null)
+        {
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
+        }
 
-        // 2. TV 뉴스 재생 및 이명 발생 (EVT-055, EVT-056)
         Debug.Log("[Stage12_13] TV 뉴스 재생 시작.");
         if (tvNewsSource != null) tvNewsSource.Play();
 
-        yield return new WaitForSeconds(4.0f);
+        if (SubtitleController.Instance != null)
+        {
+            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
+        }
 
-        Debug.Log("[Stage12_13] 이명 발생 및 Heartbeat 강제 상승.");
         if (tinnitusSource != null) tinnitusSource.Play();
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 

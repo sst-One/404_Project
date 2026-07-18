@@ -14,15 +14,19 @@ public class EnemyAI : MonoBehaviour
     public Transform[] patrolPoints;
 
     [Header("FOV Settings")]
-    public float viewRadius = 10f;
+    public float viewRadius = 3f;
     [Range(0, 360)]
-    public float viewAngle = 90f;
+    public float viewAngle = 50f;
     public LayerMask playerMask;
     public LayerMask obstacleMask;
     public float fovTickRate = 0.2f;
 
+    [Header("Speed Settings")]
+    public float patrolSpeed = 0.8f;
+    public float chaseSpeed = 1.1f;
+
     [Header("Detection Settings (SYS-005)")]
-    public float criticalDetectionDistance = 2.0f; // 이 거리 이내면 Freeze 무시 강제 발각
+    public float criticalDetectionDistance = 1.0f; // 이 거리 이내면 Freeze 무시 강제 발각
 
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
@@ -31,6 +35,8 @@ public class EnemyAI : MonoBehaviour
 
     private Coroutine _fovCoroutine;
     private Coroutine _suspectCoroutine;
+
+    private float _lastNoiseReactionTime = 0f;
 
     private void Awake() { _agent = GetComponent<NavMeshAgent>(); }
 
@@ -90,7 +96,21 @@ public class EnemyAI : MonoBehaviour
         if (currentState == newState) return;
         if (currentState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.RemoveThreat();
         if (newState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.AddThreat();
+
         currentState = newState;
+
+        // [수정됨] 상태에 따른 이동 속도 동적 변경 적용
+        if (_agent != null)
+        {
+            if (currentState == EnemyState.Chase)
+            {
+                _agent.speed = chaseSpeed;
+            }
+            else
+            {
+                _agent.speed = patrolSpeed;
+            }
+        }
     }
 
     private IEnumerator FOVRoutine()
@@ -173,15 +193,21 @@ public class EnemyAI : MonoBehaviour
     {
         if (isNarrativeMode || currentState == EnemyState.Chase) return;
 
-        // [수정] Investigate 상태에서는 Mid 소음에 의해 Suspect로 강등되지 않음. Patrol 상태에서만 반응.
+        // [핵심 밸런스 수정] 적이 소음에 반응한 직후 3초 동안은 자잘한 소음(Critical 미만)을 무시하여 플레이어에게 도망갈 틈을 줌
+        if (Time.time - _lastNoiseReactionTime < 3.0f && level != NoiseLevel.Critical)
+        {
+            return;
+        }
+
         if (level == NoiseLevel.Mid && currentState == EnemyState.Patrol)
         {
+            _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-            // [수정] 소음이 발생한 위치 좌표를 전달
             _suspectCoroutine = StartCoroutine(SuspectRoutine(noisePosition));
         }
         else if (level == NoiseLevel.High || level == NoiseLevel.Critical)
         {
+            _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
             if (_agent.isOnNavMesh) _agent.isStopped = false;
 

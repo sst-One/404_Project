@@ -72,7 +72,7 @@ public class StateManager : MonoBehaviour
             // 1초마다 소음 누적치를 0.05씩 깎아줍니다. (가만히 있으면 조용해짐)
             if (_currentNoiseValue > 0f)
             {
-                _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.05f, 0f, 1f);
+                _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.15f, 0f, 1f);
 
                 // AI를 자극하지 않고 내부적으로만 단계(Tier)를 낮춥니다.
                 NoiseLevel newLevel = NoiseLevel.Low;

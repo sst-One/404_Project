@@ -36,6 +36,8 @@ public class EnemyAI : MonoBehaviour
     private Coroutine _fovCoroutine;
     private Coroutine _suspectCoroutine;
 
+    private float _lastNoiseReactionTime = 0f;
+
     private void Awake() { _agent = GetComponent<NavMeshAgent>(); }
 
     private void Start()
@@ -191,15 +193,21 @@ public class EnemyAI : MonoBehaviour
     {
         if (isNarrativeMode || currentState == EnemyState.Chase) return;
 
-        // [수정] Investigate 상태에서는 Mid 소음에 의해 Suspect로 강등되지 않음. Patrol 상태에서만 반응.
+        // [핵심 밸런스 수정] 적이 소음에 반응한 직후 3초 동안은 자잘한 소음(Critical 미만)을 무시하여 플레이어에게 도망갈 틈을 줌
+        if (Time.time - _lastNoiseReactionTime < 3.0f && level != NoiseLevel.Critical)
+        {
+            return;
+        }
+
         if (level == NoiseLevel.Mid && currentState == EnemyState.Patrol)
         {
+            _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-            // [수정] 소음이 발생한 위치 좌표를 전달
             _suspectCoroutine = StartCoroutine(SuspectRoutine(noisePosition));
         }
         else if (level == NoiseLevel.High || level == NoiseLevel.Critical)
         {
+            _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
             if (_agent.isOnNavMesh) _agent.isStopped = false;
 

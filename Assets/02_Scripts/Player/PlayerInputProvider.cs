@@ -11,8 +11,9 @@ public class PlayerInputProvider : MonoBehaviour
     [Tooltip("현재 시선(마우스)의 화면 스크린 좌표")]
     public Vector2 GazeScreenPosition;
 
-    [Tooltip("상호작용(Grip/좌클릭) 단발성 입력 여부")]
+    [Tooltip("상호작용(Grip/좌클릭) 입력 여부")]
     public bool IsGripTriggered;
+    public bool IsGripHeld;
 
     [Tooltip("이동(Lean/W키) 단발성 입력 여부")]
     public bool IsLeanTriggered;
@@ -25,21 +26,12 @@ public class PlayerInputProvider : MonoBehaviour
 
     private void Update()
     {
-        // 1. 매 프레임 입력 데이터를 초기화 (단발성 입력을 위해)
         IsGripTriggered = false;
         IsLeanTriggered = false;
         IsFreezeActive = false;
+        IsGripHeld = false; // 매 프레임 초기화
 
-        // 2. PC 폴백(키보드/마우스) 입력 처리
-        if (!useWebcam)
-        {
-            ProcessPCInput();
-        }
-        else
-        {
-            // 추후 MediaPipe 수신 로직이 여기에 들어갑니다.
-            // 일단은 구조를 비워둡니다.
-        }
+        if (!useWebcam) ProcessPCInput();
     }
 
     private void ProcessPCInput()
@@ -48,17 +40,15 @@ public class PlayerInputProvider : MonoBehaviour
         {
             GazeScreenPosition = Mouse.current.position.ReadValue();
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            // 자막 출력 중일 때는 Reach(클릭 및 유지) 신호 차단
+            if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
             {
-                // [핵심 차단 로직] 대사가 진행 중일 때는 게임 내 상호작용(Reach) 신호 발생 금지
-                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
-                {
-                    // SubtitleController가 직접 클릭을 감지해서 대사를 넘기므로 여기서는 무시합니다.
-                }
-                else
-                {
-                    IsGripTriggered = true;
-                }
+                // 차단됨
+            }
+            else
+            {
+                if (Mouse.current.leftButton.wasPressedThisFrame) IsGripTriggered = true;
+                if (Mouse.current.leftButton.isPressed) IsGripHeld = true; // [신규 추가]
             }
         }
 
@@ -66,17 +56,9 @@ public class PlayerInputProvider : MonoBehaviour
         {
             if (Keyboard.current.wKey.wasPressedThisFrame)
             {
-                // [핵심 차단 로직] 대사가 진행 중일 때는 이동(Lean) 신호 발생 금지
-                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
-                {
-                    // 무시
-                }
-                else
-                {
-                    IsLeanTriggered = true;
-                }
+                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive) { /* 무시 */ }
+                else IsLeanTriggered = true;
             }
-
             if (Keyboard.current.spaceKey.isPressed) IsFreezeActive = true;
         }
     }

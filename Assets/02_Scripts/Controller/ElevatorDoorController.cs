@@ -10,7 +10,7 @@ public class ElevatorDoorController : MonoBehaviour
     [Header("Animation Settings")]
     public Vector3 leftDoorOpenOffset = new Vector3(-1.2f, 0, 0);
     public Vector3 rightDoorOpenOffset = new Vector3(1.2f, 0, 0);
-    public float animationDuration = 1.5f;
+    public float animationDuration = 4f;
 
     private Vector3 leftClosedPos;
     private Vector3 rightClosedPos;

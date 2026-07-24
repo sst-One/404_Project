@@ -22,6 +22,14 @@ public class StateManager : MonoBehaviour
     private Coroutine _threatCoroutine;
     private Vector3 _lastNoisePosition;
 
+    [Header("상태 사운드 (2D)")]
+    public AudioSource playerBreathSource;
+    public AudioSource playerHeartbeatSource;
+
+    public AudioClip normalBreath; // Breath_Loop.wav
+    public AudioClip nervousBreath; // NervousBreath_Loop.wav
+    public AudioClip nervousHeartbeat; // NercouseHeartbeat_Loop.wav
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -109,6 +117,8 @@ public class StateManager : MonoBehaviour
             _currentHeartbeatLevel = newLevel;
             Debug.Log($"[StateManager] 심장박동 레벨 변경: {_currentHeartbeatLevel}");
             OnHeartbeatLevelChanged?.Invoke(_currentHeartbeatLevel);
+
+            UpdateHeartbeatEffects(_currentHeartbeatValue);
         }
     }
 
@@ -163,6 +173,58 @@ public class StateManager : MonoBehaviour
             if (_threatCount == 0 && !isFreezing && _currentHeartbeatValue > 0)
             {
                 AddHeartbeat(-1);
+            }
+        }
+    }
+
+    private void UpdateHeartbeatEffects(int level)
+    {
+        if (level >= 2)
+        {
+            if (playerBreathSource != null && nervousBreath != null)
+            {
+                if (playerBreathSource.clip != nervousBreath)
+                {
+                    playerBreathSource.clip = nervousBreath;
+                    playerBreathSource.Play();
+                }
+                else if (!playerBreathSource.isPlaying)
+                {
+                    playerBreathSource.Play();
+                }
+            }
+
+            if (playerHeartbeatSource != null && nervousHeartbeat != null)
+            {
+                if (playerHeartbeatSource.clip != nervousHeartbeat)
+                {
+                    playerHeartbeatSource.clip = nervousHeartbeat;
+                    playerHeartbeatSource.Play();
+                }
+                else if (!playerHeartbeatSource.isPlaying)
+                {
+                    playerHeartbeatSource.Play();
+                }
+            }
+        }
+        else
+        {
+            if (playerBreathSource != null && normalBreath != null)
+            {
+                if (playerBreathSource.clip != normalBreath)
+                {
+                    playerBreathSource.clip = normalBreath;
+                    playerBreathSource.Play();
+                }
+                else if (!playerBreathSource.isPlaying)
+                {
+                    playerBreathSource.Play();
+                }
+            }
+
+            if (playerHeartbeatSource != null && playerHeartbeatSource.isPlaying)
+            {
+                playerHeartbeatSource.Stop();
             }
         }
     }

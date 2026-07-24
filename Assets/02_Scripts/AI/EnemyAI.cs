@@ -38,6 +38,14 @@ public class EnemyAI : MonoBehaviour
 
     private float _lastNoiseReactionTime = 0f;
 
+    [Header("오디오 설정 (3D)")]
+    public AudioSource footstepSource; // 발소리 전용 소스
+    public AudioSource breathSource;   // 숨소리 전용 소스
+
+    public AudioClip smallFootWalk;    // EnemySmallFootWalk_Loop.wav 할당
+    public AudioClip bigFootWalk;      // EnemyBigFootWalk_Loop.wav 할당
+    public AudioClip enemyBreathClose; // EnemyBreathClose_Loop.wav 할당
+
     private void Awake() { _agent = GetComponent<NavMeshAgent>(); }
 
     private void Start()
@@ -89,6 +97,28 @@ public class EnemyAI : MonoBehaviour
         {
             if (_playerTransform != null && _agent.isOnNavMesh) _agent.SetDestination(_playerTransform.position);
         }
+
+        // 1. 현재 추격 상태 여부 확인 (EnemyAI 내부 상태 변수명에 맞게 조정 필요)
+        bool isChasing = false;
+        if (currentState == EnemyState.Chase)
+        {
+            isChasing = true;
+        }
+
+        // 2. 플레이어와의 거리 계산 (숨소리 재생을 위한 근접 판정, 임계값 2.5m)
+        bool isCloseToPlayer = false;
+        GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
+        if (playerObj != null)
+        {
+            float distanceToPlayer = Vector3.Distance(transform.position, playerObj.transform.position);
+            if (distanceToPlayer <= 2.5f)
+            {
+                isCloseToPlayer = true;
+            }
+        }
+
+        // 3. 프레임마다 오디오 상태 갱신 함수 호출
+        UpdateAudioState(isChasing, isCloseToPlayer);
     }
 
     private void ChangeState(EnemyState newState)
@@ -259,5 +289,44 @@ public class EnemyAI : MonoBehaviour
             _agent.SetDestination(patrolPoints[_currentPatrolIndex].position);
         }
         _currentPatrolIndex = (_currentPatrolIndex + 1) % patrolPoints.Length;
+    }
+
+    private void UpdateAudioState(bool isChasing, bool isCloseToPlayer)
+    {
+        AudioClip targetFootstep = isChasing ? bigFootWalk : smallFootWalk;
+        if (footstepSource != null && targetFootstep != null)
+        {
+            if (footstepSource.clip != targetFootstep)
+            {
+                footstepSource.clip = targetFootstep;
+                footstepSource.Play();
+            }
+            else if (!footstepSource.isPlaying)
+            {
+                footstepSource.Play();
+            }
+        }
+
+        if (breathSource != null && enemyBreathClose != null)
+        {
+            if (isCloseToPlayer)
+            {
+                if (breathSource.clip != enemyBreathClose)
+                {
+                    breathSource.clip = enemyBreathClose;
+                }
+                if (!breathSource.isPlaying)
+                {
+                    breathSource.Play();
+                }
+            }
+            else
+            {
+                if (breathSource.isPlaying)
+                {
+                    breathSource.Stop();
+                }
+            }
+        }
     }
 }

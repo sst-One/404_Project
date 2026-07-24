@@ -1,9 +1,14 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class Stage8_11_Controller : MonoBehaviour
 {
+    [Header("사운드 에셋 연결")]
+    public AudioSource policeSirenSource;
+    public AudioSource doorKnockSource;
+
     private PhoneController phoneController;
     private InteractableItem endingGem;
 
@@ -19,6 +24,16 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        if (scene.name == "08_Stage12_13")
+        {
+            // 다음 씬으로 넘어왔을 때 암전 스크린이 있다면 서서히 밝아지게 처리
+            GameObject blackObj = GameObject.Find("ForcedBlackScreen");
+            if (blackObj != null)
+            {
+                StartCoroutine(FadeOutBlackScreen(blackObj, 2.0f));
+            }
+        }
+
         if (scene.name != "07_Stage8_11" && scene.name != "08_Stage12_13") return;
 
         GameObject phoneObj = GameObject.Find("Item_Phone");
@@ -50,41 +65,75 @@ public class Stage8_11_Controller : MonoBehaviour
     private void OnStage11Completed()
     {
         if (StateManager.Instance != null) StateManager.Instance.RemoveThreat();
-
-        // 씬 전환 전, 07_Stage8_11 내부에서 경찰 도착 오디오 연출을 먼저 실행
         StartCoroutine(PoliceArrivalSequence());
     }
 
     private IEnumerator PoliceArrivalSequence()
     {
-        Debug.Log("[EndingSequence] 112 신고 성공. 경찰 도착 연출 시작.");
+        Debug.Log("[EndingSequence] 112 신고 성공. 최상단 암전 스크린 생성 및 페이드 아웃 가동.");
 
-        // 1. Heartbeat 급감 및 긴장 해소 (EVT-053)
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
-        // 2. 오디오 시퀀스 재생 대기 (총 8초 가량의 딜레이 확보)
-        // 추후 AudioManager 연동 부위: 사이렌 페이드 인 시작
-        Debug.Log("[EndingSequence] 사이렌 소리 페이드 인...");
+        // TitleController 대신 시스템 최상단에 검은 캔버스를 직접 생성하여 화면을 덮음
+        yield return StartCoroutine(FadeInForcedBlackScreen(2.0f));
+
+        if (policeSirenSource != null) policeSirenSource.Play();
         yield return new WaitForSeconds(4.0f);
 
-        // 발소리 멀어짐 및 문 두드림 연출
-        Debug.Log("[EndingSequence] 적 발소리 멀어짐, 문 두드림 소리 발생.");
+        if (doorKnockSource != null) doorKnockSource.Play();
         yield return new WaitForSeconds(4.0f);
 
-        // 3. 연출 종료 후 다음 씬(08_Stage12_13) 로드 요청
         Debug.Log("[EndingSequence] 연출 종료. Stage 12/13 씬 로드 요청.");
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Stage12_Police);
         }
 
-        // 씬 로드 직후 바로 Stage 13(다음날 아침) 연출로 이어짐
         StartCoroutine(NextDayRoutine());
     }
 
+    // --- 강제 암전 오버레이 로직 ---
+    private IEnumerator FadeInForcedBlackScreen(float duration)
+    {
+        GameObject blackObj = new GameObject("ForcedBlackScreen");
+        DontDestroyOnLoad(blackObj); // 씬이 넘어가도 검은 화면 강제 유지
+
+        Canvas canvas = blackObj.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 9999; // GameFlowManager의 UI보다 무조건 위에 렌더링되도록 설정
+
+        Image img = blackObj.AddComponent<Image>();
+        img.color = new Color(0, 0, 0, 0);
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            img.color = new Color(0, 0, 0, Mathf.Clamp01(elapsed / duration));
+            yield return null;
+        }
+        img.color = new Color(0, 0, 0, 1);
+    }
+
+    private IEnumerator FadeOutBlackScreen(GameObject targetObj, float duration)
+    {
+        Image img = targetObj.GetComponent<Image>();
+        if (img != null)
+        {
+            float elapsed = 0f;
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                img.color = new Color(0, 0, 0, 1f - Mathf.Clamp01(elapsed / duration));
+                yield return null;
+            }
+        }
+        Destroy(targetObj);
+    }
+    // ---------------------------------
+
     private IEnumerator NextDayRoutine()
     {
-        // Stage 12 상태에서 짧은 여운 대기 후 Stage 13 진입
         yield return new WaitForSeconds(3.0f);
 
         if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Stage12_Police)
@@ -105,6 +154,5 @@ public class Stage8_11_Controller : MonoBehaviour
     {
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
         yield return new WaitForSeconds(4.0f);
-        // 크레딧 UI 호출 로직 추가 위치
     }
 }

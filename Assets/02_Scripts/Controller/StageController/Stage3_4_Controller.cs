@@ -9,6 +9,8 @@ public class Stage3_4_Controller : MonoBehaviour
 
     private int buttonPressCount = 0;
 
+    public AudioSource errorAlarmSource;
+
     private void Start()
     {
         doorController = FindObjectOfType<ElevatorDoorController>();
@@ -28,9 +30,13 @@ public class Stage3_4_Controller : MonoBehaviour
         if (btnObj != null)
         {
             elevatorButton = btnObj.GetComponent<InteractableItem>();
-            elevatorButton.enabled = true;
-            if (elevatorButton.GetComponent<Collider>() != null)
-                elevatorButton.GetComponent<Collider>().enabled = true;
+
+            // [핵심 픽스] 스크립트가 수동으로 상태를 제어하므로 1회용 속성을 강제 해제하고 상호작용을 활성화
+            if (elevatorButton != null)
+            {
+                elevatorButton.interactOnlyOnce = false;
+                elevatorButton.isInteractable = true;
+            }
 
             elevatorButton.onInteractEvent.RemoveAllListeners();
             elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
@@ -53,7 +59,10 @@ public class Stage3_4_Controller : MonoBehaviour
 
     private IEnumerator Stage3_AnomalySequence()
     {
-        if (elevatorButton != null) elevatorButton.enabled = false;
+        if (elevatorButton != null) elevatorButton.isInteractable = false;
+
+        // 에러 알람 사운드 재생
+        if (errorAlarmSource != null) errorAlarmSource.Play();
 
         yield return new WaitForSeconds(0.8f);
 
@@ -61,12 +70,13 @@ public class Stage3_4_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.5f);
 
-        if (elevatorButton != null) elevatorButton.enabled = true;
+        if (elevatorButton != null) elevatorButton.isInteractable = true;
     }
 
     private IEnumerator Stage4_EncounterSequence()
     {
-        if (elevatorButton != null) elevatorButton.enabled = false;
+        // 2회차 누름: 남자 등장 이벤트가 시작되었으므로 엘리베이터 버튼 영구 잠금
+        if (elevatorButton != null) elevatorButton.isInteractable = false;
 
         GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
 
@@ -78,19 +88,15 @@ public class Stage3_4_Controller : MonoBehaviour
             doorController.CloseDoors();
         }
 
-        // 핵심 수정: 문이 완전히 닫히기 직전(0.15초 전)까지 대기하여 시야를 완전히 차단함
         float interruptTime = Mathf.Max(0.1f, doorAnimTime - 0.15f);
         yield return new WaitForSeconds(interruptTime);
 
-        // 시야가 좁아진 틈새 뒤에서 남자 렌더링 활성화 (팝인 방지)
         if (suspiciousMan != null)
         {
             suspiciousMan.gameObject.SetActive(true);
         }
 
-        // EVT-013: 쾅! 문 강제 개방
         Debug.Log("[Stage3_4] 쾅! 문 강제 개방 및 남자 등장.");
-        // 추후 이 라인에 오디오 매니저를 통한 SND-015(쾅 소리) 트리거 추가 필요
 
         if (doorController != null)
         {

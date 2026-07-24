@@ -20,6 +20,9 @@ public class ElevatorDoorController : MonoBehaviour
     private Coroutine currentAnimation;
     private bool isInitialized = false;
 
+    public AudioSource doorAudioSource;
+    public float doorCloseSoundDelay = 4f;
+
     private void Awake()
     {
         InitializePositions();
@@ -62,6 +65,23 @@ public class ElevatorDoorController : MonoBehaviour
         if (!isInitialized) return;
         if (currentAnimation != null) StopCoroutine(currentAnimation);
         currentAnimation = StartCoroutine(DoorAnimationRoutine(false));
+
+        if (doorAudioSource != null)
+        {
+            doorAudioSource.Play();
+        }
+
+        StartCoroutine(PlayDoorSoundRoutine());
+    }
+
+    private IEnumerator PlayDoorSoundRoutine()
+    {
+        // 지정된 시간만큼 대기 후 사운드 재생
+        yield return new WaitForSeconds(doorCloseSoundDelay);
+        if (doorAudioSource != null)
+        {
+            doorAudioSource.Play();
+        }
     }
 
     private IEnumerator DoorAnimationRoutine(bool isOpening)

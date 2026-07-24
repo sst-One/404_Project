@@ -8,7 +8,7 @@ public class PlayerGazeController : MonoBehaviour
     public Camera mainCamera;
 
     [Header("Raycast Settings")]
-    public float maxGazeDistance = 15f;
+    public float maxGazeDistance = 1.5f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
 

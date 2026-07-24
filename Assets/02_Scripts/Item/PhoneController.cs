@@ -19,6 +19,8 @@ public class PhoneController : MonoBehaviour
     public AudioSource vibrationSource;
     public AudioSource dialingSource;
     public AudioSource policeVoiceSource;
+    public AudioSource phonePickupSource;
+    public AudioSource phoneFailSource;
 
     [Header("성공 이벤트")]
     public UnityEvent onCallSuccess;
@@ -66,17 +68,13 @@ public class PhoneController : MonoBehaviour
     private IEnumerator RecoverRoutine()
     {
         _isInteracting = true;
-        Debug.Log("[PhoneController] 휴대폰 회수 시도 중... (Reach 유지 필요)");
 
         float timer = 0f;
         while (timer < recoverHoldTime)
         {
             if (_inputProvider == null || !_inputProvider.IsGripHeld)
             {
-                Debug.LogWarning("[PhoneController] 회수 실패: 손 뻗기(Reach) 유지가 끊겼습니다.");
                 _isInteracting = false;
-
-                // 회수에 실패했으므로 다시 상호작용할 수 있도록 풀어줌
                 if (_interactable != null) _interactable.isInteractable = true;
                 yield break;
             }
@@ -88,11 +86,12 @@ public class PhoneController : MonoBehaviour
             yield return null;
         }
 
-        Debug.Log("[PhoneController] 휴대폰 회수 성공!");
         currentState = PhoneState.Recovered;
-        if (vibrationSource != null) vibrationSource.Stop();
 
-        // [핵심 추가] 회수 성공 즉시 향후 마우스 클릭(Reach)을 통한 중복 상호작용 영구 차단
+        if (vibrationSource != null && vibrationSource.isPlaying) vibrationSource.Stop();
+
+        if (phonePickupSource != null) phonePickupSource.Play();
+
         if (_interactable != null) _interactable.isInteractable = false;
 
         _mainCamera = GetPlayerCamera();
@@ -104,8 +103,43 @@ public class PhoneController : MonoBehaviour
         }
 
         _isInteracting = false;
-
         StartCoroutine(WaitToCallRoutine());
+    }
+
+    private IEnumerator CallRoutine()
+    {
+        currentState = PhoneState.Calling;
+
+        if (dialingSource != null) dialingSource.Play();
+
+        float timer = 0f;
+        while (timer < callDuration)
+        {
+            timer += Time.deltaTime;
+
+            if (_inputProvider == null || !_inputProvider.IsFreezeActive)
+            {
+                if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
+
+                if (phoneFailSource != null) phoneFailSource.Play();
+
+                currentState = PhoneState.Recovered;
+                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
+
+                StartCoroutine(WaitToCallRoutine());
+                yield break;
+            }
+            yield return null;
+        }
+
+        currentState = PhoneState.Success;
+        if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
+        if (policeVoiceSource != null) policeVoiceSource.Play();
+
+        onCallSuccess?.Invoke();
+
+        float voiceLength = (policeVoiceSource != null && policeVoiceSource.clip != null) ? policeVoiceSource.clip.length : 4.0f;
+        StartCoroutine(SelfDestructRoutine(voiceLength));
     }
 
     private IEnumerator WaitToCallRoutine()
@@ -120,43 +154,6 @@ public class PhoneController : MonoBehaviour
             }
             yield return null;
         }
-    }
-
-    private IEnumerator CallRoutine()
-    {
-        currentState = PhoneState.Calling;
-        Debug.Log($"[PhoneController] 112 신고 연결 중... ({callDuration}초간 스페이스바 유지 필요)");
-
-        if (dialingSource != null) dialingSource.Play();
-
-        float timer = 0f;
-        while (timer < callDuration)
-        {
-            timer += Time.deltaTime;
-
-            if (_inputProvider == null || !_inputProvider.IsFreezeActive)
-            {
-                Debug.LogWarning("[PhoneController] 신고 실패: 스페이스바(Freeze) 입력을 놓쳤습니다!");
-                if (dialingSource != null) dialingSource.Stop();
-
-                currentState = PhoneState.Recovered;
-                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
-
-                StartCoroutine(WaitToCallRoutine());
-                yield break;
-            }
-            yield return null;
-        }
-
-        Debug.Log("[PhoneController] 112 신고 성공! 경찰 연결 완료.");
-        currentState = PhoneState.Success;
-        if (dialingSource != null) dialingSource.Stop();
-        if (policeVoiceSource != null) policeVoiceSource.Play();
-
-        onCallSuccess?.Invoke();
-
-        float voiceLength = (policeVoiceSource != null && policeVoiceSource.clip != null) ? policeVoiceSource.clip.length : 4.0f;
-        StartCoroutine(SelfDestructRoutine(voiceLength));
     }
 
     private IEnumerator SelfDestructRoutine(float delay)

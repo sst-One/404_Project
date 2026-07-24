@@ -9,6 +9,8 @@ public class Stage3_4_Controller : MonoBehaviour
 
     private int buttonPressCount = 0;
 
+    public AudioSource errorAlarmSource;
+
     private void Start()
     {
         doorController = FindObjectOfType<ElevatorDoorController>();
@@ -57,8 +59,10 @@ public class Stage3_4_Controller : MonoBehaviour
 
     private IEnumerator Stage3_AnomalySequence()
     {
-        // 1회차 누름: 이상현상 연출이 진행되는 동안 중복 입력을 막기 위해 상호작용 강제 잠금
         if (elevatorButton != null) elevatorButton.isInteractable = false;
+
+        // 에러 알람 사운드 재생
+        if (errorAlarmSource != null) errorAlarmSource.Play();
 
         yield return new WaitForSeconds(0.8f);
 
@@ -66,7 +70,6 @@ public class Stage3_4_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.5f);
 
-        // 연출 종료: 2회차 클릭이 필요하므로 상호작용 다시 개방
         if (elevatorButton != null) elevatorButton.isInteractable = true;
     }
 

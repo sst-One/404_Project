@@ -15,6 +15,7 @@ public class HidingSpotManager : MonoBehaviour
     [Header("오디오 피드백")]
     public AudioSource warningHeartbeatSource;
     public AudioSource tinnitusSource;
+    public AudioSource creakSource;
 
     private float _timeInSpot = 0f;
     private int _currentStage = 0;
@@ -83,6 +84,7 @@ public class HidingSpotManager : MonoBehaviour
             _currentStage = 1;
             Debug.Log("[HidingSpotManager] Unstable (30s): 은신처 불안정 전조.");
             if (warningHeartbeatSource != null) warningHeartbeatSource.Play();
+            if (creakSource != null) creakSource.Play();
             onUnstableWarning?.Invoke();
         }
     }

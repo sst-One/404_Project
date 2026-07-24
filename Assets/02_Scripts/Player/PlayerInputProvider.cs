@@ -1,54 +1,93 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// 역할: 플레이어의 모든 입력을 수집하여 순수 데이터로만 제공하는 모듈.
-/// 물리 연산(Raycast)이나 UI 렌더링은 절대 수행하지 않음.
-/// </summary>
 public class PlayerInputProvider : MonoBehaviour
 {
     [Header("Input Data (Read Only)")]
-    [Tooltip("현재 시선(마우스)의 화면 스크린 좌표")]
     public Vector2 GazeScreenPosition;
-
-    [Tooltip("상호작용(Grip/좌클릭) 입력 여부")]
     public bool IsGripTriggered;
     public bool IsGripHeld;
-
-    [Tooltip("이동(Lean/W키) 단발성 입력 여부")]
     public bool IsLeanTriggered;
-
-    [Tooltip("정지(Freeze/스페이스바) 유지 여부")]
     public bool IsFreezeActive;
 
-    // 추후 MediaPipe(웹캠) 데이터가 들어오면 이 bool 값을 true로 바꾸어 분기처리 가능
-    private bool useWebcam = false;
+    [Header("Input Mode")]
+    public bool useWebcam = true;
+
+    private bool _wasReachHeldLastFrame = false;
+    private bool _wasLeanHeldLastFrame = false;
 
     private void Update()
     {
         IsGripTriggered = false;
         IsLeanTriggered = false;
-        IsFreezeActive = false;
-        IsGripHeld = false; // 매 프레임 초기화
 
-        if (!useWebcam) ProcessPCInput();
+        // 마우스/키보드 강제 사용 설정이거나, 웹캠 추적이 5초 이상 끊겨 Fallback 상태가 된 경우
+        if (!useWebcam || (VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.IsInFallbackMode))
+        {
+            IsFreezeActive = false;
+            IsGripHeld = false;
+            ProcessPCInput();
+        }
+        // 웹캠 사용 중인 경우
+        else if (VisionTrackingManager.Instance != null)
+        {
+            if (VisionTrackingManager.Instance.isTracking)
+            {
+                IsFreezeActive = false;
+                IsGripHeld = false;
+                ProcessWebcamInput();
+            }
+            else
+            {
+                // POL-012: 인식이 끊긴 지 0~5초 사이. 단발성 트리거(Triggered)는 끄되, 
+                // 유지 상태(Held, Freeze)는 이전 프레임 상태를 그대로 유지하여 게임이 끊기지 않게 방어.
+            }
+        }
+    }
+
+    private void ProcessWebcamInput()
+    {
+        bool isUIBlocking = false;
+        if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive) isUIBlocking = true;
+        //if (PhoneUIController.Instance != null && PhoneUIController.Instance.IsPhoneUIActive) isUIBlocking = true;
+
+        GazeScreenPosition = VisionTrackingManager.Instance.GetGazeScreenPosition();
+
+        bool isCurrentlyReaching = VisionTrackingManager.Instance.GetReachState();
+        if (!isUIBlocking)
+        {
+            IsGripHeld = isCurrentlyReaching;
+            if (isCurrentlyReaching && !_wasReachHeldLastFrame) IsGripTriggered = true;
+        }
+        _wasReachHeldLastFrame = isCurrentlyReaching;
+
+        bool isCurrentlyLeaning = VisionTrackingManager.Instance.GetLeanState();
+        if (!isUIBlocking)
+        {
+            if (isCurrentlyLeaning && !_wasLeanHeldLastFrame) IsLeanTriggered = true;
+        }
+        _wasLeanHeldLastFrame = isCurrentlyLeaning;
+
+        IsFreezeActive = VisionTrackingManager.Instance.GetOriginFreezeState();
     }
 
     private void ProcessPCInput()
     {
+        bool isUIBlocking = false;
+        if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive) isUIBlocking = true;
+        //if (PhoneUIController.Instance != null && PhoneUIController.Instance.IsPhoneUIActive) isUIBlocking = true;
+
         if (Mouse.current != null)
         {
             GazeScreenPosition = Mouse.current.position.ReadValue();
 
-            // 자막 출력 중일 때는 Reach(클릭 및 유지) 신호 차단
-            if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive)
+            if (Mouse.current.leftButton.wasPressedThisFrame)
             {
-                // 차단됨
+                if (!isUIBlocking) IsGripTriggered = true;
             }
-            else
+            if (Mouse.current.leftButton.isPressed)
             {
-                if (Mouse.current.leftButton.wasPressedThisFrame) IsGripTriggered = true;
-                if (Mouse.current.leftButton.isPressed) IsGripHeld = true; // [신규 추가]
+                if (!isUIBlocking) IsGripHeld = true;
             }
         }
 
@@ -56,10 +95,12 @@ public class PlayerInputProvider : MonoBehaviour
         {
             if (Keyboard.current.wKey.wasPressedThisFrame)
             {
-                if (SubtitleController.Instance != null && SubtitleController.Instance.IsDialogueActive) { /* 무시 */ }
-                else IsLeanTriggered = true;
+                if (!isUIBlocking) IsLeanTriggered = true;
             }
-            if (Keyboard.current.spaceKey.isPressed) IsFreezeActive = true;
+            if (Keyboard.current.spaceKey.isPressed)
+            {
+                IsFreezeActive = true;
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ namespace Mediapipe.Unity.Sample
     private static StaticImageSource _StaticImageSource;
     private static VideoSource _VideoSource;
 
-    public static ImageSource ImageSource { get; private set; }
+    public static ImageSource ImageSource { get; set; }
 
     public static ImageSourceType CurrentSourceType
     {

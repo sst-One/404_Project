@@ -4,23 +4,22 @@ public class VisionTrackingManager : MonoBehaviour
 {
     public static VisionTrackingManager Instance { get; private set; }
 
-    [Header("Vision Raw Data (플러그인에서 업데이트)")]
+    [Header("Vision Raw Data (팀원이 플러그인에서 주입할 변수)")]
     public bool isTracking = false;
     public Vector3 currentHeadPosition;
     public Vector3 currentHandPosition;
 
-    [Header("Calibration Data (FEAT-033)")]
+    [Header("Calibration Data (SCN-001 원점)")]
     public Vector3 baselineHeadPosition;
     public Vector3 baselineHandPosition;
 
-    [Header("Thresholds (PARAM-006~009)")]
+    [Header("Thresholds (판정 임계값)")]
     public float leanDepthThreshold = 0.2f;
     public float reachDepthThreshold = 0.3f;
     public float freezeMotionLimit = 0.08f;
 
     public bool IsInFallbackMode { get; private set; } = false;
-
-    private float _lostTrackingTimer = 0f;
+    private float lostTrackingTimer = 0f;
 
     private void Awake()
     {
@@ -32,34 +31,30 @@ public class VisionTrackingManager : MonoBehaviour
     {
         if (!isTracking)
         {
-            _lostTrackingTimer += Time.deltaTime;
+            lostTrackingTimer += Time.deltaTime;
             HandleTrackingLostPolicy();
         }
         else
         {
-            _lostTrackingTimer = 0f;
-            IsInFallbackMode = false; // 인식이 복구되면 Fallback 해제
+            lostTrackingTimer = 0f;
+            IsInFallbackMode = false;
         }
     }
 
     private void HandleTrackingLostPolicy()
     {
-        if (_lostTrackingTimer > 5.0f)
+        if (lostTrackingTimer > 5.0f && !IsInFallbackMode)
         {
-            if (!IsInFallbackMode)
-            {
-                IsInFallbackMode = true;
-                Debug.LogWarning("[VisionTrackingManager] 인식 5초 이상 실패. 마우스/키보드 Fallback 시스템 가동.");
-            }
-        }
-        else if (_lostTrackingTimer > 2.0f)
-        {
-            // 추후 UI-024 최소 안내 렌더링 호출 구간
+            IsInFallbackMode = true;
+            Debug.LogWarning("[VisionTrackingManager] 트래킹 5초 이상 상실. 키보드/마우스 Fallback 모드 전환.");
         }
     }
 
+    // --- Core Interaction Output (타 게임 스크립트가 호출할 함수들) ---
+
     public Vector2 GetGazeScreenPosition()
     {
+        if (!isTracking) return new Vector2(Screen.width / 2f, Screen.height / 2f);
         return new Vector2(Screen.width / 2f + (currentHeadPosition.x * 1000f), Screen.height / 2f + (currentHeadPosition.y * 1000f));
     }
 
@@ -81,6 +76,6 @@ public class VisionTrackingManager : MonoBehaviour
         float headDiff = Vector3.Distance(currentHeadPosition, baselineHeadPosition);
         float handDiff = Vector3.Distance(currentHandPosition, baselineHandPosition);
 
-        return headDiff < freezeMotionLimit && handDiff < freezeMotionLimit;
+        return (headDiff < freezeMotionLimit) && (handDiff < freezeMotionLimit);
     }
 }

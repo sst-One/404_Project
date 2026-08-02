@@ -21,7 +21,7 @@ public class ElevatorDoorController : MonoBehaviour
     private bool isInitialized = false;
 
     public AudioSource doorAudioSource;
-    public float doorCloseSoundDelay = 4f;
+    public float doorCloseSoundDelay = 0f;
 
     private void Awake()
     {
@@ -68,15 +68,12 @@ public class ElevatorDoorController : MonoBehaviour
 
         if (doorAudioSource != null)
         {
-            doorAudioSource.Play();
+            StartCoroutine(PlayDoorSoundRoutine());
         }
-
-        StartCoroutine(PlayDoorSoundRoutine());
     }
 
     private IEnumerator PlayDoorSoundRoutine()
     {
-        // 지정된 시간만큼 대기 후 사운드 재생
         yield return new WaitForSeconds(doorCloseSoundDelay);
         if (doorAudioSource != null)
         {
@@ -86,20 +83,17 @@ public class ElevatorDoorController : MonoBehaviour
 
     private IEnumerator DoorAnimationRoutine(bool isOpening)
     {
-        // 현재 위치를 출발점으로 설정 (중간에 끊겼을 때를 대비)
         Vector3 leftStartPos = leftDoor.localPosition;
         Vector3 rightStartPos = rightDoor.localPosition;
 
         Vector3 leftTargetPos = isOpening ? leftOpenPos : leftClosedPos;
         Vector3 rightTargetPos = isOpening ? rightOpenPos : rightClosedPos;
 
-        // 전체 이동 거리 대비 남은 거리를 계산하여 애니메이션 속도 일정 유지
         float distanceRatio = Vector3.Distance(leftStartPos, leftTargetPos) / Vector3.Distance(leftClosedPos, leftOpenPos);
         float currentDuration = animationDuration * distanceRatio;
 
         float elapsedTime = 0f;
 
-        // currentDuration이 0에 수렴할 경우 대비
         if (currentDuration > 0.01f)
         {
             while (elapsedTime < currentDuration)

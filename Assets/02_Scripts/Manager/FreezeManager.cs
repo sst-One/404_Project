@@ -16,6 +16,9 @@ public class FreezeManager : MonoBehaviour
     private bool _isOverloaded;
     private bool _requireInputReset;
 
+    // 최신 입력 모듈 참조용 캐시 변수
+    private PlayerInputProvider _playerInput;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -45,9 +48,17 @@ public class FreezeManager : MonoBehaviour
 
     private void Update()
     {
-        if (InputManager.Instance == null || _isOverloaded) return;
+        if (_isOverloaded) return;
 
-        bool isFreezeInput = InputManager.Instance.GetInput().IsFreezing();
+        // PlayerInputProvider 동적 캐싱 (씬 전환 시 플레이어 객체 로드 대기)
+        if (_playerInput == null)
+        {
+            _playerInput = FindObjectOfType<PlayerInputProvider>();
+            if (_playerInput == null) return; // 플레이어가 아직 로드되지 않았다면 대기
+        }
+
+        // 최신 입력 체계(PlayerInputProvider)에서 Origin Freeze 상태를 가져옴
+        bool isFreezeInput = _playerInput.IsFreezeActive;
 
         if (_requireInputReset)
         {
@@ -84,9 +95,6 @@ public class FreezeManager : MonoBehaviour
             StopCoroutine(_heartbeatCoroutine);
             _heartbeatCoroutine = null;
         }
-
-        // 기획 변경: 즉시 초기화(ResetHeartbeat) 로직 삭제 완료
-        // 심장박동은 StateManager의 자연 회복 코루틴에 의해서만 서서히 감소합니다.
     }
 
     private IEnumerator HeartbeatIncreaseRoutine()
@@ -135,10 +143,8 @@ public class FreezeManager : MonoBehaviour
     {
         yield return new WaitForSeconds(2.0f);
 
-        // 기획 변경: 오버로드 회복 시 즉시 초기화(ResetHeartbeat) 로직 삭제 완료
-
         _isOverloaded = false;
         _requireInputReset = true;
-        Debug.Log("오버로드 상태 회복됨. 스페이스바를 떼었다가 다시 눌러야 정지 가능합니다.");
+        Debug.Log("오버로드 상태 회복됨. 다시 정지 동작(Origin Freeze)을 수행할 수 있습니다.");
     }
 }

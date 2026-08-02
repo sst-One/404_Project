@@ -20,7 +20,6 @@ public class PlayerGazeController : MonoBehaviour
     [HideInInspector] public Transform CurrentHoverTarget;
     [HideInInspector] public bool IsTargetReady;
 
-    // UI 인디케이터(선) 렌더링을 위한 좌표 데이터
     [HideInInspector] public Vector3 RayOrigin;
     [HideInInspector] public Vector3 RayEndPoint;
 
@@ -41,6 +40,14 @@ public class PlayerGazeController : MonoBehaviour
     private void ProcessGazeRaycast()
     {
         IsFloorValid = false;
+
+        // 핫픽스: UI가 화면을 가리고 있을 때는 Gaze 레이캐스트 연산을 중단하고 타겟 초기화
+        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
+        {
+            ResetObjectTarget();
+            return;
+        }
+
         Ray ray = mainCamera.ScreenPointToRay(inputProvider.GazeScreenPosition);
         RayEndPoint = ray.origin + ray.direction * maxGazeDistance;
 
@@ -55,7 +62,6 @@ public class PlayerGazeController : MonoBehaviour
                 return;
             }
 
-            // [수정] 이동 가능 지점(Walkable) 또는 은신처(HidingSpot) 판정
             int walkableLayer = LayerMask.NameToLayer("Walkable");
             int hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
 
@@ -64,12 +70,11 @@ public class PlayerGazeController : MonoBehaviour
                 if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 3.0f, NavMesh.AllAreas))
                 {
                     CurrentFloorHitPoint = navHit.position;
-                    IsFloorValid = true; // 이제 두 레이어 모두 이동 가능 지점으로 판정됨
+                    IsFloorValid = true;
                 }
             }
             else if ((targetMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
-                // 상호작용 오브젝트 로직 유지
                 if (CurrentHoverTarget == hit.transform)
                 {
                     if (!IsTargetReady)
@@ -97,6 +102,6 @@ public class PlayerGazeController : MonoBehaviour
         CurrentHoverTarget = null;
         currentReadyTimer = 0f;
         IsTargetReady = false;
-        IsFloorValid = false; // [수정] 포커스 리셋 시 이동 불가 처리
+        IsFloorValid = false;
     }
 }

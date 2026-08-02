@@ -11,7 +11,6 @@ public class InputManager : MonoBehaviour
 
     private IPlayerInput _currentInputProcessor;
     private IPlayerInput _fallbackProcessor;
-    private PlayerInputMapper _visionProcessor;
 
     private void Awake()
     {
@@ -28,9 +27,6 @@ public class InputManager : MonoBehaviour
 
     private void InitializeProcessors()
     {
-        _fallbackProcessor = new KeyboardInputProcessor();
-        _visionProcessor = FindObjectOfType<PlayerInputMapper>();
-
         UpdateInputProcessor();
     }
 
@@ -47,13 +43,9 @@ public class InputManager : MonoBehaviour
 
     private void UpdateInputProcessor()
     {
-        if (forceFallbackMode || _visionProcessor == null)
+        if (forceFallbackMode)
         {
             _currentInputProcessor = _fallbackProcessor;
-        }
-        else
-        {
-            _currentInputProcessor = _visionProcessor;
         }
     }
 

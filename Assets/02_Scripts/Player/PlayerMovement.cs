@@ -18,7 +18,11 @@ public class PlayerMovement : MonoBehaviour
     private PlayerGazeController gazeController;
     private CharacterController cc;
 
+    [Header("오디오 설정 (AudioSources)")]
     public AudioSource playerFootstepSource;
+
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string footstepClipName = "SND-006_FootWalk_Oneshot_Loop";
 
     private void Awake()
     {
@@ -87,7 +91,11 @@ public class PlayerMovement : MonoBehaviour
         float timer = 0f;
         while (timer < maxDuration)
         {
-            if (playerFootstepSource != null) playerFootstepSource.Play();
+            if (playerFootstepSource != null && AudioManager.Instance != null)
+            {
+                AudioClip clip = AudioManager.Instance.GetClip(footstepClipName);
+                if (clip != null) playerFootstepSource.PlayOneShot(clip);
+            }
             yield return new WaitForSeconds(footstepInterval);
             timer += footstepInterval;
         }

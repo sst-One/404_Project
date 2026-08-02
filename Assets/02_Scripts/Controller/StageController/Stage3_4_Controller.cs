@@ -1,3 +1,4 @@
+// Stage3_4_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -6,18 +7,21 @@ public class Stage3_4_Controller : MonoBehaviour
     private InteractableItem elevatorButton;
     private ElevatorDoorController doorController;
     private EnemyAI suspiciousMan;
-
     private int buttonPressCount = 0;
 
+    [Header("사운드 에셋 연결 (AudioSources)")]
     public AudioSource errorAlarmSource;
+    public AudioSource doorGrabSource;
+    public AudioSource suspectVoiceSource;
+
+    [Header("엘리베이터 이동음 설정")]
+    public AudioSource elevatorMoveSource;
+    public string elevatorMoveClipName = "SND-004_ElevatorMove_Loop_Timed";
 
     private void Start()
     {
         doorController = FindObjectOfType<ElevatorDoorController>();
-        if (doorController != null)
-        {
-            doorController.SetDoorsOpenImmediately();
-        }
+        if (doorController != null) doorController.SetDoorsOpenImmediately();
 
         suspiciousMan = FindObjectOfType<EnemyAI>(true);
         if (suspiciousMan != null)
@@ -30,14 +34,11 @@ public class Stage3_4_Controller : MonoBehaviour
         if (btnObj != null)
         {
             elevatorButton = btnObj.GetComponent<InteractableItem>();
-
-            // [핵심 픽스] 스크립트가 수동으로 상태를 제어하므로 1회용 속성을 강제 해제하고 상호작용을 활성화
             if (elevatorButton != null)
             {
                 elevatorButton.interactOnlyOnce = false;
                 elevatorButton.isInteractable = true;
             }
-
             elevatorButton.onInteractEvent.RemoveAllListeners();
             elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
         }
@@ -46,28 +47,22 @@ public class Stage3_4_Controller : MonoBehaviour
     private void OnElevatorButtonPressed()
     {
         buttonPressCount++;
-
-        if (buttonPressCount == 1)
-        {
-            StartCoroutine(Stage3_AnomalySequence());
-        }
-        else if (buttonPressCount == 2)
-        {
-            StartCoroutine(Stage4_EncounterSequence());
-        }
+        if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
+        else if (buttonPressCount == 2) StartCoroutine(Stage4_EncounterSequence());
     }
 
     private IEnumerator Stage3_AnomalySequence()
     {
         if (elevatorButton != null) elevatorButton.isInteractable = false;
 
-        // 에러 알람 사운드 재생
-        if (errorAlarmSource != null) errorAlarmSource.Play();
+        if (errorAlarmSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip("SND-014_ButtonMalfunction_OneShot");
+            if (clip != null) errorAlarmSource.PlayOneShot(clip);
+        }
 
         yield return new WaitForSeconds(0.8f);
-
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
-
         yield return new WaitForSeconds(1.5f);
 
         if (elevatorButton != null) elevatorButton.isInteractable = true;
@@ -75,35 +70,50 @@ public class Stage3_4_Controller : MonoBehaviour
 
     private IEnumerator Stage4_EncounterSequence()
     {
-        // 2회차 누름: 남자 등장 이벤트가 시작되었으므로 엘리베이터 버튼 영구 잠금
         if (elevatorButton != null) elevatorButton.isInteractable = false;
-
         GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
 
-        float doorAnimTime = 1.5f; // 기본값
+        if (doorController != null) doorController.CloseDoors();
 
-        if (doorController != null)
+        // 1. 문이 닫히는 시간(1.5초) 대기
+        yield return new WaitForSeconds(1.5f);
+
+        // 2. 문 닫힘 직후 엘리베이터 이동음 재생
+        if (elevatorMoveSource != null && AudioManager.Instance != null)
         {
-            doorAnimTime = doorController.animationDuration;
-            doorController.CloseDoors();
+            AudioClip clip = AudioManager.Instance.GetClip(elevatorMoveClipName);
+            if (clip != null)
+            {
+                elevatorMoveSource.clip = clip;
+                elevatorMoveSource.loop = true;
+                elevatorMoveSource.Play();
+            }
         }
 
-        float interruptTime = Mathf.Max(0.1f, doorAnimTime - 0.15f);
-        yield return new WaitForSeconds(interruptTime);
+        // 3. 엘리베이터 정상 이동 중 돌발 상황 발생 전 대기 (2.0초)
+        yield return new WaitForSeconds(2.0f);
 
-        if (suspiciousMan != null)
+        // 4. 문이 강제로 잡히기 직전 이동음 강제 정지
+        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying) elevatorMoveSource.Stop();
+
+        // 5. 남자가 문을 강제로 잡는 소리 재생
+        if (doorGrabSource != null && AudioManager.Instance != null)
         {
-            suspiciousMan.gameObject.SetActive(true);
+            AudioClip clip = AudioManager.Instance.GetClip("SND-015_ElevatorDoorGrab_OneShot");
+            if (clip != null) doorGrabSource.PlayOneShot(clip);
         }
 
-        Debug.Log("[Stage3_4] 쾅! 문 강제 개방 및 남자 등장.");
+        if (suspiciousMan != null) suspiciousMan.gameObject.SetActive(true);
+        if (doorController != null) doorController.OpenDoors();
 
-        if (doorController != null)
+        // (주의: 제공된 사운드 목록에 남성 음성이 없어 보이스 코드는 생략 또는 대체 필요)
+        if (suspectVoiceSource != null && AudioManager.Instance != null)
         {
-            doorController.OpenDoors();
+            // 남성 음성 에셋이 확정되면 아래 문자열 교체 요망
+            AudioClip clip = AudioManager.Instance.GetClip("SND-035_SuspectVoice_OneShot_임시");
+            if (clip != null) suspectVoiceSource.PlayOneShot(clip);
         }
 
-        Debug.Log("[Stage3_4] 남자 대사 출력 대기...");
         if (SubtitleController.Instance != null)
         {
             yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_1));
@@ -111,7 +121,6 @@ public class Stage3_4_Controller : MonoBehaviour
             yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_3));
         }
 
-        Debug.Log("[Stage3_4] 대사 종료. 404호(Stage 5_6) 씬 로드 요청.");
         GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
     }
 }

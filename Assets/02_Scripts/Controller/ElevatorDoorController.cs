@@ -1,3 +1,4 @@
+// 1. ElevatorDoorController.cs
 using System.Collections;
 using UnityEngine;
 
@@ -12,6 +13,11 @@ public class ElevatorDoorController : MonoBehaviour
     public Vector3 rightDoorOpenOffset = new Vector3(1.2f, 0, 0);
     public float animationDuration = 4f;
 
+    [Header("Sound Settings (SND-xxx)")]
+    public AudioSource doorAudioSource;
+    public string doorCloseClipName = ""; // 인스펙터에서 닫힘 소리 파일명 입력
+    public float doorCloseSoundDelay = 0f;
+
     private Vector3 leftClosedPos;
     private Vector3 rightClosedPos;
     private Vector3 leftOpenPos;
@@ -19,9 +25,6 @@ public class ElevatorDoorController : MonoBehaviour
 
     private Coroutine currentAnimation;
     private bool isInitialized = false;
-
-    public AudioSource doorAudioSource;
-    public float doorCloseSoundDelay = 0f;
 
     private void Awake()
     {
@@ -66,7 +69,7 @@ public class ElevatorDoorController : MonoBehaviour
         if (currentAnimation != null) StopCoroutine(currentAnimation);
         currentAnimation = StartCoroutine(DoorAnimationRoutine(false));
 
-        if (doorAudioSource != null)
+        if (doorAudioSource != null && !string.IsNullOrEmpty(doorCloseClipName))
         {
             StartCoroutine(PlayDoorSoundRoutine());
         }
@@ -75,9 +78,14 @@ public class ElevatorDoorController : MonoBehaviour
     private IEnumerator PlayDoorSoundRoutine()
     {
         yield return new WaitForSeconds(doorCloseSoundDelay);
-        if (doorAudioSource != null)
+        if (doorAudioSource != null && AudioManager.Instance != null)
         {
-            doorAudioSource.Play();
+            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
+            if (clip != null)
+            {
+                doorAudioSource.clip = clip;
+                doorAudioSource.Play();
+            }
         }
     }
 

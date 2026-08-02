@@ -1,3 +1,4 @@
+// 2. EnemyAI.cs
 using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
@@ -26,39 +27,40 @@ public class EnemyAI : MonoBehaviour
     public float chaseSpeed = 1.1f;
 
     [Header("Detection Settings (SYS-005)")]
-    public float criticalDetectionDistance = 1.0f; // 이 거리 이내면 Freeze 무시 강제 발각
+    public float criticalDetectionDistance = 1.0f;
 
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
     private Transform _playerTransform;
+    private Camera _mainCamera;
     private Vector3 _lastKnownPlayerPosition;
 
     private Coroutine _fovCoroutine;
     private Coroutine _suspectCoroutine;
-
     private float _lastNoiseReactionTime = 0f;
+    private PlayerInputProvider _playerInput;
 
-    [Header("오디오 설정 (3D)")]
-    public AudioSource footstepSource; // 발소리 전용 소스
-    public AudioSource breathSource;   // 숨소리 전용 소스
+    [Header("오디오 설정 (AudioSources)")]
+    public AudioSource footstepSource;
+    public AudioSource breathSource;
 
-    public AudioClip smallFootWalk;    // EnemySmallFootWalk_Loop.wav 할당
-    public AudioClip bigFootWalk;      // EnemyBigFootWalk_Loop.wav 할당
-    public AudioClip enemyBreathClose; // EnemyBreathClose_Loop.wav 할당
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string smallFootWalkClipName = "";
+    public string bigFootWalkClipName = "";
+    public string enemyBreathCloseClipName = "";
 
-    private void Awake() { _agent = GetComponent<NavMeshAgent>(); }
+    private void Awake()
+    {
+        _agent = GetComponent<NavMeshAgent>();
+        _mainCamera = Camera.main;
+    }
 
     private void Start()
     {
-        // [수정 핵심] 카메라 루트 대신 우리가 만든 PlayerMovement 인스턴스를 직접 추적
-        if (PlayerMovement.Instance != null)
-        {
-            _playerTransform = PlayerMovement.Instance.transform;
-        }
-        else if (Camera.main != null)
-        {
-            _playerTransform = Camera.main.transform.root;
-        }
+        if (PlayerMovement.Instance != null) _playerTransform = PlayerMovement.Instance.transform;
+        else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
+
+        _playerInput = FindObjectOfType<PlayerInputProvider>();
 
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
@@ -78,8 +80,7 @@ public class EnemyAI : MonoBehaviour
 
     private void Update()
     {
-        // [수정] 내러티브 모드일 경우 순찰/추격 로직을 원천 차단하고 제자리 대기
-        if (isNarrativeMode)
+        if (isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
             if (_agent.isOnNavMesh) _agent.isStopped = true;
             return;
@@ -98,26 +99,15 @@ public class EnemyAI : MonoBehaviour
             if (_playerTransform != null && _agent.isOnNavMesh) _agent.SetDestination(_playerTransform.position);
         }
 
-        // 1. 현재 추격 상태 여부 확인 (EnemyAI 내부 상태 변수명에 맞게 조정 필요)
-        bool isChasing = false;
-        if (currentState == EnemyState.Chase)
-        {
-            isChasing = true;
-        }
-
-        // 2. 플레이어와의 거리 계산 (숨소리 재생을 위한 근접 판정, 임계값 2.5m)
+        bool isChasing = (currentState == EnemyState.Chase);
         bool isCloseToPlayer = false;
-        GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-        if (playerObj != null)
+
+        if (_playerTransform != null)
         {
-            float distanceToPlayer = Vector3.Distance(transform.position, playerObj.transform.position);
-            if (distanceToPlayer <= 2.5f)
-            {
-                isCloseToPlayer = true;
-            }
+            float distanceToPlayer = Vector3.Distance(transform.position, _playerTransform.position);
+            if (distanceToPlayer <= 2.5f) isCloseToPlayer = true;
         }
 
-        // 3. 프레임마다 오디오 상태 갱신 함수 호출
         UpdateAudioState(isChasing, isCloseToPlayer);
     }
 
@@ -129,17 +119,9 @@ public class EnemyAI : MonoBehaviour
 
         currentState = newState;
 
-        // [수정됨] 상태에 따른 이동 속도 동적 변경 적용
         if (_agent != null)
         {
-            if (currentState == EnemyState.Chase)
-            {
-                _agent.speed = chaseSpeed;
-            }
-            else
-            {
-                _agent.speed = patrolSpeed;
-            }
+            _agent.speed = (currentState == EnemyState.Chase) ? chaseSpeed : patrolSpeed;
         }
     }
 
@@ -155,25 +137,24 @@ public class EnemyAI : MonoBehaviour
 
     private void FindVisibleTargets()
     {
-        if (isNarrativeMode) return;
+        if (isNarrativeMode || _mainCamera == null) return;
 
         bool canSeePlayer = false;
-        bool isPlayerFreezing = (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing);
+        bool isPlayerFreezing = (_playerInput != null && _playerInput.IsFreezeActive);
         float currentDistanceToPlayer = float.MaxValue;
 
-        Collider[] targetsInViewRadius = Physics.OverlapSphere(transform.position, viewRadius, playerMask);
-        for (int i = 0; i < targetsInViewRadius.Length; i++)
-        {
-            Transform target = targetsInViewRadius[i].transform;
-            Vector3 dirToTarget = (target.position - transform.position).normalized;
+        Vector3 targetPos = _mainCamera.transform.position;
+        Vector3 dirToTarget = (targetPos - transform.position).normalized;
 
+        if (Vector3.Distance(transform.position, _playerTransform.position) <= viewRadius)
+        {
             if (Vector3.Angle(transform.forward, dirToTarget) < viewAngle / 2)
             {
-                float dstToTarget = Vector3.Distance(transform.position, target.position);
+                float dstToTarget = Vector3.Distance(transform.position, targetPos);
                 if (!Physics.Raycast(transform.position, dirToTarget, dstToTarget, obstacleMask))
                 {
                     canSeePlayer = true;
-                    _lastKnownPlayerPosition = target.position;
+                    _lastKnownPlayerPosition = _playerTransform.position;
                     currentDistanceToPlayer = dstToTarget;
                 }
             }
@@ -181,7 +162,6 @@ public class EnemyAI : MonoBehaviour
 
         if (canSeePlayer)
         {
-            // 1. 임계 거리 이내면 Freeze 여부 상관없이 즉시 추격 (강제 발각)
             if (currentDistanceToPlayer <= criticalDetectionDistance)
             {
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
@@ -190,23 +170,19 @@ public class EnemyAI : MonoBehaviour
                 return;
             }
 
-            // 2. Freeze 상태를 유지 중이라면 못 본 척 무시 (또는 Investigate로 강등)
             if (isPlayerFreezing)
             {
                 if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
                 return;
             }
 
-            // 3. [핵심 수정] Freeze 실패(움직임) 상태로 시야에 들어왔을 때의 공정성 처리
             if (currentState == EnemyState.Patrol)
             {
-                // 순찰 중이었다면 즉시 추격하지 않고 경고(Suspect) 부여
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 _suspectCoroutine = StartCoroutine(SuspectRoutine(_lastKnownPlayerPosition));
             }
             else if (currentState == EnemyState.Suspect || currentState == EnemyState.Investigate)
             {
-                // 이미 의심/조사 중인데 눈에 띄었다면 추격 시작
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
@@ -223,11 +199,7 @@ public class EnemyAI : MonoBehaviour
     {
         if (isNarrativeMode || currentState == EnemyState.Chase) return;
 
-        // [핵심 밸런스 수정] 적이 소음에 반응한 직후 3초 동안은 자잘한 소음(Critical 미만)을 무시하여 플레이어에게 도망갈 틈을 줌
-        if (Time.time - _lastNoiseReactionTime < 3.0f && level != NoiseLevel.Critical)
-        {
-            return;
-        }
+        if (Time.time - _lastNoiseReactionTime < 3.0f && level != NoiseLevel.Critical) return;
 
         if (level == NoiseLevel.Mid && currentState == EnemyState.Patrol)
         {
@@ -254,21 +226,15 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    // [수정] bool 매개변수 대신 의심스러운 좌표를 직접 받음
     private IEnumerator SuspectRoutine(Vector3 targetPos)
     {
         ChangeState(EnemyState.Suspect);
         if (_agent.isOnNavMesh) _agent.isStopped = true;
 
-        // [수정] 소리가 났거나 시야에 포착된 곳을 향해 몸을 회전
         Vector3 lookDir = (targetPos - transform.position).normalized;
         lookDir.y = 0;
-        if (lookDir != Vector3.zero)
-        {
-            transform.rotation = Quaternion.LookRotation(lookDir);
-        }
+        if (lookDir != Vector3.zero) transform.rotation = Quaternion.LookRotation(lookDir);
 
-        // 3초 대기 (이때 플레이어가 추가 소음을 내거나 시야에 노출되면 상태가 덮어씌워짐)
         yield return new WaitForSeconds(3f);
 
         if (currentState == EnemyState.Suspect)
@@ -293,7 +259,11 @@ public class EnemyAI : MonoBehaviour
 
     private void UpdateAudioState(bool isChasing, bool isCloseToPlayer)
     {
-        AudioClip targetFootstep = isChasing ? bigFootWalk : smallFootWalk;
+        if (AudioManager.Instance == null) return;
+
+        string targetClipName = isChasing ? bigFootWalkClipName : smallFootWalkClipName;
+        AudioClip targetFootstep = string.IsNullOrEmpty(targetClipName) ? null : AudioManager.Instance.GetClip(targetClipName);
+
         if (footstepSource != null && targetFootstep != null)
         {
             if (footstepSource.clip != targetFootstep)
@@ -301,31 +271,20 @@ public class EnemyAI : MonoBehaviour
                 footstepSource.clip = targetFootstep;
                 footstepSource.Play();
             }
-            else if (!footstepSource.isPlaying)
-            {
-                footstepSource.Play();
-            }
+            else if (!footstepSource.isPlaying) footstepSource.Play();
         }
 
-        if (breathSource != null && enemyBreathClose != null)
+        AudioClip targetBreath = string.IsNullOrEmpty(enemyBreathCloseClipName) ? null : AudioManager.Instance.GetClip(enemyBreathCloseClipName);
+        if (breathSource != null && targetBreath != null)
         {
             if (isCloseToPlayer)
             {
-                if (breathSource.clip != enemyBreathClose)
-                {
-                    breathSource.clip = enemyBreathClose;
-                }
-                if (!breathSource.isPlaying)
-                {
-                    breathSource.Play();
-                }
+                if (breathSource.clip != targetBreath) breathSource.clip = targetBreath;
+                if (!breathSource.isPlaying) breathSource.Play();
             }
             else
             {
-                if (breathSource.isPlaying)
-                {
-                    breathSource.Stop();
-                }
+                if (breathSource.isPlaying) breathSource.Stop();
             }
         }
     }

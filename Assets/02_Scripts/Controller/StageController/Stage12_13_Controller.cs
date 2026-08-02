@@ -1,3 +1,4 @@
+// 2. Stage12_13_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -7,17 +8,22 @@ public class Stage12_13_Controller : MonoBehaviour
     public InteractableItem crackedPhone;
     public InteractableItem endingGem;
 
-    [Header("Audio Triggers")]
+    [Header("Audio Triggers (AudioSources)")]
     public AudioSource phoneRingSource;
     public AudioSource tvNewsSource;
     public AudioSource tinnitusSource;
     public AudioSource gemDropSource;
 
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string phoneRingClipName = "";
+    public string tvNewsClipName = "SND-060_NewsReport_Loop";
+    public string tinnitusClipName = "SND-061_TinnitusRing_Loop_Timed";
+    public string gemDropClipName = "SND-062_GemDrop_OneShot";
+
     private bool isPhoneAnswered = false;
 
     private void Start()
     {
-        // 핫픽스: 씬 진입 시 이전 씬에서 넘어온 심장박동 상태를 강제 초기화하여 빨간 화면 잔상 완벽 제거
         if (StateManager.Instance != null)
         {
             StateManager.Instance.ResetHeartbeat();
@@ -60,7 +66,15 @@ public class Stage12_13_Controller : MonoBehaviour
         Debug.Log("[Stage12_13] Day 5 아침 시작. 3초 후 전화 수신.");
         yield return new WaitForSeconds(3.0f);
 
-        if (phoneRingSource != null) phoneRingSource.Play();
+        if (phoneRingSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(phoneRingClipName);
+            if (clip != null)
+            {
+                phoneRingSource.clip = clip;
+                phoneRingSource.Play();
+            }
+        }
         Debug.Log("[Stage12_13] 전화벨 울림. 휴대폰 Reach 입력 대기 중...");
     }
 
@@ -89,20 +103,41 @@ public class Stage12_13_Controller : MonoBehaviour
             yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
         }
 
-        if (tvNewsSource != null) tvNewsSource.Play();
+        if (tvNewsSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(tvNewsClipName);
+            if (clip != null)
+            {
+                tvNewsSource.clip = clip;
+                tvNewsSource.Play();
+            }
+        }
 
         if (SubtitleController.Instance != null)
         {
             yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
         }
 
-        if (tinnitusSource != null) tinnitusSource.Play();
+        if (tinnitusSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(tinnitusClipName);
+            if (clip != null)
+            {
+                tinnitusSource.clip = clip;
+                tinnitusSource.Play();
+            }
+        }
+
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
         yield return new WaitForSeconds(6.0f);
 
         Debug.Log("[Stage12_13] 땡그랑. 보석 낙하.");
-        if (gemDropSource != null) gemDropSource.Play();
+        if (gemDropSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(gemDropClipName);
+            if (clip != null) gemDropSource.PlayOneShot(clip);
+        }
 
         if (endingGem != null)
         {

@@ -1,3 +1,4 @@
+// 3. HidingSpotManager.cs
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -12,14 +13,18 @@ public class HidingSpotManager : MonoBehaviour
     public UnityEvent onUnstableWarning;
     public UnityEvent onFailingWarning;
 
-    [Header("오디오 피드백")]
+    [Header("오디오 피드백 (AudioSources)")]
     public AudioSource warningHeartbeatSource;
     public AudioSource tinnitusSource;
     public AudioSource creakSource;
 
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string warningHeartbeatClipName = "";
+    public string tinnitusClipName = "SND-067_HidingSpotUnstableCue_Layer_OneShot";
+    public string creakClipName = "";
+
     private float _timeInSpot = 0f;
     private int _currentStage = 0;
-
     private Transform _playerTransform;
     private Vector3 _lastKnownPosition;
 
@@ -35,6 +40,8 @@ public class HidingSpotManager : MonoBehaviour
 
     private void Update()
     {
+        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()) return;
+
         bool isChaseStage = (GameFlowManager.Instance != null &&
                              GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
                              GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
@@ -64,7 +71,6 @@ public class HidingSpotManager : MonoBehaviour
         if (_timeInSpot >= forcedTime && _currentStage < 3)
         {
             _currentStage = 3;
-            Debug.Log("[HidingSpotManager] Forced (60s): 은신처 붕괴. 적 강제 유도.");
             if (StateManager.Instance != null)
             {
                 StateManager.Instance.AddHeartbeat(1);
@@ -74,17 +80,38 @@ public class HidingSpotManager : MonoBehaviour
         else if (_timeInSpot >= failingTime && _currentStage < 2)
         {
             _currentStage = 2;
-            Debug.Log("[HidingSpotManager] Failing (45s): 은신처 심각한 불안정.");
             if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
-            if (tinnitusSource != null) tinnitusSource.Play();
+
+            if (tinnitusSource != null && AudioManager.Instance != null)
+            {
+                AudioClip clip = AudioManager.Instance.GetClip(tinnitusClipName);
+                if (clip != null)
+                {
+                    tinnitusSource.clip = clip;
+                    tinnitusSource.Play();
+                }
+            }
             onFailingWarning?.Invoke();
         }
         else if (_timeInSpot >= unstableTime && _currentStage < 1)
         {
             _currentStage = 1;
-            Debug.Log("[HidingSpotManager] Unstable (30s): 은신처 불안정 전조.");
-            if (warningHeartbeatSource != null) warningHeartbeatSource.Play();
-            if (creakSource != null) creakSource.Play();
+
+            if (warningHeartbeatSource != null && AudioManager.Instance != null)
+            {
+                AudioClip clip = AudioManager.Instance.GetClip(warningHeartbeatClipName);
+                if (clip != null)
+                {
+                    warningHeartbeatSource.clip = clip;
+                    warningHeartbeatSource.Play();
+                }
+            }
+
+            if (creakSource != null && AudioManager.Instance != null)
+            {
+                AudioClip clip = AudioManager.Instance.GetClip(creakClipName);
+                if (clip != null) creakSource.PlayOneShot(clip);
+            }
             onUnstableWarning?.Invoke();
         }
     }
@@ -93,7 +120,6 @@ public class HidingSpotManager : MonoBehaviour
     {
         if (_timeInSpot >= unstableTime)
         {
-            Debug.Log("[HidingSpotManager] 새로운 위치 이동. 체류 타이머 및 경고 사운드 리셋.");
             if (warningHeartbeatSource != null) warningHeartbeatSource.Stop();
             if (tinnitusSource != null) tinnitusSource.Stop();
         }

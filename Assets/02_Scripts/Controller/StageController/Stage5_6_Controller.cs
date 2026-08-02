@@ -4,71 +4,60 @@ using UnityEngine;
 public class Stage5_6_Controller : MonoBehaviour
 {
     [Header("Lighting Settings")]
-    [Tooltip("거실을 밝히는 메인 조명(Directional 또는 Point Light)을 연결하십시오.")]
     public Light mainRoomLight;
 
     [Header("Hallucination Objects")]
-    [Tooltip("피와 얼굴 가죽이 포함된 부모 오브젝트를 연결하십시오.")]
     public GameObject hallucinationDecals;
+
+    [Header("사운드 에셋 연결 (AudioSources)")]
+    public AudioSource fuseBoxSwitchSource;
+    public AudioSource hallucinationSource;
+    public AudioSource lightFlickerSource;
+
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string fuseBoxClipName = "SND-031_FuseBoxSwitch_OneShot";
+    public string hallucinationClipName = "SND-011_Hallucination_OneShot";
+    public string lightFlickerClipName = "SND-012_LightFlicker_Loop_OneShot";
+    public string lightRestoreClipName = "SND-032_LIghtRestore_OneShot";
 
     private InteractableItem fuseBox;
     private bool isBlackout = false;
 
     private void Start()
     {
-        // 1. 초기 상태 세팅: 조명 켜짐, 환각 숨김
         if (mainRoomLight != null) mainRoomLight.enabled = true;
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
 
-        // 2. 두꺼비집 바인딩 (초기에는 비활성화 상태)
         GameObject fuseObj = GameObject.Find("Item_FuseBox");
         if (fuseObj != null)
         {
             fuseBox = fuseObj.GetComponent<InteractableItem>();
-
             fuseBox.enabled = false;
-            if (fuseBox.GetComponent<Collider>() != null)
-            {
-                fuseBox.GetComponent<Collider>().enabled = false;
-            }
+            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
 
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
         }
-        else
-        {
-            Debug.LogError("[Stage5_6_Controller] 씬에서 Item_FuseBox를 찾을 수 없습니다.");
-        }
 
-        // 3. Stage 5 시작 (단서 확인 구간)
+        // [핫픽스] 누락되었던 코루틴 실행 복구 (8초 후 암전 트리거)
         StartCoroutine(Stage5_ClueSequence());
     }
 
     private IEnumerator Stage5_ClueSequence()
     {
         Debug.Log("[Stage5_6] Stage 5 진입. 거실 단서 탐색 대기...");
-
-        // 실내 진입 후 약 8초 대기 후 강제 암전(Stage 6 진입) 발생
         yield return new WaitForSeconds(8.0f);
 
         Debug.Log("[Stage5_6] Stage 6 진입. 쾅 소리와 함께 암전 발생.");
-
         if (mainRoomLight != null) mainRoomLight.enabled = false;
         isBlackout = true;
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(2); // 정전으로 인한 급상승
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
-        // 두꺼비집 활성화 (암전 상태에서만 조작 가능)
         if (fuseBox != null)
         {
             fuseBox.enabled = true;
-            if (fuseBox.GetComponent<Collider>() != null)
-            {
-                fuseBox.GetComponent<Collider>().enabled = true;
-            }
+            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = true;
         }
     }
 
@@ -76,15 +65,16 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         if (!isBlackout) return;
 
-        Debug.Log("[Stage5_6] 두꺼비집 조작 감지. 조명 복구 및 환각 시퀀스 시작.");
+        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(fuseBoxClipName);
+            if (clip != null) fuseBoxSwitchSource.PlayOneShot(clip);
+        }
 
         if (fuseBox != null)
         {
             fuseBox.enabled = false;
-            if (fuseBox.GetComponent<Collider>() != null)
-            {
-                fuseBox.GetComponent<Collider>().enabled = false;
-            }
+            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
         }
 
         StartCoroutine(Stage6_HallucinationSequence());
@@ -92,31 +82,49 @@ public class Stage5_6_Controller : MonoBehaviour
 
     private IEnumerator Stage6_HallucinationSequence()
     {
-        // 1. 조명 켜짐 (전기 복구)
         if (mainRoomLight != null) mainRoomLight.enabled = true;
         isBlackout = false;
 
-        // 2. 전기 복구 직후 0.5초 뒤 바닥 피/얼굴 가죽 환각 노출
         yield return new WaitForSeconds(0.5f);
-        Debug.Log("[Stage5_6] 환각 오브젝트 노출.");
+
         if (hallucinationDecals != null) hallucinationDecals.SetActive(true);
 
-        // 3. 환각 인지 유지 시간 (1.5초)
+        if (hallucinationSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(hallucinationClipName);
+            if (clip != null) hallucinationSource.PlayOneShot(clip);
+        }
+
         yield return new WaitForSeconds(1.5f);
 
-        // 4. 깜빡임 효과 및 환각 소거
-        Debug.Log("[Stage5_6] 찢어지는 비명소리와 함께 재암전(깜빡임).");
         if (mainRoomLight != null) mainRoomLight.enabled = false;
 
-        yield return new WaitForSeconds(0.2f); // 깜빡임 간격
+        if (lightFlickerSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(lightFlickerClipName);
+            if (clip != null)
+            {
+                lightFlickerSource.clip = clip;
+                lightFlickerSource.loop = true;
+                lightFlickerSource.Play();
+            }
+        }
 
-        Debug.Log("[Stage5_6] 환각 소거 및 조명 완전 정상화.");
+        yield return new WaitForSeconds(0.2f);
+
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
         if (mainRoomLight != null) mainRoomLight.enabled = true;
 
-        yield return new WaitForSeconds(2.0f); // 여운 대기
+        // [추가 연출] 조명이 복구될 때 켜지는 소리
+        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
+        {
+            AudioClip restoreClip = AudioManager.Instance.GetClip(lightRestoreClipName);
+            if (restoreClip != null) fuseBoxSwitchSource.PlayOneShot(restoreClip);
+        }
 
-        Debug.Log("[Stage5_6] Stage 6 완료. Stage 7 (집 앞 보석 획득) 로드 요청.");
+        if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
+
+        yield return new WaitForSeconds(2.0f);
         GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
     }
 }

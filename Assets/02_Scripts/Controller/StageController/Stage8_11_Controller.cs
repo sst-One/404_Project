@@ -1,11 +1,16 @@
+// 1. Stage8_11_Controller.cs
 using System.Collections;
 using UnityEngine;
 
 public class Stage8_11_Controller : MonoBehaviour
 {
-    [Header("사운드 에셋 연결")]
+    [Header("사운드 에셋 연결 (AudioSources)")]
     public AudioSource policeSirenSource;
     public AudioSource doorKnockSource;
+
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string policeSirenClipName = "SND-055_PoliceSiren_Loop";
+    public string doorKnockClipName = "";
 
     private PhoneController phoneController;
 
@@ -31,7 +36,6 @@ public class Stage8_11_Controller : MonoBehaviour
             StateManager.Instance.ResetHeartbeat();
         }
 
-        // 핫픽스: 씬 내에 존재하는 모든 적을 찾아 강제 비활성화하여 추격 및 심장박동 상승 원천 차단
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
         foreach (GameObject enemy in enemies)
         {
@@ -49,10 +53,28 @@ public class Stage8_11_Controller : MonoBehaviour
 
         yield return StartCoroutine(FadeInForcedBlackScreen(2.0f));
 
-        if (policeSirenSource != null) policeSirenSource.Play();
+        if (policeSirenSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(policeSirenClipName);
+            if (clip != null)
+            {
+                policeSirenSource.clip = clip;
+                policeSirenSource.Play();
+            }
+        }
+
         yield return new WaitForSeconds(4.0f);
 
-        if (doorKnockSource != null) doorKnockSource.Play();
+        if (doorKnockSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(doorKnockClipName);
+            if (clip != null)
+            {
+                doorKnockSource.clip = clip;
+                doorKnockSource.Play();
+            }
+        }
+
         yield return new WaitForSeconds(4.0f);
 
         Debug.Log("[EndingSequence] 연출 종료. Stage 12/13 씬 로드 요청.");

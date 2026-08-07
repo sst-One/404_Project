@@ -8,7 +8,11 @@ public class PlayerGazeController : MonoBehaviour
     public Camera mainCamera;
 
     [Header("Raycast Settings")]
-    public float maxGazeDistance = 1.5f;
+    public float maxGazeDistance = 5.0f;
+
+    [Tooltip("시선 판정의 두께. 너무 두꺼우면 엉뚱한 곳이 잡힙니다. (기존 0.3 -> 0.05 대폭 하향)")]
+    public float gazeRadius = 0.05f;
+
     public LayerMask targetMask;
     public LayerMask obstacleMask;
 
@@ -19,8 +23,6 @@ public class PlayerGazeController : MonoBehaviour
     [HideInInspector] public Vector3 CurrentFloorHitPoint;
     [HideInInspector] public Transform CurrentHoverTarget;
     [HideInInspector] public bool IsTargetReady;
-
-    [HideInInspector] public Vector3 RayOrigin;
     [HideInInspector] public Vector3 RayEndPoint;
 
     private PlayerInputProvider inputProvider;
@@ -33,7 +35,18 @@ public class PlayerGazeController : MonoBehaviour
 
     private void Update()
     {
-        if (mainCamera == null) return;
+        if (mainCamera == null)
+        {
+            mainCamera = Camera.main;
+            if (mainCamera == null) return;
+        }
+
+        if (SystemMenuController.Instance != null && SystemMenuController.Instance.IsPaused)
+        {
+            ResetObjectTarget();
+            return;
+        }
+
         ProcessGazeRaycast();
     }
 
@@ -41,18 +54,11 @@ public class PlayerGazeController : MonoBehaviour
     {
         IsFloorValid = false;
 
-        // 핫픽스: UI가 화면을 가리고 있을 때는 Gaze 레이캐스트 연산을 중단하고 타겟 초기화
-        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
-        {
-            ResetObjectTarget();
-            return;
-        }
-
         Ray ray = mainCamera.ScreenPointToRay(inputProvider.GazeScreenPosition);
         RayEndPoint = ray.origin + ray.direction * maxGazeDistance;
 
         RaycastHit hit;
-        if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask | obstacleMask))
+        if (Physics.SphereCast(ray, gazeRadius, out hit, maxGazeDistance, targetMask | obstacleMask))
         {
             RayEndPoint = hit.point;
 

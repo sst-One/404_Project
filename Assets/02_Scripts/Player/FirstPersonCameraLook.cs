@@ -6,53 +6,98 @@ public class FirstPersonCameraLook : MonoBehaviour
     [Header("회전 대상 설정")]
     public Transform playerBody;
 
-    [Header("마우스 회전 감도 (우클릭 드래그 시)")]
-    public float mouseSensitivity = 10f;
-    private float _xRotation = 0f;
+    [Header("Vision AI 360도 회전 설정 (조이스틱 방식)")]
+    [Tooltip("화면 회전 속도 (기존 200 -> 80으로 대폭 하향하여 확확 돌아가는 현상 차단)")]
+    public float headRotationSpeed = 80f;
+
+    [Tooltip("상하 회전 최대 제한 (목 꺾임 방지)")]
+    public float maxPitchAngle = 60f;
+
+    [Tooltip("데드존 반경 (기존 0.04 -> 0.08로 두 배 상향하여 웹캠 미세 떨림 100% 흡수)")]
+    public float deadzoneRadius = 0.08f;
+
+    [Tooltip("멈출 때의 부드러움 (기존 0.05 -> 0.15로 상향하여 기계적인 꺾임 제거)")]
+    public float rotationSmoothTime = 0.15f;
+
+    private float _targetYaw = 0f;
+    private float _targetPitch = 0f;
+    private float _currentYaw = 0f;
+    private float _currentPitch = 0f;
+
+    private float _yawVelocity;
+    private float _pitchVelocity;
 
     private void Start()
     {
-        // 마우스를 창 내부에 엄격히 가두되, 커서는 보이게 설정
-        Cursor.lockState = CursorLockMode.Confined;
-        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        if (playerBody != null)
+        {
+            _targetYaw = playerBody.localEulerAngles.y;
+            _currentYaw = _targetYaw;
+        }
     }
 
     private void Update()
     {
-        float rotX = 0f;
-        float rotY = 0f;
-
-        // [핵심 수정] 엣지 패닝 자동 회전 로직 전면 삭제. 
-        // 오직 명시적 조작(우클릭 드래그) 시에만 시야가 회전하도록 제한.
-        if (Mouse.current != null && Mouse.current.rightButton.isPressed)
-        {
-            Vector2 mouseDelta = Mouse.current.delta.ReadValue();
-            rotX = mouseDelta.y * mouseSensitivity * Time.deltaTime;
-            rotY = mouseDelta.x * mouseSensitivity * Time.deltaTime;
-        }
-
-        // Freeze 상태 시 회전 속도 보정
+        // 멈춤(Freeze) 상태일 때 회전 속도를 극감시켜 공포감 조성
+        float speedMultiplier = 1f;
         if (FreezeManager.Instance != null && FreezeManager.Instance.IsFreezing)
         {
-            rotX *= 0.2f;
-            rotY *= 0.2f;
+            speedMultiplier = 0.1f;
         }
 
-        // 카메라 상하 회전 (X축)
-        _xRotation -= rotX;
-        _xRotation = Mathf.Clamp(_xRotation, -90f, 90f);
-        transform.localRotation = Quaternion.Euler(_xRotation, 0f, 0f);
-
-        // 플레이어 몸통 좌우 회전 (Y축)
-        if (playerBody != null && rotY != 0f)
+        if (VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.isTracking)
         {
-            playerBody.Rotate(Vector3.up * rotY);
+            Vector3 headDelta = VisionTrackingManager.Instance.currentHeadPosition - VisionTrackingManager.Instance.baselineHeadPosition;
+
+            // X축 이동량 검사 (좌우 회전 누적)
+            if (Mathf.Abs(headDelta.x) > deadzoneRadius)
+            {
+                // 데드존을 초과한 만큼만 순수하게 가속 (급가속 방지)
+                float activeX = headDelta.x > 0 ? headDelta.x - deadzoneRadius : headDelta.x + deadzoneRadius;
+                _targetYaw += activeX * headRotationSpeed * speedMultiplier * Time.deltaTime;
+            }
+
+            // Y축 이동량 검사 (상하 회전 누적 - 미세 떨림 완벽 차단)
+            if (Mathf.Abs(headDelta.y) > deadzoneRadius)
+            {
+                float activeY = headDelta.y > 0 ? headDelta.y - deadzoneRadius : headDelta.y + deadzoneRadius;
+                _targetPitch -= activeY * headRotationSpeed * speedMultiplier * Time.deltaTime; // 상하 반전
+            }
+
+            // 상하 제한 (Gimbal Lock 방지)
+            _targetPitch = Mathf.Clamp(_targetPitch, -maxPitchAngle, maxPitchAngle);
+        }
+        else if (Mouse.current != null && Mouse.current.rightButton.isPressed)
+        {
+            Vector2 mouseDelta = Mouse.current.delta.ReadValue();
+            _targetYaw += mouseDelta.x * 0.1f * speedMultiplier;
+            _targetPitch -= mouseDelta.y * 0.1f * speedMultiplier;
+            _targetPitch = Mathf.Clamp(_targetPitch, -maxPitchAngle, maxPitchAngle);
+        }
+
+        // 스무딩 연산 (기존보다 묵직하게 정지)
+        _currentYaw = Mathf.SmoothDamp(_currentYaw, _targetYaw, ref _yawVelocity, rotationSmoothTime);
+        _currentPitch = Mathf.SmoothDamp(_currentPitch, _targetPitch, ref _pitchVelocity, rotationSmoothTime);
+
+        // 상하 회전 적용 (카메라 자체)
+        transform.localRotation = Quaternion.Euler(_currentPitch, 0f, 0f);
+
+        // 좌우 회전 적용 (플레이어 몸통 전체 - 360도 회전)
+        if (playerBody != null)
+        {
+            playerBody.localRotation = Quaternion.Euler(0f, _currentYaw, 0f);
         }
     }
 
     private void OnApplicationFocus(bool hasFocus)
     {
-        // 에디터/창 모드 전환 시 커서 락킹 유실 방지
-        if (hasFocus) Cursor.lockState = CursorLockMode.Confined;
+        if (hasFocus)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 }

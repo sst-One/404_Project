@@ -21,35 +21,34 @@ public class PlayerInputProvider : MonoBehaviour
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
-        // [핵심 핫픽스] UI 메뉴(ESC)나 자막이 떠 있을 경우, 입력을 뿌리 단계에서 원천 차단
-        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
+        bool isSystemMenuOpen = false;
+        if (SystemMenuController.Instance != null && SystemMenuController.Instance.IsPaused)
         {
-            IsFreezeActive = false;
-            IsGripHeld = false;
-            return; // 아래의 웹캠 및 PC 입력 로직 진입을 완전히 막음
+            isSystemMenuOpen = true;
         }
 
-        if (!useWebcam || (VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.IsInFallbackMode))
+        if (isSystemMenuOpen || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
             IsFreezeActive = false;
             IsGripHeld = false;
+            return;
+        }
+
+        // [핵심 핫픽스 1] 시선(커서)을 화면 정중앙에 완벽히 고정 (FPS 스타일 조준)
+        GazeScreenPosition = new Vector2(Screen.width / 2f, Screen.height / 2f);
+
+        if (!useWebcam || VisionTrackingManager.Instance == null || !VisionTrackingManager.Instance.isTracking)
+        {
             ProcessPCInput();
         }
-        else if (VisionTrackingManager.Instance != null)
+        else
         {
-            if (VisionTrackingManager.Instance.isTracking)
-            {
-                IsFreezeActive = false;
-                IsGripHeld = false;
-                ProcessWebcamInput();
-            }
+            ProcessWebcamInput();
         }
     }
 
     private void ProcessWebcamInput()
     {
-        GazeScreenPosition = VisionTrackingManager.Instance.GetGazeScreenPosition();
-
         bool isCurrentlyReaching = VisionTrackingManager.Instance.GetReachState();
         IsGripHeld = isCurrentlyReaching;
         if (isCurrentlyReaching && !_wasReachHeldLastFrame) IsGripTriggered = true;
@@ -66,8 +65,6 @@ public class PlayerInputProvider : MonoBehaviour
     {
         if (Mouse.current != null)
         {
-            GazeScreenPosition = Mouse.current.position.ReadValue();
-
             if (Mouse.current.leftButton.wasPressedThisFrame) IsGripTriggered = true;
             if (Mouse.current.leftButton.isPressed) IsGripHeld = true;
         }

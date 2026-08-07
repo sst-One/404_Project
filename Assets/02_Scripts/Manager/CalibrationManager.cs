@@ -32,12 +32,10 @@ public class CalibrationManager : MonoBehaviour
         IsCalibrated = false;
         float timer = 0f;
 
-        // 실제 비전 API 연동 시 이곳에 분산/오차 검증 로직이 추가됩니다.
-        // 현재는 Fallback 모드 테스트를 위해 시간 대기 후 현재 카메라 위치를 원점으로 확정합니다.
+        // 3초 대기 (실제 바른 자세 유지 구간)
         while (timer < calibrationDuration)
         {
             timer += Time.deltaTime;
-            // 미세 떨림 초과 시 실패 처리 로직 추가 예정
             yield return null;
         }
 
@@ -46,17 +44,21 @@ public class CalibrationManager : MonoBehaviour
 
     private void CompleteCalibration()
     {
-        if (Camera.main != null)
+        // [핵심 핫픽스] 유니티 카메라 위치가 아니라, MediaPipe가 인식한 실제 머리/손 좌표를 Baseline으로 강제 주입
+        if (VisionTrackingManager.Instance != null)
         {
-            OriginPosition = Camera.main.transform.position;
+            VisionTrackingManager.Instance.baselineHeadPosition = VisionTrackingManager.Instance.currentHeadPosition;
+            VisionTrackingManager.Instance.baselineHandPosition = VisionTrackingManager.Instance.currentHandPosition;
+
+            OriginPosition = VisionTrackingManager.Instance.baselineHeadPosition;
+            IsCalibrated = true;
+            Debug.Log($"[CalibrationManager] 캘리브레이션 성공. Vision AI 원점 등록 완료. Head: {OriginPosition}");
+            OnCalibrationSuccess?.Invoke();
         }
         else
         {
-            OriginPosition = Vector3.zero;
+            Debug.LogError("[CalibrationManager] VisionTrackingManager를 찾을 수 없어 캘리브레이션에 실패했습니다.");
+            OnCalibrationFailed?.Invoke();
         }
-
-        IsCalibrated = true;
-        Debug.Log($"[CalibrationManager] 캘리브레이션 성공. 원점 등록 완료: {OriginPosition}");
-        OnCalibrationSuccess?.Invoke();
     }
 }

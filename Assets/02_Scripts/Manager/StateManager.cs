@@ -1,3 +1,4 @@
+// 4. StateManager.cs
 using System;
 using System.Collections;
 using UnityEngine;
@@ -22,13 +23,16 @@ public class StateManager : MonoBehaviour
     private Coroutine _threatCoroutine;
     private Vector3 _lastNoisePosition;
 
-    [Header("상태 사운드 (2D)")]
+    private PlayerInputProvider _playerInput;
+
+    [Header("상태 사운드 (2D AudioSources)")]
     public AudioSource playerBreathSource;
     public AudioSource playerHeartbeatSource;
 
-    public AudioClip normalBreath; // Breath_Loop.wav
-    public AudioClip nervousBreath; // NervousBreath_Loop.wav
-    public AudioClip nervousHeartbeat; // NercouseHeartbeat_Loop.wav
+    [Header("사운드 에셋 이름 (SND-xxx)")]
+    public string normalBreathClipName = "";
+    public string nervousBreathClipName = "";
+    public string nervousHeartbeatClipName = "";
 
     private void Awake()
     {
@@ -44,12 +48,8 @@ public class StateManager : MonoBehaviour
     private void Start()
     {
         StartCoroutine(HeartbeatCooldownRoutine());
-        StartCoroutine(NoiseCooldownRoutine()); // [TPM 핫픽스] 소음 자연 감소 코루틴 상시 가동
+        StartCoroutine(NoiseCooldownRoutine());
     }
-
-    // =========================================================
-    // 소음 (Noise) 시스템
-    // =========================================================
 
     public void AddNoise(float amount, Vector3 noiseSourcePosition = default)
     {
@@ -63,10 +63,8 @@ public class StateManager : MonoBehaviour
 
         _currentNoiseLevel = newLevel;
 
-        // [TPM 핫픽스] 단계 변경 여부와 상관없이, Mid(0.25) 이상부터는 행동할 때마다 AI에게 핑(Ping)을 찍어 호출합니다.
         if (_currentNoiseLevel != NoiseLevel.Low)
         {
-            Debug.Log($"[StateManager] 소음 발생: {_currentNoiseLevel} (누적치: {_currentNoiseValue:F2} / 위치: {_lastNoisePosition})");
             OnNoiseLevelChanged?.Invoke(_currentNoiseLevel, _lastNoisePosition);
         }
     }
@@ -77,12 +75,10 @@ public class StateManager : MonoBehaviour
         while (true)
         {
             yield return wait;
-            // 1초마다 소음 누적치를 0.05씩 깎아줍니다. (가만히 있으면 조용해짐)
             if (_currentNoiseValue > 0f)
             {
                 _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.15f, 0f, 1f);
 
-                // AI를 자극하지 않고 내부적으로만 단계(Tier)를 낮춥니다.
                 NoiseLevel newLevel = NoiseLevel.Low;
                 if (_currentNoiseValue > 0.75f) newLevel = NoiseLevel.Critical;
                 else if (_currentNoiseValue > 0.5f) newLevel = NoiseLevel.High;
@@ -92,10 +88,6 @@ public class StateManager : MonoBehaviour
             }
         }
     }
-
-    // =========================================================
-    // 심장박동 (Heartbeat) 및 위협(Threat) 시스템
-    // =========================================================
 
     public void AddHeartbeat(int amount)
     {
@@ -115,9 +107,7 @@ public class StateManager : MonoBehaviour
         if (newLevel != _currentHeartbeatLevel)
         {
             _currentHeartbeatLevel = newLevel;
-            Debug.Log($"[StateManager] 심장박동 레벨 변경: {_currentHeartbeatLevel}");
             OnHeartbeatLevelChanged?.Invoke(_currentHeartbeatLevel);
-
             UpdateHeartbeatEffects(_currentHeartbeatValue);
         }
     }
@@ -127,7 +117,6 @@ public class StateManager : MonoBehaviour
         _threatCount++;
         if (_threatCount == 1)
         {
-            Debug.Log("[StateManager] 위협 감지됨! 심장박동 강제 상승 시작.");
             _threatCoroutine = StartCoroutine(ThreatHeartbeatRoutine());
         }
     }
@@ -142,7 +131,6 @@ public class StateManager : MonoBehaviour
             {
                 StopCoroutine(_threatCoroutine);
                 _threatCoroutine = null;
-                Debug.Log("[StateManager] 모든 위협 해제. 심장박동 강제 상승 중단.");
             }
         }
     }
@@ -164,11 +152,8 @@ public class StateManager : MonoBehaviour
         {
             yield return wait;
 
-            bool isFreezing = false;
-            if (FreezeManager.Instance != null)
-            {
-                isFreezing = FreezeManager.Instance.IsFreezing;
-            }
+            if (_playerInput == null) _playerInput = FindObjectOfType<PlayerInputProvider>();
+            bool isFreezing = (_playerInput != null && _playerInput.IsFreezeActive);
 
             if (_threatCount == 0 && !isFreezing && _currentHeartbeatValue > 0)
             {
@@ -179,47 +164,31 @@ public class StateManager : MonoBehaviour
 
     private void UpdateHeartbeatEffects(int level)
     {
+        if (AudioManager.Instance == null) return;
+
         if (level >= 2)
         {
+            AudioClip nervousBreath = AudioManager.Instance.GetClip(nervousBreathClipName);
             if (playerBreathSource != null && nervousBreath != null)
             {
-                if (playerBreathSource.clip != nervousBreath)
-                {
-                    playerBreathSource.clip = nervousBreath;
-                    playerBreathSource.Play();
-                }
-                else if (!playerBreathSource.isPlaying)
-                {
-                    playerBreathSource.Play();
-                }
+                if (playerBreathSource.clip != nervousBreath) playerBreathSource.clip = nervousBreath;
+                if (!playerBreathSource.isPlaying) playerBreathSource.Play();
             }
 
+            AudioClip nervousHeartbeat = AudioManager.Instance.GetClip(nervousHeartbeatClipName);
             if (playerHeartbeatSource != null && nervousHeartbeat != null)
             {
-                if (playerHeartbeatSource.clip != nervousHeartbeat)
-                {
-                    playerHeartbeatSource.clip = nervousHeartbeat;
-                    playerHeartbeatSource.Play();
-                }
-                else if (!playerHeartbeatSource.isPlaying)
-                {
-                    playerHeartbeatSource.Play();
-                }
+                if (playerHeartbeatSource.clip != nervousHeartbeat) playerHeartbeatSource.clip = nervousHeartbeat;
+                if (!playerHeartbeatSource.isPlaying) playerHeartbeatSource.Play();
             }
         }
         else
         {
+            AudioClip normalBreath = AudioManager.Instance.GetClip(normalBreathClipName);
             if (playerBreathSource != null && normalBreath != null)
             {
-                if (playerBreathSource.clip != normalBreath)
-                {
-                    playerBreathSource.clip = normalBreath;
-                    playerBreathSource.Play();
-                }
-                else if (!playerBreathSource.isPlaying)
-                {
-                    playerBreathSource.Play();
-                }
+                if (playerBreathSource.clip != normalBreath) playerBreathSource.clip = normalBreath;
+                if (!playerBreathSource.isPlaying) playerBreathSource.Play();
             }
 
             if (playerHeartbeatSource != null && playerHeartbeatSource.isPlaying)

@@ -8,7 +8,11 @@ public class PlayerGazeController : MonoBehaviour
     public Camera mainCamera;
 
     [Header("Raycast Settings")]
-    public float maxGazeDistance = 1.5f;
+    public float maxGazeDistance = 5.0f;
+
+    [Tooltip("시선 판정의 두께. 너무 두꺼우면 엉뚱한 곳이 잡힙니다. (기존 0.3 -> 0.05 대폭 하향)")]
+    public float gazeRadius = 0.05f;
+
     public LayerMask targetMask;
     public LayerMask obstacleMask;
 
@@ -19,9 +23,6 @@ public class PlayerGazeController : MonoBehaviour
     [HideInInspector] public Vector3 CurrentFloorHitPoint;
     [HideInInspector] public Transform CurrentHoverTarget;
     [HideInInspector] public bool IsTargetReady;
-
-    // UI 인디케이터(선) 렌더링을 위한 좌표 데이터
-    [HideInInspector] public Vector3 RayOrigin;
     [HideInInspector] public Vector3 RayEndPoint;
 
     private PlayerInputProvider inputProvider;
@@ -34,18 +35,30 @@ public class PlayerGazeController : MonoBehaviour
 
     private void Update()
     {
-        if (mainCamera == null) return;
+        if (mainCamera == null)
+        {
+            mainCamera = Camera.main;
+            if (mainCamera == null) return;
+        }
+
+        if (SystemMenuController.Instance != null && SystemMenuController.Instance.IsPaused)
+        {
+            ResetObjectTarget();
+            return;
+        }
+
         ProcessGazeRaycast();
     }
 
     private void ProcessGazeRaycast()
     {
         IsFloorValid = false;
+
         Ray ray = mainCamera.ScreenPointToRay(inputProvider.GazeScreenPosition);
         RayEndPoint = ray.origin + ray.direction * maxGazeDistance;
 
         RaycastHit hit;
-        if (Physics.Raycast(ray, out hit, maxGazeDistance, targetMask | obstacleMask))
+        if (Physics.SphereCast(ray, gazeRadius, out hit, maxGazeDistance, targetMask | obstacleMask))
         {
             RayEndPoint = hit.point;
 
@@ -55,7 +68,6 @@ public class PlayerGazeController : MonoBehaviour
                 return;
             }
 
-            // [수정] 이동 가능 지점(Walkable) 또는 은신처(HidingSpot) 판정
             int walkableLayer = LayerMask.NameToLayer("Walkable");
             int hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
 
@@ -64,12 +76,11 @@ public class PlayerGazeController : MonoBehaviour
                 if (NavMesh.SamplePosition(hit.point, out NavMeshHit navHit, 3.0f, NavMesh.AllAreas))
                 {
                     CurrentFloorHitPoint = navHit.position;
-                    IsFloorValid = true; // 이제 두 레이어 모두 이동 가능 지점으로 판정됨
+                    IsFloorValid = true;
                 }
             }
             else if ((targetMask & (1 << hit.transform.gameObject.layer)) != 0)
             {
-                // 상호작용 오브젝트 로직 유지
                 if (CurrentHoverTarget == hit.transform)
                 {
                     if (!IsTargetReady)
@@ -97,6 +108,6 @@ public class PlayerGazeController : MonoBehaviour
         CurrentHoverTarget = null;
         currentReadyTimer = 0f;
         IsTargetReady = false;
-        IsFloorValid = false; // [수정] 포커스 리셋 시 이동 불가 처리
+        IsFloorValid = false;
     }
 }

@@ -7,11 +7,10 @@ public class InputManager : MonoBehaviour
 
     [Header("디버그 및 테스트 환경 (SYS-009)")]
     [Tooltip("체크 시 웹캠(비전 AI)을 무시하고 키보드/마우스 입력 모드를 강제합니다.")]
-    public bool forceFallbackMode = true; // PC 테스트를 위해 기본값을 true로 설정
+    public bool forceFallbackMode = false; // PC 테스트를 위해 기본값을 true로 설정
 
     private IPlayerInput _currentInputProcessor;
     private IPlayerInput _fallbackProcessor;
-    private PlayerInputMapper _visionProcessor;
 
     private void Awake()
     {
@@ -28,9 +27,6 @@ public class InputManager : MonoBehaviour
 
     private void InitializeProcessors()
     {
-        _fallbackProcessor = new KeyboardInputProcessor();
-        _visionProcessor = FindObjectOfType<PlayerInputMapper>();
-
         UpdateInputProcessor();
     }
 
@@ -47,13 +43,9 @@ public class InputManager : MonoBehaviour
 
     private void UpdateInputProcessor()
     {
-        if (forceFallbackMode || _visionProcessor == null)
+        if (forceFallbackMode)
         {
             _currentInputProcessor = _fallbackProcessor;
-        }
-        else
-        {
-            _currentInputProcessor = _visionProcessor;
         }
     }
 

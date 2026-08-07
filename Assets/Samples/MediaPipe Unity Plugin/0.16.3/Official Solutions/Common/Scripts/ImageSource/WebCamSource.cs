@@ -24,6 +24,8 @@ namespace Mediapipe.Unity
 
     private readonly ResolutionStruct[] _defaultAvailableResolutions;
 
+    private string forcedDeviceName = "OBS Virtual Camera";
+
     public WebCamSource(int preferableDefaultWidth, ResolutionStruct[] defaultAvailableResolutions)
     {
       _preferableDefaultWidth = preferableDefaultWidth;
@@ -183,6 +185,7 @@ namespace Mediapipe.Unity
       }
 
       webCamDevice = availableSources[sourceId];
+      forcedDeviceName = availableSources[sourceId].name;
     }
 
     public override IEnumerator Play()
@@ -236,28 +239,51 @@ namespace Mediapipe.Unity
       return resolutions == null || resolutions.Length == 0 ? new ResolutionStruct() : resolutions.OrderBy(resolution => resolution, new ResolutionStructComparer(_preferableDefaultWidth)).First();
     }
 
+    //private void InitializeWebCamTexture()
+    //{
+    //  Stop();
+    //  if (webCamDevice is WebCamDevice valueOfWebCamDevice)
+    //  {
+    //    //webCamTexture = new WebCamTexture(valueOfWebCamDevice.name, resolution.width, resolution.height, (int)resolution.frameRate);
+    //    webCamTexture = new WebCamTexture(valueOfWebCamDevice.name);
+    //    return;
+    //  }
+    //  throw new InvalidOperationException("Cannot initialize WebCamTexture because WebCamDevice is not selected");
+    //}
     private void InitializeWebCamTexture()
     {
       Stop();
-      if (webCamDevice is WebCamDevice valueOfWebCamDevice)
-      {
-        webCamTexture = new WebCamTexture(valueOfWebCamDevice.name, resolution.width, resolution.height, (int)resolution.frameRate);
-        return;
-      }
-      throw new InvalidOperationException("Cannot initialize WebCamTexture because WebCamDevice is not selected");
+      
+      // [핫픽스] MediaPipe 내부 인덱스 누락 충돌 방지: 강제 지정된 OBS 가상 카메라 이름으로 직접 텍스처 생성
+      string activeName = string.IsNullOrEmpty(forcedDeviceName) ? "OBS Virtual Camera" : forcedDeviceName;
+      
+      Debug.Log($"[WebCamSource 핫픽스] 최종 텍스처 생성 대상 장치명: {activeName}");
+      webCamTexture = new WebCamTexture(activeName);
+      return;
     }
+
+    //private IEnumerator WaitForWebCamTexture()
+    //{
+    //  const int timeoutFrame = 2000;
+    //  var count = 0;
+    //  Debug.Log("Waiting for WebCamTexture to start");
+    //  yield return new WaitUntil(() => count++ > timeoutFrame || webCamTexture.width > 16);
+    //
+    //  if (webCamTexture.width <= 16)
+    //  {
+    //    throw new TimeoutException("Failed to start WebCam");
+    //  }
+    //}
 
     private IEnumerator WaitForWebCamTexture()
     {
-      const int timeoutFrame = 2000;
-      var count = 0;
-      Debug.Log("Waiting for WebCamTexture to start");
-      yield return new WaitUntil(() => count++ > timeoutFrame || webCamTexture.width > 16);
+      Debug.Log("[WebCamSource] 카메라 예열 및 첫 프레임 텍스처 수신 대기 중... (타임아웃 해제됨)");
+      
+      // 기존의 2000 프레임 제한과 width > 16 강제 검증 로직, TimeoutException을 완전히 삭제합니다.
+      // 유니티 네이티브 API가 USB로부터 '실제 첫 화면(didUpdateThisFrame)'을 받을 때까지 무한 대기하며 안전하게 넘깁니다.
+      yield return new WaitUntil(() => webCamTexture != null && webCamTexture.didUpdateThisFrame);
 
-      if (webCamTexture.width <= 16)
-      {
-        throw new TimeoutException("Failed to start WebCam");
-      }
+      Debug.Log($"[WebCamSource] 첫 프레임 수신 성공! 현재 적용된 네이티브 해상도: {webCamTexture.width}x{webCamTexture.height}");
     }
 
     private class ResolutionStructComparer : IComparer<ResolutionStruct>

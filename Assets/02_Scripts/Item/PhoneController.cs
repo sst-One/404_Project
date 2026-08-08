@@ -1,4 +1,3 @@
-// 3. PhoneController.cs
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
@@ -35,13 +34,11 @@ public class PhoneController : MonoBehaviour
 
     private Coroutine _actionCoroutine;
     private bool _isInteracting = false;
-    private PlayerInputProvider _inputProvider;
     private InteractableItem _interactable;
     private Camera _mainCamera;
 
     private void Start()
     {
-        _inputProvider = FindObjectOfType<PlayerInputProvider>();
         _interactable = GetComponent<InteractableItem>();
 
         if (_interactable != null)
@@ -84,7 +81,8 @@ public class PhoneController : MonoBehaviour
         float timer = 0f;
         while (timer < recoverHoldTime)
         {
-            if (_inputProvider == null || !_inputProvider.IsGripHeld)
+            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
+            if (PlayerController.Instance == null || !PlayerController.Instance.IsGripHeld)
             {
                 _isInteracting = false;
                 if (_interactable != null) _interactable.isInteractable = true;
@@ -141,7 +139,8 @@ public class PhoneController : MonoBehaviour
         {
             timer += Time.deltaTime;
 
-            if (_inputProvider == null || !_inputProvider.IsFreezeActive)
+            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
+            if (PlayerController.Instance == null || !PlayerController.Instance.IsFreezeActive)
             {
                 if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
 
@@ -185,7 +184,8 @@ public class PhoneController : MonoBehaviour
 
         while (currentState == PhoneState.Recovered)
         {
-            if (_interactable != null && _interactable.IsFocused && _inputProvider != null && _inputProvider.IsFreezeActive)
+            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
+            if (_interactable != null && _interactable.IsFocused && PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive)
             {
                 yield return StartCoroutine(CallRoutine());
             }

@@ -1,8 +1,7 @@
+// [Player] PlayerUIController.cs (종속성 해제 및 최적화)
 using UnityEngine;
 using UnityEngine.UI;
 
-[RequireComponent(typeof(PlayerGazeController))]
-[RequireComponent(typeof(PlayerInputProvider))]
 public class PlayerUIController : MonoBehaviour
 {
     [Header("UI Reference")]
@@ -15,16 +14,8 @@ public class PlayerUIController : MonoBehaviour
     public Color readyColor = new Color(0f, 1f, 1f, 0.15f);
     public Color moveColor = new Color(1f, 0f, 1f, 0.3f);
 
-    private PlayerGazeController gazeController;
-    private PlayerInputProvider inputProvider;
-    private PlayerMovement playerMovement;
-
     private void Awake()
     {
-        gazeController = GetComponent<PlayerGazeController>();
-        inputProvider = GetComponent<PlayerInputProvider>();
-        playerMovement = GetComponent<PlayerMovement>();
-
         if (indicatorRect != null)
         {
             indicatorImage = indicatorRect.GetComponent<Image>();
@@ -33,7 +24,8 @@ public class PlayerUIController : MonoBehaviour
 
     private void Update()
     {
-        // 씬 전환 시 인디케이터 연결이 끊어지는 현상 방어 및 자동 재연결
+        if (PlayerController.Instance == null) return;
+
         if (indicatorRect == null)
         {
             GameObject indicatorObj = GameObject.Find("Indicator");
@@ -48,26 +40,19 @@ public class PlayerUIController : MonoBehaviour
 
         if (indicatorImage == null) return;
 
-        indicatorRect.position = inputProvider.GazeScreenPosition;
+        indicatorRect.position = PlayerController.Instance.GazeScreenPosition;
 
-        if (playerMovement != null && playerMovement.IsMoving)
+        if (PlayerController.Instance.IsMoving)
         {
             indicatorImage.color = moveColor;
         }
-        else if (gazeController != null && gazeController.IsFloorValid)
+        else if (PlayerController.Instance.IsFloorValid)
         {
             indicatorImage.color = readyColor;
         }
-        else if (gazeController != null && gazeController.CurrentHoverTarget != null)
+        else if (PlayerController.Instance.CurrentHoverTarget != null)
         {
-            if (gazeController.IsTargetReady)
-            {
-                indicatorImage.color = readyColor;
-            }
-            else
-            {
-                indicatorImage.color = hoverColor;
-            }
+            indicatorImage.color = PlayerController.Instance.IsTargetReady ? readyColor : hoverColor;
         }
         else
         {

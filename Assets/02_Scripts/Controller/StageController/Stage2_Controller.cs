@@ -1,4 +1,3 @@
-// Stage2_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -18,6 +17,10 @@ public class Stage2_Controller : MonoBehaviour
             tvRemote = tvObj.GetComponent<InteractableItem>();
             tvRemote.onInteractEvent.RemoveAllListeners();
             tvRemote.onInteractEvent.AddListener(OnTvRemoteReached);
+
+            bool isStage2 = GameFlowManager.Instance.currentStage == GameStage.Stage2_Room;
+            tvRemote.enabled = isStage2;
+            if (tvRemote.GetComponent<Collider>() != null) tvRemote.GetComponent<Collider>().enabled = isStage2;
         }
     }
 
@@ -35,7 +38,7 @@ public class Stage2_Controller : MonoBehaviour
     {
         if (tvNewsSource != null && AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip("SND-060_NewsReport_Loop"); // 기획상 파일명 기준
+            AudioClip clip = AudioManager.Instance.GetClip("SND-060_NewsReport_Loop");
             if (clip != null)
             {
                 tvNewsSource.clip = clip;
@@ -43,9 +46,9 @@ public class Stage2_Controller : MonoBehaviour
             }
         }
 
-        if (SubtitleController.Instance != null)
+        if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day1_TVNews));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day1_TVNews));
         }
 
         if (tvNewsSource != null && tvNewsSource.isPlaying) tvNewsSource.Stop();

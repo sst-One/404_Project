@@ -1,4 +1,3 @@
-// 3. HidingSpotManager.cs
 using UnityEngine;
 using UnityEngine.Events;
 
@@ -30,6 +29,7 @@ public class HidingSpotManager : MonoBehaviour
 
     private void Start()
     {
+        // 씬 로드 시에만 플레이어를 찾음
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
@@ -42,18 +42,7 @@ public class HidingSpotManager : MonoBehaviour
     {
         if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()) return;
 
-        bool isChaseStage = (GameFlowManager.Instance != null &&
-                             GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
-                             GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
-
-        if (!isChaseStage) return;
-
-        if (_playerTransform == null)
-        {
-            GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-            if (playerObj != null) _playerTransform = playerObj.transform;
-            return;
-        }
+        if (_playerTransform == null) return;
 
         if (Vector3.Distance(_playerTransform.position, _lastKnownPosition) > 1.5f)
         {

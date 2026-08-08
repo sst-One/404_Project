@@ -1,4 +1,3 @@
-// 2. EnemyAI.cs
 using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
@@ -38,7 +37,6 @@ public class EnemyAI : MonoBehaviour
     private Coroutine _fovCoroutine;
     private Coroutine _suspectCoroutine;
     private float _lastNoiseReactionTime = 0f;
-    private PlayerInputProvider _playerInput;
 
     [Header("오디오 설정 (AudioSources)")]
     public AudioSource footstepSource;
@@ -57,10 +55,9 @@ public class EnemyAI : MonoBehaviour
 
     private void Start()
     {
-        if (PlayerMovement.Instance != null) _playerTransform = PlayerMovement.Instance.transform;
+        // [수정 완료] 삭제된 PlayerMovement 대신 통합된 PlayerController를 참조합니다.
+        if (PlayerController.Instance != null) _playerTransform = PlayerController.Instance.transform;
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
-
-        _playerInput = FindObjectOfType<PlayerInputProvider>();
 
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
@@ -140,7 +137,8 @@ public class EnemyAI : MonoBehaviour
         if (isNarrativeMode || _mainCamera == null) return;
 
         bool canSeePlayer = false;
-        bool isPlayerFreezing = (_playerInput != null && _playerInput.IsFreezeActive);
+        // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
+        bool isPlayerFreezing = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive);
         float currentDistanceToPlayer = float.MaxValue;
 
         Vector3 targetPos = _mainCamera.transform.position;

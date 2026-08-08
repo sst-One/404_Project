@@ -1,4 +1,3 @@
-// Stage7_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -33,11 +32,11 @@ public class Stage7_Controller : MonoBehaviour
 
     private IEnumerator Stage7_NarrativeSequence()
     {
-        if (SubtitleController.Instance != null)
+        if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_1));
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_2));
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_3));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_1));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_2));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_3));
         }
 
         if (gemItem != null)

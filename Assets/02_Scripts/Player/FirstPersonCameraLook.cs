@@ -77,23 +77,24 @@ public class FirstPersonCameraLook : MonoBehaviour
             float deltaYaw = Mathf.DeltaAngle(VisionTrackingManager.Instance.baselineHeadRotation.y, VisionTrackingManager.Instance.currentHeadRotation.y);
             float deltaPitch = Mathf.DeltaAngle(VisionTrackingManager.Instance.baselineHeadRotation.x, VisionTrackingManager.Instance.currentHeadRotation.x);
 
-            float yawOffset = 0f;
-            float pitchOffset = 0f;
-
             if (Mathf.Abs(deltaYaw) > deadzoneRadius)
             {
-                yawOffset = (deltaYaw > 0 ? deltaYaw - deadzoneRadius : deltaYaw + deadzoneRadius) * headRotationSpeed * speedMultiplier;
-                if (invertYaw) yawOffset = -yawOffset;
+                float activeYaw = deltaYaw > 0 ? deltaYaw - deadzoneRadius : deltaYaw + deadzoneRadius;
+                if (invertYaw) activeYaw = -activeYaw;
+                _baseYaw += activeYaw * headRotationSpeed * speedMultiplier * Time.deltaTime;
             }
 
             if (Mathf.Abs(deltaPitch) > deadzoneRadius)
             {
-                pitchOffset = (deltaPitch > 0 ? deltaPitch - deadzoneRadius : deltaPitch + deadzoneRadius) * headRotationSpeed * speedMultiplier;
-                if (invertPitch) pitchOffset = -pitchOffset;
+                float activePitch = deltaPitch > 0 ? deltaPitch - deadzoneRadius : deltaPitch + deadzoneRadius;
+                if (invertPitch) activePitch = -activePitch;
+                _basePitch += activePitch * headRotationSpeed * speedMultiplier * Time.deltaTime;
             }
 
-            _targetYaw = _baseYaw + yawOffset;
-            _targetPitch = Mathf.Clamp(_basePitch + pitchOffset, -maxPitchAngle, maxPitchAngle);
+            _basePitch = Mathf.Clamp(_basePitch, -maxPitchAngle, maxPitchAngle);
+
+            _targetYaw = _baseYaw;
+            _targetPitch = _basePitch;
         }
         else if (Mouse.current != null && Mouse.current.rightButton.isPressed)
         {
@@ -102,6 +103,7 @@ public class FirstPersonCameraLook : MonoBehaviour
             _targetPitch -= mouseDelta.y * 0.1f * speedMultiplier;
             _targetPitch = Mathf.Clamp(_targetPitch, -maxPitchAngle, maxPitchAngle);
             _baseYaw = _targetYaw;
+            _basePitch = _targetPitch;
         }
 
         _currentYaw = Mathf.SmoothDamp(_currentYaw, _targetYaw, ref _yawVelocity, rotationSmoothTime);

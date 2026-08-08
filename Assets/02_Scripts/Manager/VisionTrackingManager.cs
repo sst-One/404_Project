@@ -21,10 +21,13 @@ public class VisionTrackingManager : MonoBehaviour
     public float calibrationDuration = 3.0f;
     public bool IsCalibrated { get; private set; } = false;
 
-    [Header("Thresholds")]
-    public float leanDepthThreshold = 0.2f;
+    [Header("Thresholds (데드존 확립)")]
+    [Tooltip("이동: 이 수치보다 앞으로 숙여야 발동 (기본 0.2)")]
+    public float leanDepthThreshold = 0.3f;
+    [Tooltip("상호작용: 이 수치보다 손을 뻗어야 발동 (기본 0.3)")]
     public float reachDepthThreshold = 0.3f;
-    public float backwardLeanThreshold = -0.15f;
+    [Tooltip("호흡참기: 이 수치보다 뒤로 확실히 젖혀야 발동 (관성 오작동 방지를 위해 -0.3 셋팅)")]
+    public float backwardLeanThreshold = -0.4f;
 
     public bool IsInFallbackMode { get; private set; } = false;
 
@@ -47,9 +50,10 @@ public class VisionTrackingManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
+        // PlayerPrefs 호출 시 기본값도 -0.3f로 하드코딩
         leanDepthThreshold = PlayerPrefs.GetFloat("LeanThreshold", 0.2f);
         reachDepthThreshold = PlayerPrefs.GetFloat("ReachThreshold", 0.3f);
-        backwardLeanThreshold = PlayerPrefs.GetFloat("BackwardLeanThreshold", -0.15f);
+        backwardLeanThreshold = PlayerPrefs.GetFloat("BackwardLeanThreshold", -0.3f);
     }
 
     public void UpdateFaceData(Vector3 gazePos, Vector3 headPos, Vector3 headRot)
@@ -123,7 +127,6 @@ public class VisionTrackingManager : MonoBehaviour
         }
     }
 
-    // --- [병합된 CalibrationManager 로직] ---
     public void StartCalibration()
     {
         StartCoroutine(CalibrationRoutine());
@@ -138,7 +141,6 @@ public class VisionTrackingManager : MonoBehaviour
         IsCalibrated = true;
         OnCalibrationSuccess?.Invoke();
     }
-    // --------------------------------------
 
     public void RecalibrateOrigin()
     {
@@ -163,6 +165,7 @@ public class VisionTrackingManager : MonoBehaviour
     public bool GetOriginFreezeState()
     {
         if (!isTracking || baselineHeadPosition == Vector3.zero) return false;
+        // z값이 -0.3f 이하로 내려가야 호흡참기 발동
         return (currentHeadPosition.z - baselineHeadPosition.z) < backwardLeanThreshold;
     }
 }

@@ -14,13 +14,13 @@ public class PlayerController : MonoBehaviour
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
     public float maxGazeDistance = 5.0f;
-    public float gazeRadius = 0.05f;
+    // [수정 완료] 0.4f에서 0.1f로 축소. 정확한 조준 필요.
+    public float gazeRadius = 0.3f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
     public float readyTimeThreshold = 0.5f;
 
     [Header("Movement Settings")]
-    public float stepDistance = 1.5f;
     public float moveSpeed = 3.0f;
     public float footstepInterval = 0.4f;
 
@@ -28,25 +28,24 @@ public class PlayerController : MonoBehaviour
     public AudioSource playerFootstepSource;
     public string footstepClipName = "SND-006_FootWalk_Oneshot_Loop";
 
-    // Public Read-Only States
     public Vector2 GazeScreenPosition { get; private set; }
     public bool IsGripTriggered { get; private set; }
     public bool IsGripHeld { get; private set; }
     public bool IsLeanTriggered { get; private set; }
+    public bool IsLeanHeld { get; private set; }
     public bool IsFreezeActive { get; private set; }
     public bool IsMoving { get; private set; }
     public bool IsFloorValid { get; private set; }
     public Transform CurrentHoverTarget { get; private set; }
     public bool IsTargetReady { get; private set; }
 
-    // Internal States
     private bool _wasReachHeldLastFrame;
     private bool _wasLeanHeldLastFrame;
     private float _currentReadyTimer;
     private IInteractable _currentFocusedObject;
     private bool _isObjectReadyTriggered;
     private CharacterController _cc;
-    private Coroutine _activeMoveCoroutine;
+    private float _footstepTimer = 0f;
 
     private void Awake()
     {
@@ -66,7 +65,6 @@ public class PlayerController : MonoBehaviour
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
-        // 통합된 UIManager 블로킹 판정 
         bool isTutorialBlocking = TutorialCalibrationUI.Instance != null &&
                                   TutorialCalibrationUI.Instance.gameObject.activeInHierarchy &&
                                   !TutorialCalibrationUI.Instance.IsInCalibrationTestMode;
@@ -75,18 +73,18 @@ public class PlayerController : MonoBehaviour
         {
             IsFreezeActive = false;
             IsGripHeld = false;
+            IsLeanHeld = false;
+            IsMoving = false;
             ClearAllFocus();
             return;
         }
 
         GazeScreenPosition = new Vector2(Screen.width / 2f, Screen.height / 2f);
         ProcessInputs();
+        ProcessGazeAndInteraction();
 
-        if (!IsMoving)
-        {
-            ProcessGazeAndInteraction();
-            if (IsLeanTriggered) CalculateAndMoveForward();
-        }
+        if (IsLeanHeld) MoveContinuously();
+        else StopMovement();
     }
 
     private void ProcessInputs()
@@ -100,6 +98,7 @@ public class PlayerController : MonoBehaviour
             }
             if (Keyboard.current != null)
             {
+                IsLeanHeld = Keyboard.current.wKey.isPressed;
                 if (Keyboard.current.wKey.wasPressedThisFrame) IsLeanTriggered = true;
                 if (Keyboard.current.sKey.isPressed) IsFreezeActive = true;
             }
@@ -112,6 +111,7 @@ public class PlayerController : MonoBehaviour
             _wasReachHeldLastFrame = isCurrentlyReaching;
 
             bool isCurrentlyLeaning = VisionTrackingManager.Instance.GetLeanState();
+            IsLeanHeld = isCurrentlyLeaning;
             if (isCurrentlyLeaning && !_wasLeanHeldLastFrame) IsLeanTriggered = true;
             _wasLeanHeldLastFrame = isCurrentlyLeaning;
 
@@ -224,7 +224,7 @@ public class PlayerController : MonoBehaviour
         IsFloorValid = false;
     }
 
-    private void CalculateAndMoveForward()
+    private void MoveContinuously()
     {
         if (mainCamera == null || _cc == null || !_cc.enabled) return;
 
@@ -234,55 +234,27 @@ public class PlayerController : MonoBehaviour
 
         if (forwardDir.sqrMagnitude > 0.01f)
         {
-            if (_activeMoveCoroutine != null) StopCoroutine(_activeMoveCoroutine);
-            _activeMoveCoroutine = StartCoroutine(MoveRoutine(forwardDir));
+            IsMoving = true;
+            _cc.Move(forwardDir * moveSpeed * Time.deltaTime);
+
+            _footstepTimer += Time.deltaTime;
+            if (_footstepTimer >= footstepInterval)
+            {
+                _footstepTimer = 0f;
+                if (playerFootstepSource != null && AudioManager.Instance != null)
+                {
+                    AudioClip clip = AudioManager.Instance.GetClip(footstepClipName);
+                    if (clip != null) playerFootstepSource.PlayOneShot(clip);
+                }
+            }
+
+            if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.05f * Time.deltaTime);
         }
     }
 
-    private IEnumerator MoveRoutine(Vector3 direction)
+    private void StopMovement()
     {
-        IsMoving = true;
-        float movedDistance = 0f;
-
-        // 발소리 코루틴을 강제 통제하기 위한 생명주기 캡슐화
-        Coroutine footstepCoroutine = null;
-        bool keepPlayingFootstep = true;
-
-        if (stepDistance > 0.01f)
-        {
-            footstepCoroutine = StartCoroutine(FootstepLoopRoutine(() => keepPlayingFootstep));
-
-            while (movedDistance < stepDistance)
-            {
-                if (_cc == null || !_cc.enabled) break;
-
-                float step = moveSpeed * Time.deltaTime;
-                _cc.Move(direction * step);
-                movedDistance += step;
-                yield return null;
-            }
-        }
-
-        keepPlayingFootstep = false; // 플래그를 꺼서 발소리 즉각 중단
-        if (footstepCoroutine != null) StopCoroutine(footstepCoroutine);
-
         IsMoving = false;
-        _activeMoveCoroutine = null;
-
-        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.2f);
-    }
-
-    // 무한루프 고스트 사운드 발생을 막는 델리게이트 조건부 코루틴
-    private IEnumerator FootstepLoopRoutine(System.Func<bool> condition)
-    {
-        while (condition())
-        {
-            if (playerFootstepSource != null && AudioManager.Instance != null)
-            {
-                AudioClip clip = AudioManager.Instance.GetClip(footstepClipName);
-                if (clip != null) playerFootstepSource.PlayOneShot(clip);
-            }
-            yield return new WaitForSeconds(footstepInterval);
-        }
+        _footstepTimer = footstepInterval;
     }
 }

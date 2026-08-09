@@ -23,11 +23,11 @@ public class VisionTrackingManager : MonoBehaviour
 
     [Header("Thresholds (데드존 확립)")]
     [Tooltip("이동: 이 수치보다 앞으로 숙여야 발동 (기본 0.2)")]
-    public float leanDepthThreshold = 0.3f;
+    public float leanDepthThreshold = 0.5f;
     [Tooltip("상호작용: 이 수치보다 손을 뻗어야 발동 (기본 0.3)")]
     public float reachDepthThreshold = 0.3f;
     [Tooltip("호흡참기: 이 수치보다 뒤로 확실히 젖혀야 발동 (관성 오작동 방지를 위해 -0.3 셋팅)")]
-    public float backwardLeanThreshold = -0.4f;
+    public float backwardLeanThreshold = -0.6f;
 
     public bool IsInFallbackMode { get; private set; } = false;
 

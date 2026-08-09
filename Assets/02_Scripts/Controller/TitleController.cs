@@ -133,7 +133,11 @@ public class TitleController : MonoBehaviour
 
     private void OnClickQuitGame()
     {
+    #if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+    #else
         Application.Quit();
+    #endif
     }
 
     public void FadeOutWithText(string text, float duration)

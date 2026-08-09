@@ -12,6 +12,9 @@ public class UIManager : MonoBehaviour
     public GameObject subtitlePanel;
     public TextMeshProUGUI subtitleText;
 
+    public UnityEngine.UI.Button btnResume;
+    public UnityEngine.UI.Button btnQuit;
+
     // 공용 블로킹 상태 플래그
     public bool IsPaused { get; private set; } = false;
     public bool IsDialogueActive { get; private set; } = false;
@@ -29,13 +32,28 @@ public class UIManager : MonoBehaviour
         if (subtitlePanel != null) subtitlePanel.SetActive(false);
         Time.timeScale = 1f;
         IsPaused = false;
+
+        if (btnResume != null)
+        {
+            btnResume.onClick.RemoveAllListeners();
+            btnResume.onClick.AddListener(TogglePause);
+        }
+        if (btnQuit != null)
+        {
+            btnQuit.onClick.RemoveAllListeners();
+            btnQuit.onClick.AddListener(OnClickQuit);
+        }
     }
 
     private void Update()
     {
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
-            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title) return;
+            if (GameFlowManager.Instance != null &&
+               (GameFlowManager.Instance.currentStage == GameStage.Title || GameFlowManager.Instance.currentStage == GameStage.Tutorial))
+            {
+                return;
+            }
             TogglePause();
         }
     }
@@ -94,7 +112,20 @@ public class UIManager : MonoBehaviour
 
     public void OnClickQuit()
     {
-        Application.Quit();
+        if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
+
+        // 씬 전환 전 정지된 시간을 복구하고 상태를 초기화합니다.
+        Time.timeScale = 1f;
+        IsPaused = false;
+
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
+        }
+        else
+        {
+            Debug.LogError("[UIManager] GameFlowManager를 찾을 수 없습니다.");
+        }
     }
 
     // --- [3. 흡수된 SubtitleController 로직] ---

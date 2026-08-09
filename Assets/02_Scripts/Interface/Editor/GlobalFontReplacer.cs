@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -75,3 +76,4 @@ public class GlobalFontReplacer : EditorWindow
         Debug.Log($"모든 프리팹에서 {count}개의 폰트가 교체되었습니다.");
     }
 }
+#endif

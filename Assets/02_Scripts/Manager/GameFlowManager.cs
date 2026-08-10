@@ -1,11 +1,13 @@
+// [Core] GameFlowManager.cs (최종 수정본)
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
 using System;
 using System.Collections;
 
 public enum GameStage
 {
-    Title, Stage1_Elevator, Stage2_Room, Stage3_Anomaly, Stage4_Man,
+    Title, Tutorial, Stage1_Elevator, Stage2_Room, Stage3_Anomaly, Stage4_Man,
     Stage5_Clue, Stage6_Blackout, Stage7_Gem, Stage8_Intruder,
     Stage9_Hide, Stage10_Pressure, Stage11_Call, Stage12_Police, Stage13_Ending
 }
@@ -17,9 +19,13 @@ public class GameFlowManager : MonoBehaviour
     [Header("Current Status")]
     public GameStage currentStage = GameStage.Title;
     private GameStage _lastCheckpoint = GameStage.Title;
-
-    // [핵심 핫픽스] 현재 로드되어 있는 스테이지 씬의 이름을 추적 (SystemInit 제외)
     private string _currentLoadedStageScene = "";
+
+    [Header("Bootstrapper & Persistence")]
+    [Tooltip("씬 전환 시 파괴되지 않아야 할 최상위 프리팹 객체들을 넣으십시오 (Player, UI_Canvas 등)")]
+    public GameObject[] persistentRoots;
+    public Transform playerRig;
+    public Camera mainCamera;
 
     public event Action<GameStage> OnStageChanged;
 
@@ -27,37 +33,124 @@ public class GameFlowManager : MonoBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+
+        // [핵심 핫픽스] 자신을 최상위로 올린 후 파괴 방지
+        transform.SetParent(null);
+        DontDestroyOnLoad(gameObject);
+
+        // 등록된 시스템/플레이어/UI 루트 객체들을 강제로 최상위로 빼고 파괴 방지 적용
+        if (persistentRoots != null)
+        {
+            foreach (GameObject rootObj in persistentRoots)
+            {
+                if (rootObj != null)
+                {
+                    rootObj.transform.SetParent(null);
+                    DontDestroyOnLoad(rootObj);
+                }
+            }
+        }
+
+        SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
     private void Start()
     {
-        // [아키텍처 강제] 게임이 00_SystemInit 씬에서 시작되었다면, 타이틀 씬을 가산(Additive) 로드하여 덧붙입니다.
-        if (SceneManager.GetActiveScene().name.Contains("SystemInit"))
+        if (SceneManager.GetActiveScene().name.Contains("SystemInit")) AdvanceToStage(GameStage.Title);
+    }
+
+    private void OnDestroy()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        string sceneName = scene.name;
+        if (sceneName.Contains("SystemInit")) return;
+
+        GameObject spawnPoint = GameObject.Find("Player_SpawnPoint");
+        if (spawnPoint != null && playerRig != null)
         {
-            AdvanceToStage(GameStage.Title);
+            var cc = playerRig.GetComponent<CharacterController>();
+            if (cc != null) cc.enabled = false;
+            playerRig.position = spawnPoint.transform.position;
+            playerRig.rotation = spawnPoint.transform.rotation;
+            if (cc != null) cc.enabled = true;
+        }
+
+        if (playerRig != null)
+        {
+            if (sceneName == "03_Stage2" || sceneName == "05_Stage5_6" ||
+                sceneName == "07_Stage8_11" || sceneName == "08_Stage12_13")
+            {
+                playerRig.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+            }
+            else
+            {
+                playerRig.localScale = new Vector3(0.15f, 0.15f, 0.15f);
+            }
+        }
+
+        CleanUpDuplicateSystems(scene);
+    }
+
+    private void CleanUpDuplicateSystems(Scene scene)
+    {
+        Camera[] allCameras = FindObjectsOfType<Camera>();
+        foreach (Camera cam in allCameras)
+        {
+            if (cam != mainCamera && cam.gameObject.scene.name == scene.name) Destroy(cam.gameObject);
+        }
+
+        EventSystem[] eventSystems = FindObjectsOfType<EventSystem>();
+        if (eventSystems.Length > 1)
+        {
+            foreach (EventSystem es in eventSystems)
+            {
+                if (es.gameObject.scene.name == scene.name) Destroy(es.gameObject);
+            }
         }
     }
 
     public void AdvanceToStage(GameStage nextStage)
     {
-        // 씬 중복 전환 방지
         if (currentStage == nextStage && _currentLoadedStageScene != "") return;
-        Debug.Log($"[GameFlowManager] 스테이지 전환: {currentStage} -> {nextStage}");
 
         string targetScene = GetSceneNameForStage(nextStage);
 
-        // 로드해야 할 씬이 현재 씬과 다를 경우에만 비동기 가산 로드 실행
+        if (nextStage == GameStage.Title)
+        {
+            StartCoroutine(ReturnToTitleRoutine());
+            return;
+        }
+
         if (_currentLoadedStageScene != targetScene)
         {
             StartCoroutine(LoadSceneAdditiveWithFade(nextStage, targetScene));
         }
         else
         {
-            // 동일 씬 내부의 스테이지 전환 (예: Stage8 -> Stage9)
             currentStage = nextStage;
             OnStageChanged?.Invoke(currentStage);
             SaveCheckpointIfNecessary(nextStage);
         }
+    }
+
+    private IEnumerator ReturnToTitleRoutine()
+    {
+        if (TitleController.Instance != null) TitleController.Instance.FadeInOnly(1.0f);
+
+        if (!string.IsNullOrEmpty(_currentLoadedStageScene))
+        {
+            yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
+            _currentLoadedStageScene = "";
+        }
+
+        currentStage = GameStage.Title;
+        OnStageChanged?.Invoke(currentStage);
+
+        if (TitleController.Instance != null) TitleController.Instance.ShowMainMenu();
     }
 
     private string GetDayTextForStage(GameStage stage)
@@ -76,56 +169,34 @@ public class GameFlowManager : MonoBehaviour
     private IEnumerator LoadSceneAdditiveWithFade(GameStage nextStage, string targetScene)
     {
         string dayText = GetDayTextForStage(nextStage);
-        float fadeOutDuration = 2.0f;
-        float blackScreenHoldTime = 1.0f;
-        float fadeInDuration = 1.0f;
 
         if (TitleController.Instance != null)
         {
-            TitleController.Instance.FadeOutWithText(dayText, fadeOutDuration);
-            yield return new WaitForSecondsRealtime(fadeOutDuration);
+            if (nextStage == GameStage.Tutorial) TitleController.Instance.FadeOutWithText("", 1.5f);
+            else TitleController.Instance.FadeOutWithText(dayText, 2.0f);
+            yield return new WaitForSecondsRealtime(2.0f);
         }
 
-        // [핵심 핫픽스 1] 기존에 로드되어 있던 스테이지 씬만 깔끔하게 언로드. (SystemInit 씬은 영구 보존됨)
-        if (!string.IsNullOrEmpty(_currentLoadedStageScene))
-        {
-            AsyncOperation asyncUnload = SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
-            if (asyncUnload != null)
-            {
-                while (!asyncUnload.isDone) yield return null;
-            }
-        }
+        if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
 
-        // [핵심 핫픽스 2] 새 스테이지 씬을 '가산(Additive)' 모드로 로드.
-        // 유니티가 그래픽 리소스를 파괴하지 않으므로 MediaPipe 네이티브 스레드가 크래시를 일으키지 않음.
-        AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
-        while (!asyncLoad.isDone)
-        {
-            yield return null;
-        }
+        yield return SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
 
         _currentLoadedStageScene = targetScene;
         currentStage = nextStage;
 
-        // 새로 로드된 스테이지 씬을 Active 상태로 만들어, 조명 및 네비매쉬 데이터를 갱신
         SceneManager.SetActiveScene(SceneManager.GetSceneByName(targetScene));
-
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
 
-        yield return new WaitForSecondsRealtime(blackScreenHoldTime);
-
-        if (TitleController.Instance != null)
-        {
-            TitleController.Instance.FadeInOnly(fadeInDuration);
-        }
+        yield return new WaitForSecondsRealtime(1.0f);
+        if (TitleController.Instance != null) TitleController.Instance.FadeInOnly(1.0f);
     }
 
     private string GetSceneNameForStage(GameStage stage)
     {
         switch (stage)
         {
-            case GameStage.Title: return "01_Title";
+            case GameStage.Tutorial: return "01_Tutorial";
             case GameStage.Stage1_Elevator: return "02_Stage1";
             case GameStage.Stage2_Room: return "03_Stage2";
             case GameStage.Stage3_Anomaly:
@@ -139,7 +210,7 @@ public class GameFlowManager : MonoBehaviour
             case GameStage.Stage11_Call: return "07_Stage8_11";
             case GameStage.Stage12_Police:
             case GameStage.Stage13_Ending: return "08_Stage12_13";
-            default: return "01_Title";
+            default: return "";
         }
     }
 

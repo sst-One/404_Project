@@ -1,4 +1,3 @@
-// 4. StateManager.cs
 using System;
 using System.Collections;
 using UnityEngine;
@@ -23,8 +22,6 @@ public class StateManager : MonoBehaviour
     private Coroutine _threatCoroutine;
     private Vector3 _lastNoisePosition;
 
-    private PlayerInputProvider _playerInput;
-
     [Header("상태 사운드 (2D AudioSources)")]
     public AudioSource playerBreathSource;
     public AudioSource playerHeartbeatSource;
@@ -34,13 +31,19 @@ public class StateManager : MonoBehaviour
     public string nervousBreathClipName = "";
     public string nervousHeartbeatClipName = "";
 
+    [Header("Freeze (호흡참기) 패널티 설정")]
+    public float heartbeatIncreaseInterval = 1.0f;
+    public int heartbeatAmountPerTick = 1;
+    public float overloadNoisePenalty = 0.5f;
+
+    private bool _isFreezing;
+    private bool _isOverloaded;
+    private bool _requireInputReset;
+    private Coroutine _freezeHeartbeatCoroutine;
+
     private void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
     }
@@ -50,6 +53,64 @@ public class StateManager : MonoBehaviour
         StartCoroutine(HeartbeatCooldownRoutine());
         StartCoroutine(NoiseCooldownRoutine());
     }
+
+    private void Update()
+    {
+        ProcessFreezeState();
+    }
+
+    // --- [병합된 FreezeManager 로직] ---
+    private void ProcessFreezeState()
+    {
+        if (_isOverloaded || PlayerController.Instance == null) return;
+
+        bool isFreezeInput = PlayerController.Instance.IsFreezeActive;
+
+        if (_requireInputReset)
+        {
+            if (!isFreezeInput) _requireInputReset = false;
+            return;
+        }
+
+        if (isFreezeInput && !_isFreezing)
+        {
+            _isFreezing = true;
+            _freezeHeartbeatCoroutine = StartCoroutine(FreezeHeartbeatRoutine());
+        }
+        else if (!isFreezeInput && _isFreezing)
+        {
+            _isFreezing = false;
+            if (_freezeHeartbeatCoroutine != null) StopCoroutine(_freezeHeartbeatCoroutine);
+        }
+    }
+
+    private IEnumerator FreezeHeartbeatRoutine()
+    {
+        WaitForSeconds wait = new WaitForSeconds(heartbeatIncreaseInterval);
+        while (_isFreezing)
+        {
+            yield return wait;
+            AddHeartbeat(heartbeatAmountPerTick);
+        }
+    }
+
+    private void TriggerOverloadPenalty()
+    {
+        _isOverloaded = true;
+        _isFreezing = false;
+        if (_freezeHeartbeatCoroutine != null) StopCoroutine(_freezeHeartbeatCoroutine);
+
+        AddNoise(overloadNoisePenalty);
+        StartCoroutine(OverloadRecoveryRoutine());
+    }
+
+    private IEnumerator OverloadRecoveryRoutine()
+    {
+        yield return new WaitForSeconds(2.0f);
+        _isOverloaded = false;
+        _requireInputReset = true;
+    }
+    // ----------------------------------
 
     public void AddNoise(float amount, Vector3 noiseSourcePosition = default)
     {
@@ -62,11 +123,7 @@ public class StateManager : MonoBehaviour
         else if (_currentNoiseValue > 0.25f) newLevel = NoiseLevel.Mid;
 
         _currentNoiseLevel = newLevel;
-
-        if (_currentNoiseLevel != NoiseLevel.Low)
-        {
-            OnNoiseLevelChanged?.Invoke(_currentNoiseLevel, _lastNoisePosition);
-        }
+        if (_currentNoiseLevel != NoiseLevel.Low) OnNoiseLevelChanged?.Invoke(_currentNoiseLevel, _lastNoisePosition);
     }
 
     private IEnumerator NoiseCooldownRoutine()
@@ -78,12 +135,10 @@ public class StateManager : MonoBehaviour
             if (_currentNoiseValue > 0f)
             {
                 _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.15f, 0f, 1f);
-
                 NoiseLevel newLevel = NoiseLevel.Low;
                 if (_currentNoiseValue > 0.75f) newLevel = NoiseLevel.Critical;
                 else if (_currentNoiseValue > 0.5f) newLevel = NoiseLevel.High;
                 else if (_currentNoiseValue > 0.25f) newLevel = NoiseLevel.Mid;
-
                 _currentNoiseLevel = newLevel;
             }
         }
@@ -109,16 +164,15 @@ public class StateManager : MonoBehaviour
             _currentHeartbeatLevel = newLevel;
             OnHeartbeatLevelChanged?.Invoke(_currentHeartbeatLevel);
             UpdateHeartbeatEffects(_currentHeartbeatValue);
+
+            if (_currentHeartbeatLevel == HeartbeatLevel.Overload) TriggerOverloadPenalty();
         }
     }
 
     public void AddThreat()
     {
         _threatCount++;
-        if (_threatCount == 1)
-        {
-            _threatCoroutine = StartCoroutine(ThreatHeartbeatRoutine());
-        }
+        if (_threatCount == 1) _threatCoroutine = StartCoroutine(ThreatHeartbeatRoutine());
     }
 
     public void RemoveThreat()
@@ -127,11 +181,7 @@ public class StateManager : MonoBehaviour
         if (_threatCount <= 0)
         {
             _threatCount = 0;
-            if (_threatCoroutine != null)
-            {
-                StopCoroutine(_threatCoroutine);
-                _threatCoroutine = null;
-            }
+            if (_threatCoroutine != null) StopCoroutine(_threatCoroutine);
         }
     }
 
@@ -151,11 +201,8 @@ public class StateManager : MonoBehaviour
         while (true)
         {
             yield return wait;
-
-            if (_playerInput == null) _playerInput = FindObjectOfType<PlayerInputProvider>();
-            bool isFreezing = (_playerInput != null && _playerInput.IsFreezeActive);
-
-            if (_threatCount == 0 && !isFreezing && _currentHeartbeatValue > 0)
+            bool isFreezingInput = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
+            if (_threatCount == 0 && !isFreezingInput && _currentHeartbeatValue > 0)
             {
                 AddHeartbeat(-1);
             }
@@ -165,7 +212,6 @@ public class StateManager : MonoBehaviour
     private void UpdateHeartbeatEffects(int level)
     {
         if (AudioManager.Instance == null) return;
-
         if (level >= 2)
         {
             AudioClip nervousBreath = AudioManager.Instance.GetClip(nervousBreathClipName);
@@ -174,7 +220,6 @@ public class StateManager : MonoBehaviour
                 if (playerBreathSource.clip != nervousBreath) playerBreathSource.clip = nervousBreath;
                 if (!playerBreathSource.isPlaying) playerBreathSource.Play();
             }
-
             AudioClip nervousHeartbeat = AudioManager.Instance.GetClip(nervousHeartbeatClipName);
             if (playerHeartbeatSource != null && nervousHeartbeat != null)
             {
@@ -190,11 +235,7 @@ public class StateManager : MonoBehaviour
                 if (playerBreathSource.clip != normalBreath) playerBreathSource.clip = normalBreath;
                 if (!playerBreathSource.isPlaying) playerBreathSource.Play();
             }
-
-            if (playerHeartbeatSource != null && playerHeartbeatSource.isPlaying)
-            {
-                playerHeartbeatSource.Stop();
-            }
+            if (playerHeartbeatSource != null && playerHeartbeatSource.isPlaying) playerHeartbeatSource.Stop();
         }
     }
 }

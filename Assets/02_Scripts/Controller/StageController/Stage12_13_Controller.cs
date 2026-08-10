@@ -1,4 +1,3 @@
-// 2. Stage12_13_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -63,7 +62,6 @@ public class Stage12_13_Controller : MonoBehaviour
             Destroy(blackObj);
         }
 
-        Debug.Log("[Stage12_13] Day 5 아침 시작. 3초 후 전화 수신.");
         yield return new WaitForSeconds(3.0f);
 
         if (phoneRingSource != null && AudioManager.Instance != null)
@@ -75,7 +73,6 @@ public class Stage12_13_Controller : MonoBehaviour
                 phoneRingSource.Play();
             }
         }
-        Debug.Log("[Stage12_13] 전화벨 울림. 휴대폰 Reach 입력 대기 중...");
     }
 
     private void OnPhoneAnswered()
@@ -96,11 +93,9 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator CallAndNewsSequence()
     {
-        Debug.Log("[Stage12_13] 경찰 통화 및 TV 뉴스 재생 시작.");
-
-        if (SubtitleController.Instance != null)
+        if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
         }
 
         if (tvNewsSource != null && AudioManager.Instance != null)
@@ -113,9 +108,9 @@ public class Stage12_13_Controller : MonoBehaviour
             }
         }
 
-        if (SubtitleController.Instance != null)
+        if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(SubtitleController.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
         }
 
         if (tinnitusSource != null && AudioManager.Instance != null)
@@ -132,7 +127,6 @@ public class Stage12_13_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(6.0f);
 
-        Debug.Log("[Stage12_13] 땡그랑. 보석 낙하.");
         if (gemDropSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(gemDropClipName);
@@ -161,8 +155,6 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator FlashbackAndEndingSequence()
     {
-        Debug.Log("[Stage12_13] 보석-반지 일치 확인. Heartbeat Overload 및 플래시백 시작.");
-
         if (StateManager.Instance != null)
         {
             StateManager.Instance.AddHeartbeat(3);
@@ -170,7 +162,6 @@ public class Stage12_13_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(10.0f);
 
-        Debug.Log("[Stage12_13] 연출 종료. 09_Ending 씬 로드 요청.");
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Stage13_Ending);

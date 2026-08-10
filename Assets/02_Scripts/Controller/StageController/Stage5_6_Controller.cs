@@ -32,23 +32,22 @@ public class Stage5_6_Controller : MonoBehaviour
         if (fuseObj != null)
         {
             fuseBox = fuseObj.GetComponent<InteractableItem>();
-            fuseBox.enabled = false;
-            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
+
+            bool isStage6 = GameFlowManager.Instance.currentStage == GameStage.Stage6_Blackout;
+            fuseBox.enabled = isStage6;
+            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = isStage6;
 
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
         }
 
-        // [핫픽스] 누락되었던 코루틴 실행 복구 (8초 후 암전 트리거)
         StartCoroutine(Stage5_ClueSequence());
     }
 
     private IEnumerator Stage5_ClueSequence()
     {
-        Debug.Log("[Stage5_6] Stage 5 진입. 거실 단서 탐색 대기...");
         yield return new WaitForSeconds(8.0f);
 
-        Debug.Log("[Stage5_6] Stage 6 진입. 쾅 소리와 함께 암전 발생.");
         if (mainRoomLight != null) mainRoomLight.enabled = false;
         isBlackout = true;
 
@@ -115,7 +114,6 @@ public class Stage5_6_Controller : MonoBehaviour
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
         if (mainRoomLight != null) mainRoomLight.enabled = true;
 
-        // [추가 연출] 조명이 복구될 때 켜지는 소리
         if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
         {
             AudioClip restoreClip = AudioManager.Instance.GetClip(lightRestoreClipName);

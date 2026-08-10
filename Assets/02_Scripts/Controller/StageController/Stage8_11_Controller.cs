@@ -1,4 +1,3 @@
-// 1. Stage8_11_Controller.cs
 using System.Collections;
 using UnityEngine;
 
@@ -16,6 +15,15 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private void Start()
     {
+        EnemyAI enemy = FindObjectOfType<EnemyAI>(true);
+        if (enemy != null)
+        {
+            bool isChaseStage = (GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
+                                 GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
+            enemy.gameObject.SetActive(isChaseStage);
+            enemy.isNarrativeMode = false;
+        }
+
         GameObject phoneObj = GameObject.Find("Item_Phone");
         if (phoneObj != null)
         {
@@ -37,9 +45,9 @@ public class Stage8_11_Controller : MonoBehaviour
         }
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
-        foreach (GameObject enemy in enemies)
+        foreach (GameObject enemyObj in enemies)
         {
-            enemy.SetActive(false);
+            enemyObj.SetActive(false);
         }
 
         StartCoroutine(PoliceArrivalSequence());
@@ -47,8 +55,6 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator PoliceArrivalSequence()
     {
-        Debug.Log("[EndingSequence] 112 신고 성공. 최상단 암전 스크린 생성 및 페이드 아웃 가동.");
-
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
         yield return StartCoroutine(FadeInForcedBlackScreen(2.0f));
@@ -77,7 +83,6 @@ public class Stage8_11_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(4.0f);
 
-        Debug.Log("[EndingSequence] 연출 종료. Stage 12/13 씬 로드 요청.");
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Stage12_Police);

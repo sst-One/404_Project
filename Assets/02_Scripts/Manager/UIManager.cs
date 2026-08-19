@@ -12,12 +12,16 @@ public class UIManager : MonoBehaviour
     public GameObject subtitlePanel;
     public TextMeshProUGUI subtitleText;
 
+    [Header("Global Screen Fade")]
+    public CanvasGroup globalFadeCanvasGroup;
+
     public UnityEngine.UI.Button btnResume;
     public UnityEngine.UI.Button btnQuit;
 
-    // 공용 블로킹 상태 플래그
     public bool IsPaused { get; private set; } = false;
-    public bool IsDialogueActive { get; private set; } = false;
+
+    // [수정점] 외부 컷신 컨트롤러에서 컷신 잠금을 제어할 수 있도록 private set을 set으로 개방
+    public bool IsDialogueActive { get; set; } = false;
 
     private void Awake()
     {
@@ -30,6 +34,8 @@ public class UIManager : MonoBehaviour
     {
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         if (subtitlePanel != null) subtitlePanel.SetActive(false);
+        if (globalFadeCanvasGroup != null) globalFadeCanvasGroup.alpha = 0f;
+
         Time.timeScale = 1f;
         IsPaused = false;
 
@@ -58,7 +64,6 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    // --- [1. 통합된 UI 블로킹 체크] ---
     public bool IsAnyUIBlocking()
     {
         bool isTitleActive = TitleController.Instance != null &&
@@ -68,7 +73,6 @@ public class UIManager : MonoBehaviour
         return IsPaused || IsDialogueActive || isTitleActive;
     }
 
-    // --- [2. 흡수된 SystemMenuController 로직] ---
     public void TogglePause()
     {
         if (IsPaused) ResumeGame();
@@ -114,7 +118,6 @@ public class UIManager : MonoBehaviour
     {
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
 
-        // 씬 전환 전 정지된 시간을 복구하고 상태를 초기화합니다.
         Time.timeScale = 1f;
         IsPaused = false;
 
@@ -122,13 +125,8 @@ public class UIManager : MonoBehaviour
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
         }
-        else
-        {
-            Debug.LogError("[UIManager] GameFlowManager를 찾을 수 없습니다.");
-        }
     }
 
-    // --- [3. 흡수된 SubtitleController 로직] ---
     public IEnumerator ShowInteractiveSubtitle(string message)
     {
         if (subtitlePanel == null || subtitleText == null) yield break;
@@ -169,5 +167,19 @@ public class UIManager : MonoBehaviour
         subtitlePanel.SetActive(false);
         subtitleText.text = "";
         IsDialogueActive = false;
+    }
+
+    public IEnumerator FadeOutScreen(float fadeDuration)
+    {
+        if (globalFadeCanvasGroup == null) yield break;
+
+        float timer = 0f;
+        while (timer < fadeDuration)
+        {
+            timer += Time.deltaTime;
+            globalFadeCanvasGroup.alpha = Mathf.Clamp01(timer / fadeDuration);
+            yield return null;
+        }
+        globalFadeCanvasGroup.alpha = 1f;
     }
 }

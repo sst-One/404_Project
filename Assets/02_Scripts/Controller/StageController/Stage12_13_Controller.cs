@@ -7,14 +7,14 @@ public class Stage12_13_Controller : MonoBehaviour
     public InteractableItem crackedPhone;
     public InteractableItem endingGem;
 
-    [Header("Audio Triggers (AudioSources)")]
+    [Header("Audio Sources")]
     public AudioSource phoneRingSource;
     public AudioSource tvNewsSource;
     public AudioSource tinnitusSource;
     public AudioSource gemDropSource;
 
-    [Header("사운드 에셋 이름 (SND-xxx)")]
-    public string phoneRingClipName = "";
+    [Header("Audio Clip Names")]
+    public string phoneRingClipName = "SND-058_PhoneRing_Loop";
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
     public string tinnitusClipName = "SND-061_TinnitusRing_Loop_Timed";
     public string gemDropClipName = "SND-062_GemDrop_OneShot";
@@ -44,22 +44,23 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator InitAndFadeInSequence()
     {
-        GameObject blackObj = GameObject.Find("ForcedBlackScreen");
-        if (blackObj != null)
+        // UIManager의 전역 페이드 캔버스를 활용한 페이드 인 (검은 화면 -> 밝아짐)
+        if (UIManager.Instance != null && UIManager.Instance.globalFadeCanvasGroup != null)
         {
-            UnityEngine.UI.Image img = blackObj.GetComponent<UnityEngine.UI.Image>();
-            if (img != null)
+            UIManager.Instance.globalFadeCanvasGroup.alpha = 1f;
+            float duration = 2.0f;
+            float elapsed = 0f;
+            while (elapsed < duration)
             {
-                float duration = 2.0f;
-                float elapsed = 0f;
-                while (elapsed < duration)
-                {
-                    elapsed += Time.deltaTime;
-                    img.color = new Color(0, 0, 0, 1f - Mathf.Clamp01(elapsed / duration));
-                    yield return null;
-                }
+                elapsed += Time.deltaTime;
+                UIManager.Instance.globalFadeCanvasGroup.alpha = 1f - Mathf.Clamp01(elapsed / duration);
+                yield return null;
             }
-            Destroy(blackObj);
+            UIManager.Instance.globalFadeCanvasGroup.alpha = 0f;
+        }
+        else
+        {
+            yield return new WaitForSeconds(2.0f);
         }
 
         yield return new WaitForSeconds(3.0f);
@@ -70,6 +71,7 @@ public class Stage12_13_Controller : MonoBehaviour
             if (clip != null)
             {
                 phoneRingSource.clip = clip;
+                phoneRingSource.loop = true;
                 phoneRingSource.Play();
             }
         }
@@ -88,6 +90,7 @@ public class Stage12_13_Controller : MonoBehaviour
         }
 
         if (phoneRingSource != null) phoneRingSource.Stop();
+
         StartCoroutine(CallAndNewsSequence());
     }
 
@@ -123,8 +126,12 @@ public class Stage12_13_Controller : MonoBehaviour
             }
         }
 
-        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
+        if (StateManager.Instance != null)
+        {
+            StateManager.Instance.AddHeartbeat(2);
+        }
 
+        // 이명 발생 후 보석 낙하 전까지의 대기 시간
         yield return new WaitForSeconds(6.0f);
 
         if (gemDropSource != null && AudioManager.Instance != null)
@@ -160,7 +167,14 @@ public class Stage12_13_Controller : MonoBehaviour
             StateManager.Instance.AddHeartbeat(3);
         }
 
+        // 플래시백 연출 시퀀스 대기 시간 (Timeline 또는 애니메이터가 재생되는 시간)
         yield return new WaitForSeconds(10.0f);
+
+        // 엔딩 씬으로 전이 전 자연스러운 화면 페이드 아웃
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+        }
 
         if (GameFlowManager.Instance != null)
         {

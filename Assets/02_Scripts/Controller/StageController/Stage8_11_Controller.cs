@@ -3,21 +3,34 @@ using UnityEngine;
 
 public class Stage8_11_Controller : MonoBehaviour
 {
-    [Header("사운드 에셋 연결 (AudioSources)")]
+    [Header("Stage 8: Encounter References")]
+    public Animator intruderAnimator;
+    public AudioSource knifeStrikeAudio;
+    public GameObject playerPhone;
+    public Transform phoneDropTarget;
+
+    [Header("Stage 8: Encounter Settings")]
+    public float strikeDelay = 0.5f;
+    public float dropDuration = 0.8f;
+
+    [Header("Stage 11: Police Arrival References")]
     public AudioSource policeSirenSource;
     public AudioSource doorKnockSource;
 
-    [Header("사운드 에셋 이름 (SND-xxx)")]
+    [Header("Audio Clip Names")]
+    public string knifeStrikeClipName = "SND-047_KnifeStrike_OneShot";
     public string policeSirenClipName = "SND-055_PoliceSiren_Loop";
-    public string doorKnockClipName = "";
+    public string doorKnockClipName = "SND-057_DoorKnock_OneShot";
 
     private PhoneController phoneController;
+    private bool hasEncounterTriggered = false;
 
     private void Start()
     {
         EnemyAI enemy = FindObjectOfType<EnemyAI>(true);
         if (enemy != null)
         {
+            // Stage 8~11 구간에서만 AI 활성화
             bool isChaseStage = (GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
                                  GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
             enemy.gameObject.SetActive(isChaseStage);
@@ -33,6 +46,59 @@ public class Stage8_11_Controller : MonoBehaviour
                 phoneController.onCallSuccess.RemoveAllListeners();
                 phoneController.onCallSuccess.AddListener(OnStage11Completed);
             }
+        }
+    }
+
+    // 방 입구 등에 설치된 Box Collider (Is Trigger) 에 닿았을 때 호출
+    private void OnTriggerEnter(Collider other)
+    {
+        if (!hasEncounterTriggered && other.CompareTag("Player"))
+        {
+            hasEncounterTriggered = true;
+            StartCoroutine(EncounterSequence());
+        }
+    }
+
+    private IEnumerator EncounterSequence()
+    {
+        if (intruderAnimator != null)
+        {
+            intruderAnimator.SetTrigger("Strike");
+        }
+
+        yield return new WaitForSeconds(strikeDelay);
+
+        if (knifeStrikeAudio != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(knifeStrikeClipName);
+            if (clip != null) knifeStrikeAudio.PlayOneShot(clip);
+        }
+
+        if (StateManager.Instance != null)
+        {
+            StateManager.Instance.AddHeartbeat(3);
+        }
+
+        if (playerPhone != null && phoneDropTarget != null)
+        {
+            playerPhone.transform.SetParent(null);
+            Vector3 startPos = playerPhone.transform.position;
+            Quaternion startRot = playerPhone.transform.rotation;
+
+            float timer = 0f;
+            while (timer < dropDuration)
+            {
+                timer += Time.deltaTime;
+                float t = timer / dropDuration;
+                playerPhone.transform.position = Vector3.Lerp(startPos, phoneDropTarget.position, t);
+                playerPhone.transform.rotation = Quaternion.Slerp(startRot, phoneDropTarget.rotation, t);
+                yield return null;
+            }
+        }
+
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage9_Hide);
         }
     }
 
@@ -57,7 +123,15 @@ public class Stage8_11_Controller : MonoBehaviour
     {
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
-        yield return StartCoroutine(FadeInForcedBlackScreen(2.0f));
+        // UIManager의 전역 페이드 시스템 활용 (기존 동적 캔버스 생성 로직 폐기)
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+        }
+        else
+        {
+            yield return new WaitForSeconds(2.0f);
+        }
 
         if (policeSirenSource != null && AudioManager.Instance != null)
         {
@@ -87,27 +161,5 @@ public class Stage8_11_Controller : MonoBehaviour
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Stage12_Police);
         }
-    }
-
-    private IEnumerator FadeInForcedBlackScreen(float duration)
-    {
-        GameObject blackObj = new GameObject("ForcedBlackScreen");
-        DontDestroyOnLoad(blackObj);
-
-        Canvas canvas = blackObj.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 9999;
-
-        UnityEngine.UI.Image img = blackObj.AddComponent<UnityEngine.UI.Image>();
-        img.color = new Color(0, 0, 0, 0);
-
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            img.color = new Color(0, 0, 0, Mathf.Clamp01(elapsed / duration));
-            yield return null;
-        }
-        img.color = new Color(0, 0, 0, 1);
     }
 }

@@ -3,30 +3,34 @@ using UnityEngine;
 
 public class Stage3_4_Controller : MonoBehaviour
 {
-    private InteractableItem elevatorButton;
-    private ElevatorDoorController doorController;
-    private EnemyAI suspiciousMan;
-    private int buttonPressCount = 0;
+    [Header("References")]
+    public InteractableItem elevatorButton;
+    public ElevatorDoorController doorController;
+    public GameObject suspiciousMan;
 
-    [Header("사운드 에셋 연결 (AudioSources)")]
+    [Header("Audio Sources")]
     public AudioSource errorAlarmSource;
     public AudioSource doorGrabSource;
     public AudioSource suspectVoiceSource;
-
-    [Header("엘리베이터 이동음 설정")]
     public AudioSource elevatorMoveSource;
-    public string elevatorMoveClipName = "SND-004_ElevatorMove_Loop_Timed";
+
+    [Header("Audio Clip Names")]
+    public string malfunctionClipName = "SND-014_ButtonMalfunction_OneShot";
+    public string moveClipName = "SND-004_ElevatorMove_Loop_Timed";
+    public string doorGrabClipName = "SND-015_ElevatorDoorGrab_OneShot";
+    public string suspectVoiceClipName = "SND-035_SuspectVoice_OneShot_임시";
+
+    private int buttonPressCount = 0;
 
     private void Start()
     {
-        doorController = FindObjectOfType<ElevatorDoorController>();
         if (doorController != null) doorController.SetDoorsOpenImmediately();
 
-        suspiciousMan = FindObjectOfType<EnemyAI>(true);
         if (suspiciousMan != null)
         {
-            suspiciousMan.gameObject.SetActive(false);
-            suspiciousMan.isNarrativeMode = true;
+            suspiciousMan.SetActive(false);
+            EnemyAI ai = suspiciousMan.GetComponent<EnemyAI>();
+            if (ai != null) ai.isNarrativeMode = true;
         }
 
         GameObject btnObj = GameObject.Find("Item_ElevatorButton");
@@ -37,48 +41,82 @@ public class Stage3_4_Controller : MonoBehaviour
             {
                 elevatorButton.interactOnlyOnce = false;
                 elevatorButton.isInteractable = true;
+                elevatorButton.onInteractEvent.RemoveAllListeners();
+                elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
             }
-            elevatorButton.onInteractEvent.RemoveAllListeners();
-            elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
         }
     }
 
     private void OnElevatorButtonPressed()
     {
         buttonPressCount++;
-        if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
-        else if (buttonPressCount == 2) StartCoroutine(Stage4_EncounterSequence());
+
+        if (elevatorButton != null)
+        {
+            elevatorButton.enabled = false;
+            if (elevatorButton.GetComponent<Collider>() != null)
+                elevatorButton.GetComponent<Collider>().enabled = false;
+        }
+
+        if (buttonPressCount == 1)
+        {
+            StartCoroutine(Stage3_AnomalySequence());
+        }
+        else if (buttonPressCount == 2)
+        {
+            StartCoroutine(Stage4_EncounterSequence());
+        }
     }
 
     private IEnumerator Stage3_AnomalySequence()
     {
-        if (elevatorButton != null) elevatorButton.isInteractable = false;
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
+        }
 
         if (errorAlarmSource != null && AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip("SND-014_ButtonMalfunction_OneShot");
+            AudioClip clip = AudioManager.Instance.GetClip(malfunctionClipName);
             if (clip != null) errorAlarmSource.PlayOneShot(clip);
         }
 
         yield return new WaitForSeconds(0.8f);
-        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
+
+        if (StateManager.Instance != null)
+        {
+            StateManager.Instance.AddHeartbeat(1);
+        }
+
         yield return new WaitForSeconds(1.5f);
 
-        if (elevatorButton != null) elevatorButton.isInteractable = true;
+        if (elevatorButton != null)
+        {
+            elevatorButton.enabled = true;
+            if (elevatorButton.GetComponent<Collider>() != null)
+                elevatorButton.GetComponent<Collider>().enabled = true;
+        }
     }
 
     private IEnumerator Stage4_EncounterSequence()
     {
-        if (elevatorButton != null) elevatorButton.isInteractable = false;
-        GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
+        }
 
-        if (doorController != null) doorController.CloseDoors();
+        if (doorController != null)
+        {
+            // [수정점] 문 닫힘 애니메이션 시간 강제 주입
+            doorController.animationDuration = 1.4f;
+            doorController.CloseDoors();
+        }
 
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(1.4f);
 
         if (elevatorMoveSource != null && AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(elevatorMoveClipName);
+            AudioClip clip = AudioManager.Instance.GetClip(moveClipName);
             if (clip != null)
             {
                 elevatorMoveSource.clip = clip;
@@ -89,20 +127,27 @@ public class Stage3_4_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(2.0f);
 
-        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying) elevatorMoveSource.Stop();
+        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying)
+        {
+            elevatorMoveSource.Stop();
+        }
 
         if (doorGrabSource != null && AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip("SND-015_ElevatorDoorGrab_OneShot");
+            AudioClip clip = AudioManager.Instance.GetClip(doorGrabClipName);
             if (clip != null) doorGrabSource.PlayOneShot(clip);
         }
 
-        if (suspiciousMan != null) suspiciousMan.gameObject.SetActive(true);
-        if (doorController != null) doorController.OpenDoors();
+        if (suspiciousMan != null) suspiciousMan.SetActive(true);
+        if (doorController != null)
+        {
+            doorController.animationDuration = 1.3f;
+            doorController.OpenDoors();
+        }
 
         if (suspectVoiceSource != null && AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip("SND-035_SuspectVoice_OneShot_임시");
+            AudioClip clip = AudioManager.Instance.GetClip(suspectVoiceClipName);
             if (clip != null) suspectVoiceSource.PlayOneShot(clip);
         }
 
@@ -113,6 +158,9 @@ public class Stage3_4_Controller : MonoBehaviour
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_3));
         }
 
-        GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
+        }
     }
 }

@@ -6,21 +6,21 @@ public class Stage5_6_Controller : MonoBehaviour
     [Header("Lighting Settings")]
     public Light mainRoomLight;
 
-    [Header("Hallucination Objects")]
+    [Header("References")]
+    public InteractableItem fuseBox;
     public GameObject hallucinationDecals;
 
-    [Header("사운드 에셋 연결 (AudioSources)")]
+    [Header("Audio Sources")]
     public AudioSource fuseBoxSwitchSource;
     public AudioSource hallucinationSource;
     public AudioSource lightFlickerSource;
 
-    [Header("사운드 에셋 이름 (SND-xxx)")]
+    [Header("Audio Clip Names")]
     public string fuseBoxClipName = "SND-031_FuseBoxSwitch_OneShot";
     public string hallucinationClipName = "SND-011_Hallucination_OneShot";
     public string lightFlickerClipName = "SND-012_LightFlicker_Loop_OneShot";
     public string lightRestoreClipName = "SND-032_LIghtRestore_OneShot";
 
-    private InteractableItem fuseBox;
     private bool isBlackout = false;
 
     private void Start()
@@ -28,14 +28,10 @@ public class Stage5_6_Controller : MonoBehaviour
         if (mainRoomLight != null) mainRoomLight.enabled = true;
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
 
-        GameObject fuseObj = GameObject.Find("Item_FuseBox");
-        if (fuseObj != null)
+        if (fuseBox != null)
         {
-            fuseBox = fuseObj.GetComponent<InteractableItem>();
-
-            bool isStage6 = GameFlowManager.Instance.currentStage == GameStage.Stage6_Blackout;
-            fuseBox.enabled = isStage6;
-            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = isStage6;
+            fuseBox.enabled = false;
+            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
 
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
@@ -48,10 +44,18 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         yield return new WaitForSeconds(8.0f);
 
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
+        }
+
         if (mainRoomLight != null) mainRoomLight.enabled = false;
         isBlackout = true;
 
-        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
+        if (StateManager.Instance != null)
+        {
+            StateManager.Instance.AddHeartbeat(2);
+        }
 
         if (fuseBox != null)
         {
@@ -109,7 +113,7 @@ public class Stage5_6_Controller : MonoBehaviour
             }
         }
 
-        yield return new WaitForSeconds(0.2f);
+        yield return new WaitForSeconds(0.4f);
 
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
         if (mainRoomLight != null) mainRoomLight.enabled = true;
@@ -120,9 +124,16 @@ public class Stage5_6_Controller : MonoBehaviour
             if (restoreClip != null) fuseBoxSwitchSource.PlayOneShot(restoreClip);
         }
 
-        if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
+        if (lightFlickerSource != null && lightFlickerSource.isPlaying)
+        {
+            lightFlickerSource.Stop();
+        }
 
         yield return new WaitForSeconds(2.0f);
-        GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
+
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
+        }
     }
 }

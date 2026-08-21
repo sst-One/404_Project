@@ -59,6 +59,12 @@ public class TitleController : MonoBehaviour
         if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
         {
             ShowMainMenu();
+
+            // [핵심 추가] 게임이 처음 켜지고 타이틀에 진입했을 때, 검은 화면에서 서서히 밝아지도록 FadeIn 실행
+            if (UIManager.Instance != null)
+            {
+                StartCoroutine(UIManager.Instance.FadeInScreen());
+            }
         }
     }
 
@@ -101,25 +107,21 @@ public class TitleController : MonoBehaviour
 
     private IEnumerator StartGameTransitionRoutine()
     {
-        // UIManager에 위임 (파라미터 공란)
+        // 1. UIManager에게 화면을 완전히 어둡게 하라고 명령 (0.4초간 암전)
         if (UIManager.Instance != null)
         {
             yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
         }
 
+        // 2. 완전히 어두워진 상태에서 무조건 0.5초 대기 (엔진 렌더링 동기화 락)
+        yield return new WaitForSecondsRealtime(0.5f);
+
         HideMainMenu();
 
+        // 3. 다음 씬(튜토리얼)으로 전환 요청
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
-        }
-
-        // 로딩 지연 버퍼 단축
-        yield return new WaitForSecondsRealtime(0.2f);
-
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeInScreen());
         }
     }
 

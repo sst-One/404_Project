@@ -135,11 +135,13 @@ public class GameFlowManager : MonoBehaviour
 
     private IEnumerator ReturnToTitleRoutine()
     {
+        // 1. 화면 완전히 암전 (UIManager 전담)
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
 
-        // [핵심 핫픽스 2] 암전 상태가 화면에 100% 렌더링된 것을 확인하기 위해 1프레임 추가 대기
-        yield return new WaitForEndOfFrame();
+        // [지시 사항 반영] 완전히 어두워진 화면 상태에서 무조건 0.5초 대기
+        yield return new WaitForSecondsRealtime(0.5f);
 
+        // 2. 씬 언로딩/로딩 처리 (화면은 계속 까만 상태 보장)
         if (!string.IsNullOrEmpty(_currentLoadedStageScene))
         {
             yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
@@ -151,27 +153,27 @@ public class GameFlowManager : MonoBehaviour
 
         if (TitleController.Instance != null) TitleController.Instance.ShowMainMenu();
 
+        // 3. 로딩 및 세팅 완료 후 비로소 화면 밝아짐
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen());
     }
 
     private IEnumerator LoadSceneAdditiveWithFade(GameStage nextStage, string targetScene)
     {
-        // 1. 화면 완전히 암전
+        // 1. 화면 완전히 암전 (UIManager 전담)
         if (UIManager.Instance != null)
         {
             yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
         }
 
-        // [핵심 핫픽스 2] 암전 상태가 화면에 100% 렌더링된 것을 확인하기 위해 1프레임 추가 대기 (엔진 비동기 버그 차단)
-        yield return new WaitForEndOfFrame();
+        // [지시 사항 반영] 완전히 어두워진 화면 상태에서 무조건 0.5초 대기
+        yield return new WaitForSecondsRealtime(0.5f);
 
-        // 2. 타이틀 화면 정리
         if (currentStage == GameStage.Title && TitleController.Instance != null)
         {
             TitleController.Instance.HideMainMenu();
         }
 
-        // 3. 씬 언로드 및 로드 (이 동안 화면은 완벽하게 100% 까만 상태 보장)
+        // 2. 기존 씬 언로드 및 다음 씬 로딩 (화면은 100% 까만 상태 유지)
         if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
         yield return SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
 
@@ -182,10 +184,10 @@ public class GameFlowManager : MonoBehaviour
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
 
-        // 4. 로딩 버퍼 대기
+        // 3. 씬 로딩 완료 후 미세한 엔진 초기화 버퍼 (0.2초)
         yield return new WaitForSecondsRealtime(0.2f);
 
-        // 5. 화면 밝아짐
+        // 4. 모든 준비가 완벽히 끝난 후 화면 밝아짐
         if (UIManager.Instance != null)
         {
             yield return StartCoroutine(UIManager.Instance.FadeInScreen());

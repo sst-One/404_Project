@@ -30,7 +30,6 @@ public class Stage8_11_Controller : MonoBehaviour
         EnemyAI enemy = FindObjectOfType<EnemyAI>(true);
         if (enemy != null)
         {
-            // Stage 8~11 구간에서만 AI 활성화
             bool isChaseStage = (GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
                                  GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
             enemy.gameObject.SetActive(isChaseStage);
@@ -49,7 +48,6 @@ public class Stage8_11_Controller : MonoBehaviour
         }
     }
 
-    // 방 입구 등에 설치된 Box Collider (Is Trigger) 에 닿았을 때 호출
     private void OnTriggerEnter(Collider other)
     {
         if (!hasEncounterTriggered && other.CompareTag("Player"))
@@ -61,10 +59,7 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator EncounterSequence()
     {
-        if (intruderAnimator != null)
-        {
-            intruderAnimator.SetTrigger("Strike");
-        }
+        if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
 
         yield return new WaitForSeconds(strikeDelay);
 
@@ -74,10 +69,7 @@ public class Stage8_11_Controller : MonoBehaviour
             if (clip != null) knifeStrikeAudio.PlayOneShot(clip);
         }
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(3);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
         if (playerPhone != null && phoneDropTarget != null)
         {
@@ -123,15 +115,8 @@ public class Stage8_11_Controller : MonoBehaviour
     {
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
-        // UIManager의 전역 페이드 시스템 활용 (기존 동적 캔버스 생성 로직 폐기)
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
-        }
-        else
-        {
-            yield return new WaitForSeconds(2.0f);
-        }
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+        else yield return new WaitForSeconds(2.0f);
 
         if (policeSirenSource != null && AudioManager.Instance != null)
         {

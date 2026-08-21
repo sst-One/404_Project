@@ -1,4 +1,3 @@
-// 1. ElevatorDoorController.cs
 using System.Collections;
 using UnityEngine;
 
@@ -15,7 +14,7 @@ public class ElevatorDoorController : MonoBehaviour
 
     [Header("Sound Settings (SND-xxx)")]
     public AudioSource doorAudioSource;
-    public string doorCloseClipName = ""; // 인스펙터에서 닫힘 소리 파일명 입력
+    public string doorCloseClipName = "";
     public float doorCloseSoundDelay = 0f;
 
     private Vector3 leftClosedPos;
@@ -59,15 +58,33 @@ public class ElevatorDoorController : MonoBehaviour
     public void OpenDoors()
     {
         if (!isInitialized) return;
+
+        // [핫픽스] 사운드 파일의 길이만큼 문 열림 시간을 강제 동기화
+        float syncDuration = animationDuration;
+        if (doorAudioSource != null && AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
+            if (clip != null) syncDuration = clip.length;
+        }
+
         if (currentAnimation != null) StopCoroutine(currentAnimation);
-        currentAnimation = StartCoroutine(DoorAnimationRoutine(true));
+        currentAnimation = StartCoroutine(DoorAnimationRoutine(true, syncDuration));
     }
 
     public void CloseDoors()
     {
         if (!isInitialized) return;
+
+        // [핫픽스] 사운드 파일의 길이만큼 문 닫힘 시간을 강제 동기화
+        float syncDuration = animationDuration;
+        if (doorAudioSource != null && AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
+            if (clip != null) syncDuration = clip.length;
+        }
+
         if (currentAnimation != null) StopCoroutine(currentAnimation);
-        currentAnimation = StartCoroutine(DoorAnimationRoutine(false));
+        currentAnimation = StartCoroutine(DoorAnimationRoutine(false, syncDuration));
 
         if (doorAudioSource != null && !string.IsNullOrEmpty(doorCloseClipName))
         {
@@ -89,7 +106,7 @@ public class ElevatorDoorController : MonoBehaviour
         }
     }
 
-    private IEnumerator DoorAnimationRoutine(bool isOpening)
+    private IEnumerator DoorAnimationRoutine(bool isOpening, float duration)
     {
         Vector3 leftStartPos = leftDoor.localPosition;
         Vector3 rightStartPos = rightDoor.localPosition;
@@ -98,7 +115,7 @@ public class ElevatorDoorController : MonoBehaviour
         Vector3 rightTargetPos = isOpening ? rightOpenPos : rightClosedPos;
 
         float distanceRatio = Vector3.Distance(leftStartPos, leftTargetPos) / Vector3.Distance(leftClosedPos, leftOpenPos);
-        float currentDuration = animationDuration * distanceRatio;
+        float currentDuration = duration * distanceRatio;
 
         float elapsedTime = 0f;
 

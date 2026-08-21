@@ -1,4 +1,3 @@
-// [Core] GameFlowManager.cs (최종 수정본)
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
@@ -22,7 +21,6 @@ public class GameFlowManager : MonoBehaviour
     private string _currentLoadedStageScene = "";
 
     [Header("Bootstrapper & Persistence")]
-    [Tooltip("씬 전환 시 파괴되지 않아야 할 최상위 프리팹 객체들을 넣으십시오 (Player, UI_Canvas 등)")]
     public GameObject[] persistentRoots;
     public Transform playerRig;
     public Camera mainCamera;
@@ -34,11 +32,9 @@ public class GameFlowManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        // [핵심 핫픽스] 자신을 최상위로 올린 후 파괴 방지
         transform.SetParent(null);
         DontDestroyOnLoad(gameObject);
 
-        // 등록된 시스템/플레이어/UI 루트 객체들을 강제로 최상위로 빼고 파괴 방지 적용
         if (persistentRoots != null)
         {
             foreach (GameObject rootObj in persistentRoots)
@@ -139,7 +135,10 @@ public class GameFlowManager : MonoBehaviour
 
     private IEnumerator ReturnToTitleRoutine()
     {
-        if (TitleController.Instance != null) TitleController.Instance.FadeInOnly(1.0f);
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+
+        // [핵심 핫픽스 2] 암전 상태가 화면에 100% 렌더링된 것을 확인하기 위해 1프레임 추가 대기
+        yield return new WaitForEndOfFrame();
 
         if (!string.IsNullOrEmpty(_currentLoadedStageScene))
         {
@@ -151,34 +150,29 @@ public class GameFlowManager : MonoBehaviour
         OnStageChanged?.Invoke(currentStage);
 
         if (TitleController.Instance != null) TitleController.Instance.ShowMainMenu();
-    }
 
-    private string GetDayTextForStage(GameStage stage)
-    {
-        switch (stage)
-        {
-            case GameStage.Stage1_Elevator: return "Day 1";
-            case GameStage.Stage3_Anomaly: return "Day 2";
-            case GameStage.Stage6_Blackout: return "Day 3";
-            case GameStage.Stage8_Intruder: return "Day 4";
-            case GameStage.Stage12_Police: return "Day 5";
-            default: return "";
-        }
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen());
     }
 
     private IEnumerator LoadSceneAdditiveWithFade(GameStage nextStage, string targetScene)
     {
-        string dayText = GetDayTextForStage(nextStage);
-
-        if (TitleController.Instance != null)
+        // 1. 화면 완전히 암전
+        if (UIManager.Instance != null)
         {
-            if (nextStage == GameStage.Tutorial) TitleController.Instance.FadeOutWithText("", 1.5f);
-            else TitleController.Instance.FadeOutWithText(dayText, 2.0f);
-            yield return new WaitForSecondsRealtime(2.0f);
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
         }
 
-        if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
+        // [핵심 핫픽스 2] 암전 상태가 화면에 100% 렌더링된 것을 확인하기 위해 1프레임 추가 대기 (엔진 비동기 버그 차단)
+        yield return new WaitForEndOfFrame();
 
+        // 2. 타이틀 화면 정리
+        if (currentStage == GameStage.Title && TitleController.Instance != null)
+        {
+            TitleController.Instance.HideMainMenu();
+        }
+
+        // 3. 씬 언로드 및 로드 (이 동안 화면은 완벽하게 100% 까만 상태 보장)
+        if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
         yield return SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
 
         _currentLoadedStageScene = targetScene;
@@ -188,8 +182,14 @@ public class GameFlowManager : MonoBehaviour
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
 
-        yield return new WaitForSecondsRealtime(1.0f);
-        if (TitleController.Instance != null) TitleController.Instance.FadeInOnly(1.0f);
+        // 4. 로딩 버퍼 대기
+        yield return new WaitForSecondsRealtime(0.2f);
+
+        // 5. 화면 밝아짐
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeInScreen());
+        }
     }
 
     private string GetSceneNameForStage(GameStage stage)

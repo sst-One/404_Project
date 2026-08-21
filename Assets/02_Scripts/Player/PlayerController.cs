@@ -228,6 +228,13 @@ public class PlayerController : MonoBehaviour
     {
         if (mainCamera == null || _cc == null || !_cc.enabled) return;
 
+        // [핫픽스] Stage 1(엘리베이터 이동)에서는 자유 이동 금지
+        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Stage1_Elevator)
+        {
+            StopMovement();
+            return;
+        }
+
         Vector3 forwardDir = mainCamera.transform.forward;
         forwardDir.y = 0;
         forwardDir.Normalize();

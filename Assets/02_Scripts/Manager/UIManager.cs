@@ -14,13 +14,13 @@ public class UIManager : MonoBehaviour
 
     [Header("Global Screen Fade")]
     public CanvasGroup globalFadeCanvasGroup;
+    [Tooltip("씬 전환 시 화면이 어두워지고 밝아지는 기본 속도")]
+    public float defaultFadeDuration = 0.4f;
 
     public UnityEngine.UI.Button btnResume;
     public UnityEngine.UI.Button btnQuit;
 
     public bool IsPaused { get; private set; } = false;
-
-    // [수정점] 외부 컷신 컨트롤러에서 컷신 잠금을 제어할 수 있도록 private set을 set으로 개방
     public bool IsDialogueActive { get; set; } = false;
 
     private void Awake()
@@ -34,7 +34,14 @@ public class UIManager : MonoBehaviour
     {
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         if (subtitlePanel != null) subtitlePanel.SetActive(false);
-        if (globalFadeCanvasGroup != null) globalFadeCanvasGroup.alpha = 0f;
+
+        // [핵심 핫픽스 1] 게임이 켜질 때 무조건 100% 완전한 암전 상태에서 시작
+        if (globalFadeCanvasGroup != null)
+        {
+            globalFadeCanvasGroup.gameObject.SetActive(true);
+            globalFadeCanvasGroup.alpha = 1f;
+            globalFadeCanvasGroup.blocksRaycasts = true;
+        }
 
         Time.timeScale = 1f;
         IsPaused = false;
@@ -140,26 +147,13 @@ public class UIManager : MonoBehaviour
         bool isSkipped = false;
         bool wasReaching = false;
 
-        if (PlayerController.Instance != null)
-        {
-            wasReaching = PlayerController.Instance.IsGripHeld;
-        }
+        if (PlayerController.Instance != null) wasReaching = PlayerController.Instance.IsGripHeld;
 
         while (!isSkipped)
         {
-            if (PlayerController.Instance != null && PlayerController.Instance.IsGripHeld && !wasReaching)
-            {
-                isSkipped = true;
-            }
-            if (PlayerController.Instance != null)
-            {
-                wasReaching = PlayerController.Instance.IsGripHeld;
-            }
-
-            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
-            {
-                isSkipped = true;
-            }
+            if (PlayerController.Instance != null && PlayerController.Instance.IsGripHeld && !wasReaching) isSkipped = true;
+            if (PlayerController.Instance != null) wasReaching = PlayerController.Instance.IsGripHeld;
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) isSkipped = true;
 
             yield return null;
         }
@@ -169,17 +163,56 @@ public class UIManager : MonoBehaviour
         IsDialogueActive = false;
     }
 
-    public IEnumerator FadeOutScreen(float fadeDuration)
+    public void ShowSubtitle(string message)
+    {
+        if (subtitlePanel == null || subtitleText == null) return;
+        subtitleText.text = message;
+        subtitlePanel.SetActive(true);
+    }
+
+    public void HideSubtitle()
+    {
+        if (subtitlePanel == null || subtitleText == null) return;
+        subtitlePanel.SetActive(false);
+        subtitleText.text = "";
+    }
+
+    public IEnumerator FadeOutScreen(float customDuration = -1f)
     {
         if (globalFadeCanvasGroup == null) yield break;
 
+        float fadeTime = customDuration < 0f ? defaultFadeDuration : customDuration;
+
+        globalFadeCanvasGroup.gameObject.SetActive(true);
+        globalFadeCanvasGroup.blocksRaycasts = true;
+
+        float startAlpha = globalFadeCanvasGroup.alpha;
         float timer = 0f;
-        while (timer < fadeDuration)
+        while (timer < fadeTime)
         {
-            timer += Time.deltaTime;
-            globalFadeCanvasGroup.alpha = Mathf.Clamp01(timer / fadeDuration);
+            timer += Time.unscaledDeltaTime;
+            globalFadeCanvasGroup.alpha = Mathf.Lerp(startAlpha, 1f, timer / fadeTime);
             yield return null;
         }
         globalFadeCanvasGroup.alpha = 1f;
+    }
+
+    public IEnumerator FadeInScreen(float customDuration = -1f)
+    {
+        if (globalFadeCanvasGroup == null) yield break;
+
+        float fadeTime = customDuration < 0f ? defaultFadeDuration : customDuration;
+
+        float startAlpha = globalFadeCanvasGroup.alpha;
+        float timer = 0f;
+        while (timer < fadeTime)
+        {
+            timer += Time.unscaledDeltaTime;
+            globalFadeCanvasGroup.alpha = Mathf.Lerp(startAlpha, 0f, timer / fadeTime);
+            yield return null;
+        }
+        globalFadeCanvasGroup.alpha = 0f;
+        globalFadeCanvasGroup.blocksRaycasts = false;
+        globalFadeCanvasGroup.gameObject.SetActive(false);
     }
 }

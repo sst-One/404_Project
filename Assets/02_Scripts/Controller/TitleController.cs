@@ -7,18 +7,14 @@ public class TitleController : MonoBehaviour
 {
     public static TitleController Instance { get; private set; }
 
-    [Header("페이드 연출 전용 (검은 화면)")]
-    public GameObject titlePanel;
-    public Image fadeBackground;
-    public TextMeshProUGUI titleText;
-
     [Header("메인 메뉴 UI")]
+    public GameObject titlePanel;
     public GameObject[] titleUIContainers;
     public GameObject explanationPanel;
 
     [Header("버튼 할당 (인스펙터 필수)")]
     public Button btnStartGame;
-    public Button btnTutorial; // [추가됨] 튜토리얼 버튼 전용 슬롯
+    public Button btnTutorial;
     public Button btnExplanation;
     public Button btnCloseExplanation;
     public Button btnQuitGame;
@@ -28,7 +24,6 @@ public class TitleController : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        // 인스펙터의 OnClick() 리스트에 Missing이 떠있어도 코드가 강제로 연결을 덮어씌웁니다.
         if (btnStartGame != null)
         {
             btnStartGame.onClick.RemoveAllListeners();
@@ -37,7 +32,7 @@ public class TitleController : MonoBehaviour
         if (btnTutorial != null)
         {
             btnTutorial.onClick.RemoveAllListeners();
-            btnTutorial.onClick.AddListener(OnClickStartGame); // 튜토리얼 씬으로 연결
+            btnTutorial.onClick.AddListener(OnClickStartGame);
         }
         if (btnExplanation != null)
         {
@@ -73,10 +68,7 @@ public class TitleController : MonoBehaviour
 
         foreach (var container in titleUIContainers)
         {
-            if (container != null && container != titlePanel)
-            {
-                container.SetActive(true);
-            }
+            if (container != null && container != titlePanel) container.SetActive(true);
         }
 
         if (explanationPanel != null) explanationPanel.SetActive(false);
@@ -92,31 +84,42 @@ public class TitleController : MonoBehaviour
     {
         foreach (var container in titleUIContainers)
         {
-            if (container != null && container != this.gameObject)
-            {
-                container.SetActive(false);
-            }
+            if (container != null && container != this.gameObject) container.SetActive(false);
         }
     }
 
     private void OnClickStartGame()
     {
-        Debug.Log("[TitleController] Start/Tutorial 버튼 클릭! 튜토리얼 씬 로드 요청.");
         if (btnStartGame != null) btnStartGame.interactable = false;
         if (btnTutorial != null) btnTutorial.interactable = false;
 
-        HideMainMenu();
-
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = false;
+
+        StartCoroutine(StartGameTransitionRoutine());
+    }
+
+    private IEnumerator StartGameTransitionRoutine()
+    {
+        // UIManager에 위임 (파라미터 공란)
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+        }
+
+        HideMainMenu();
 
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
         }
-        else
+
+        // 로딩 지연 버퍼 단축
+        yield return new WaitForSecondsRealtime(0.2f);
+
+        if (UIManager.Instance != null)
         {
-            Debug.LogError("[TitleController 치명적 오류] GameFlowManager가 씬에 존재하지 않습니다!");
+            yield return StartCoroutine(UIManager.Instance.FadeInScreen());
         }
     }
 
@@ -133,78 +136,10 @@ public class TitleController : MonoBehaviour
 
     private void OnClickQuitGame()
     {
-    #if UNITY_EDITOR
+#if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
-    #else
-        Application.Quit();
-    #endif
-    }
-
-    public void FadeOutWithText(string text, float duration)
-    {
-        if (titlePanel == null) return;
-        StartCoroutine(FadeOutTextRoutine(text, duration));
-    }
-
-    public void FadeInOnly(float duration)
-    {
-        if (titlePanel == null) return;
-        StartCoroutine(FadeInRoutine(duration));
-    }
-
-    private IEnumerator FadeOutTextRoutine(string text, float duration)
-    {
-        titlePanel.SetActive(true);
-
-        Color bgColor = fadeBackground != null ? fadeBackground.color : Color.black;
-        Color textColor = titleText != null ? titleText.color : Color.white;
-
-        if (titleText != null) titleText.text = text;
-
-        float timer = 0f;
-        while (timer < duration)
-        {
-            timer += Time.unscaledDeltaTime;
-            float alpha = Mathf.Lerp(0f, 1f, timer / duration);
-
-            if (fadeBackground != null)
-            {
-                bgColor.a = alpha;
-                fadeBackground.color = bgColor;
-            }
-            if (titleText != null && !string.IsNullOrEmpty(text))
-            {
-                textColor.a = alpha;
-                titleText.color = textColor;
-            }
-            yield return null;
-        }
-    }
-
-    private IEnumerator FadeInRoutine(float duration)
-    {
-        Color bgColor = fadeBackground != null ? fadeBackground.color : Color.black;
-        Color textColor = titleText != null ? titleText.color : Color.white;
-
-        float timer = 0f;
-        while (timer < duration)
-        {
-            timer += Time.unscaledDeltaTime;
-            float alpha = Mathf.Lerp(1f, 0f, timer / duration);
-
-            if (fadeBackground != null)
-            {
-                bgColor.a = alpha;
-                fadeBackground.color = bgColor;
-            }
-            if (titleText != null)
-            {
-                textColor.a = alpha;
-                titleText.color = textColor;
-            }
-            yield return null;
-        }
-
-        titlePanel.SetActive(false);
+#else
+        Application.Quit();    
+#endif
     }
 }

@@ -21,15 +21,17 @@ public class EnemyAI : MonoBehaviour
     public LayerMask obstacleMask;
     public float fovTickRate = 0.2f;
 
-    [Header("Speed Settings")]
-    public float patrolSpeed = 0.8f;
-    public float chaseSpeed = 1.1f;
+    [Header("Speed Settings (Animation Sync)")]
+    public float patrolSpeed = 0.8f;       // Walk 애니메이션 속도
+    public float investigateSpeed = 1.5f;  // Run 애니메이션 속도 (소음 High)
+    public float chaseSpeed = 2.5f;        // Chase 애니메이션 속도 (시야 노출 / 소음 Critical)
 
     [Header("Detection Settings (SYS-005)")]
     public float criticalDetectionDistance = 1.0f;
 
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
+    private Animator _animator;
     private Transform _playerTransform;
     private Camera _mainCamera;
     private Vector3 _lastKnownPlayerPosition;
@@ -50,12 +52,12 @@ public class EnemyAI : MonoBehaviour
     private void Awake()
     {
         _agent = GetComponent<NavMeshAgent>();
+        _animator = GetComponentInChildren<Animator>();
         _mainCamera = Camera.main;
     }
 
     private void Start()
     {
-        // [수정 완료] 삭제된 PlayerMovement 대신 통합된 PlayerController를 참조합니다.
         if (PlayerController.Instance != null) _playerTransform = PlayerController.Instance.transform;
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
 
@@ -77,6 +79,12 @@ public class EnemyAI : MonoBehaviour
 
     private void Update()
     {
+        // 애니메이터에 현재 실제 이동 속도(magnitude) 전달하여 Blend Tree 자동 제어
+        if (_animator != null && _agent != null)
+        {
+            _animator.SetFloat("Speed", _agent.velocity.magnitude);
+        }
+
         if (isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
             if (_agent.isOnNavMesh) _agent.isStopped = true;
@@ -108,6 +116,7 @@ public class EnemyAI : MonoBehaviour
         UpdateAudioState(isChasing, isCloseToPlayer);
     }
 
+    // [핵심 핫픽스] 마스터 데이터에 맞게 3단계 속도 제어
     private void ChangeState(EnemyState newState)
     {
         if (currentState == newState) return;
@@ -118,7 +127,21 @@ public class EnemyAI : MonoBehaviour
 
         if (_agent != null)
         {
-            _agent.speed = (currentState == EnemyState.Chase) ? chaseSpeed : patrolSpeed;
+            switch (currentState)
+            {
+                case EnemyState.Patrol:
+                    _agent.speed = patrolSpeed;
+                    break;
+                case EnemyState.Investigate:
+                    _agent.speed = investigateSpeed; // Run 속도
+                    break;
+                case EnemyState.Chase:
+                    _agent.speed = chaseSpeed; // Chase 속도
+                    break;
+                case EnemyState.Suspect:
+                    _agent.speed = 0f; // 제자리 멈춤 (Idle)
+                    break;
+            }
         }
     }
 
@@ -137,7 +160,6 @@ public class EnemyAI : MonoBehaviour
         if (isNarrativeMode || _mainCamera == null) return;
 
         bool canSeePlayer = false;
-        // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
         bool isPlayerFreezing = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive);
         float currentDistanceToPlayer = float.MaxValue;
 
@@ -214,11 +236,11 @@ public class EnemyAI : MonoBehaviour
             if (level == NoiseLevel.Critical)
             {
                 _lastKnownPlayerPosition = noisePosition;
-                ChangeState(EnemyState.Chase);
+                ChangeState(EnemyState.Chase); // 시야 노출과 동일 취급 (전력질주)
             }
             else
             {
-                ChangeState(EnemyState.Investigate);
+                ChangeState(EnemyState.Investigate); // 뛰어오기 시작 (Run)
                 if (_agent.isOnNavMesh) _agent.SetDestination(noisePosition);
             }
         }

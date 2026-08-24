@@ -44,6 +44,14 @@ public class Stage8_11_Controller : MonoBehaviour
             {
                 phoneController.onCallSuccess.RemoveAllListeners();
                 phoneController.onCallSuccess.AddListener(OnStage11Completed);
+
+                // [핵심 추가] 씬 시작 시 플레이어의 카메라를 찾아 휴대폰을 왼손 위치에 쥐어줍니다.
+                if (PlayerController.Instance != null && PlayerController.Instance.mainCamera != null)
+                {
+                    phoneController.transform.SetParent(PlayerController.Instance.mainCamera.transform);
+                    phoneController.transform.localPosition = phoneController.leftHandPosition;
+                    phoneController.transform.localRotation = Quaternion.Euler(phoneController.leftHandRotation);
+                }
             }
         }
     }
@@ -61,8 +69,10 @@ public class Stage8_11_Controller : MonoBehaviour
     {
         if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
 
+        // 칼을 높이 드는 애니메이션 대기
         yield return new WaitForSeconds(strikeDelay);
 
+        // 바닥을 찍는 사운드 재생
         if (knifeStrikeAudio != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(knifeStrikeClipName);
@@ -71,21 +81,14 @@ public class Stage8_11_Controller : MonoBehaviour
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
-        if (playerPhone != null && phoneDropTarget != null)
+        // [핵심 수정] 수동 Lerp 연산을 제거하고 PhoneController 전용 함수를 통해 시각/청각 완벽 동기화
+        if (phoneController != null && phoneDropTarget != null)
         {
-            playerPhone.transform.SetParent(null);
-            Vector3 startPos = playerPhone.transform.position;
-            Quaternion startRot = playerPhone.transform.rotation;
+            phoneController.transform.SetParent(null); // 플레이어 종속 해제
+            phoneController.TriggerDrop(phoneDropTarget);
 
-            float timer = 0f;
-            while (timer < dropDuration)
-            {
-                timer += Time.deltaTime;
-                float t = timer / dropDuration;
-                playerPhone.transform.position = Vector3.Lerp(startPos, phoneDropTarget.position, t);
-                playerPhone.transform.rotation = Quaternion.Slerp(startRot, phoneDropTarget.rotation, t);
-                yield return null;
-            }
+            // 휴대폰이 바닥에 미끄러지며 떨어지는 연출 시간만큼 씬 전환 대기
+            yield return new WaitForSeconds(dropDuration);
         }
 
         if (GameFlowManager.Instance != null)

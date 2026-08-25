@@ -11,6 +11,9 @@ public class PhoneController : MonoBehaviour
     public PhoneState currentState = PhoneState.Idle;
     public float callDuration = 10.0f;
 
+    [Header("UI 참조")]
+    public PhoneUIController phoneUI;
+
     [Header("낙하 연출 설정 (Drop)")]
     public float dropDuration = 0.8f;
     public Vector3 dropRotation = new Vector3(90f, 0f, 0f);
@@ -49,7 +52,12 @@ public class PhoneController : MonoBehaviour
             _interactable.onInteractEvent.AddListener(OnPhoneReached);
         }
 
-        if (currentState == PhoneState.Dropped) StartVibration();
+        if (currentState == PhoneState.Dropped)
+        {
+            StartVibration();
+            // 바닥에 떨어져 진동 중일 때 화면을 켜서 시각적 단서 제공
+            if (phoneUI != null) phoneUI.ShowDefaultScreen();
+        }
     }
 
     private Camera GetPlayerCamera()
@@ -72,6 +80,9 @@ public class PhoneController : MonoBehaviour
     private IEnumerator DropRoutine(Transform targetFloorPoint)
     {
         currentState = PhoneState.Dropping;
+
+        // 떨어지는 도중에는 화면이 꺼짐
+        if (phoneUI != null) phoneUI.TurnOffScreen();
 
         if (sfxSource != null && AudioManager.Instance != null)
         {
@@ -100,6 +111,9 @@ public class PhoneController : MonoBehaviour
         if (_interactable != null) _interactable.isInteractable = true;
 
         StartVibration();
+
+        // 바닥에 닿은 후 화면이 켜짐
+        if (phoneUI != null) phoneUI.ShowDefaultScreen();
     }
 
     private void StartVibration()
@@ -118,7 +132,6 @@ public class PhoneController : MonoBehaviour
 
     public void OnPhoneReached()
     {
-        // 폰 획득 방어 코드: 허용된 스테이지 범위를 벗어나면 상호작용 불능 처리
         if (GameFlowManager.Instance != null)
         {
             GameStage current = GameFlowManager.Instance.currentStage;
@@ -168,6 +181,8 @@ public class PhoneController : MonoBehaviour
 
     private IEnumerator WaitToCallRoutine()
     {
+        if (phoneUI != null) phoneUI.ShowDial112();
+
         while (currentState == PhoneState.Recovered)
         {
             bool isHiding = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
@@ -184,6 +199,7 @@ public class PhoneController : MonoBehaviour
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
+        if (phoneUI != null) phoneUI.ShowCalling();
 
         if (sfxSource != null && AudioManager.Instance != null)
         {
@@ -215,6 +231,7 @@ public class PhoneController : MonoBehaviour
                 }
 
                 currentState = PhoneState.Recovered;
+                if (phoneUI != null) phoneUI.ShowDial112();
                 if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
 
                 yield return new WaitForSeconds(1.0f);
@@ -225,6 +242,7 @@ public class PhoneController : MonoBehaviour
         }
 
         currentState = PhoneState.Success;
+        if (phoneUI != null) phoneUI.ShowPoliceCall();
 
         if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
@@ -246,7 +264,9 @@ public class PhoneController : MonoBehaviour
 
     private IEnumerator SelfDestructRoutine(float delay)
     {
+        // 종료 연출 후 화면 끄기
         yield return new WaitForSeconds(delay);
+        if (phoneUI != null) phoneUI.TurnOffScreen();
         transform.SetParent(null);
         Destroy(gameObject);
     }

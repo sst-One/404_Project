@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using TMPro;
+using UnityEngine.UI;
 
 public class UIManager : MonoBehaviour
 {
@@ -15,6 +16,13 @@ public class UIManager : MonoBehaviour
     [Header("Global Screen Fade")]
     public CanvasGroup globalFadeCanvasGroup;
     public float defaultFadeDuration = 0.4f;
+
+    [Header("Day Transition UI (UI-005)")]
+    public GameObject dayTransitionPanel;
+    public RawImage dayTransitionImage;
+    public TextMeshProUGUI dayTransitionText;
+    [Tooltip("Day 1부터 Day 5까지 차례대로 배열에 5개의 텍스처를 할당하세요.")]
+    public Texture[] dayTextures; // [핫픽스] 배열 집중화
 
     public UnityEngine.UI.Button btnResume;
     public UnityEngine.UI.Button btnQuit;
@@ -34,6 +42,8 @@ public class UIManager : MonoBehaviour
             globalFadeCanvasGroup.alpha = 1f;
             globalFadeCanvasGroup.blocksRaycasts = true;
         }
+
+        if (dayTransitionPanel != null) dayTransitionPanel.SetActive(false);
     }
 
     private void Start()
@@ -72,11 +82,11 @@ public class UIManager : MonoBehaviour
 
     public bool IsAnyUIBlocking()
     {
-        bool isTitleActive = TitleController.Instance != null &&
-                             TitleController.Instance.titlePanel != null &&
-                             TitleController.Instance.titlePanel.activeInHierarchy;
+        bool isMainMenuActive = TitleController.Instance != null &&
+                                TitleController.Instance.titlePanel != null &&
+                                TitleController.Instance.titlePanel.activeInHierarchy;
 
-        return IsPaused || isTitleActive;
+        return IsPaused || isMainMenuActive;
     }
 
     public void TogglePause()
@@ -89,11 +99,7 @@ public class UIManager : MonoBehaviour
     {
         if (IsPaused) return;
         IsPaused = true;
-
-        // 프레임 업데이트 동결
         Time.timeScale = 0f;
-
-        // 게임 내 모든 AudioSource 사운드 출력 동결
         AudioListener.pause = true;
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
@@ -105,7 +111,6 @@ public class UIManager : MonoBehaviour
     public void ResumeGame()
     {
         if (!IsPaused) return;
-
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         StartCoroutine(ResumeRoutine());
     }
@@ -113,35 +118,22 @@ public class UIManager : MonoBehaviour
     private IEnumerator ResumeRoutine()
     {
         yield return new WaitForSecondsRealtime(0.1f);
-
-        // 프레임 업데이트 재개
         Time.timeScale = 1f;
-
-        // 게임 내 사운드 출력 재개
         AudioListener.pause = false;
-
         IsPaused = false;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
-    public void OnClickResume()
-    {
-        ResumeGame();
-    }
-
+    public void OnClickResume() { ResumeGame(); }
     public void OnClickQuit()
     {
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
-
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
     }
 
     public IEnumerator ShowInteractiveSubtitle(string message)
@@ -185,9 +177,7 @@ public class UIManager : MonoBehaviour
     public IEnumerator FadeOutScreen(float customDuration = -1f)
     {
         if (globalFadeCanvasGroup == null) yield break;
-
         float fadeTime = customDuration < 0f ? defaultFadeDuration : customDuration;
-
         globalFadeCanvasGroup.gameObject.SetActive(true);
         globalFadeCanvasGroup.blocksRaycasts = true;
 
@@ -204,9 +194,7 @@ public class UIManager : MonoBehaviour
     public IEnumerator FadeInScreen(float customDuration = -1f)
     {
         if (globalFadeCanvasGroup == null) yield break;
-
         float fadeTime = customDuration < 0f ? defaultFadeDuration : customDuration;
-
         globalFadeCanvasGroup.gameObject.SetActive(true);
 
         float timer = 0f;
@@ -219,5 +207,39 @@ public class UIManager : MonoBehaviour
         globalFadeCanvasGroup.alpha = 0f;
         globalFadeCanvasGroup.blocksRaycasts = false;
         globalFadeCanvasGroup.gameObject.SetActive(false);
+    }
+
+    // [핫픽스] 텍스처 인자를 없애고 자체 배열에서 인덱스 참조
+    public IEnumerator ShowDayTransition(int day)
+    {
+        if (dayTransitionPanel == null) yield break;
+
+        dayTransitionPanel.SetActive(true);
+        if (dayTransitionText != null) dayTransitionText.text = "Day " + day;
+
+        // 인덱스는 0부터 시작하므로 day - 1
+        int index = day - 1;
+        if (dayTransitionImage != null && dayTextures != null && index >= 0 && index < dayTextures.Length && dayTextures[index] != null)
+        {
+            dayTransitionImage.gameObject.SetActive(true);
+            dayTransitionImage.texture = dayTextures[index];
+        }
+        else if (dayTransitionImage != null) dayTransitionImage.gameObject.SetActive(false);
+
+        CanvasGroup cg = dayTransitionPanel.GetComponent<CanvasGroup>();
+        if (cg == null) cg = dayTransitionPanel.AddComponent<CanvasGroup>();
+
+        cg.alpha = 0f;
+        float timer = 0f;
+        while (timer < 1.0f) { timer += Time.unscaledDeltaTime; cg.alpha = timer; yield return null; }
+        cg.alpha = 1f;
+
+        yield return new WaitForSecondsRealtime(2.5f);
+
+        timer = 0f;
+        while (timer < 1.0f) { timer += Time.unscaledDeltaTime; cg.alpha = 1f - timer; yield return null; }
+        cg.alpha = 0f;
+
+        dayTransitionPanel.SetActive(false);
     }
 }

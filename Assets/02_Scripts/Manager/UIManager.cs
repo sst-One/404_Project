@@ -28,7 +28,6 @@ public class UIManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // 생성 즉시 화면을 암전시켜 씬 로딩 중 번쩍임 원천 차단
         if (globalFadeCanvasGroup != null)
         {
             globalFadeCanvasGroup.gameObject.SetActive(true);
@@ -43,6 +42,7 @@ public class UIManager : MonoBehaviour
         if (subtitlePanel != null) subtitlePanel.SetActive(false);
 
         Time.timeScale = 1f;
+        AudioListener.pause = false;
         IsPaused = false;
 
         if (btnResume != null)
@@ -76,7 +76,7 @@ public class UIManager : MonoBehaviour
                              TitleController.Instance.titlePanel != null &&
                              TitleController.Instance.titlePanel.activeInHierarchy;
 
-        return IsPaused || IsDialogueActive || isTitleActive;
+        return IsPaused || isTitleActive;
     }
 
     public void TogglePause()
@@ -89,7 +89,12 @@ public class UIManager : MonoBehaviour
     {
         if (IsPaused) return;
         IsPaused = true;
+
+        // 프레임 업데이트 동결
         Time.timeScale = 0f;
+
+        // 게임 내 모든 AudioSource 사운드 출력 동결
+        AudioListener.pause = true;
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
 
@@ -108,7 +113,13 @@ public class UIManager : MonoBehaviour
     private IEnumerator ResumeRoutine()
     {
         yield return new WaitForSecondsRealtime(0.1f);
+
+        // 프레임 업데이트 재개
         Time.timeScale = 1f;
+
+        // 게임 내 사운드 출력 재개
+        AudioListener.pause = false;
+
         IsPaused = false;
 
         Cursor.lockState = CursorLockMode.Locked;
@@ -124,6 +135,7 @@ public class UIManager : MonoBehaviour
     {
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         Time.timeScale = 1f;
+        AudioListener.pause = false;
         IsPaused = false;
 
         if (GameFlowManager.Instance != null)
@@ -140,18 +152,14 @@ public class UIManager : MonoBehaviour
         subtitleText.text = message;
         subtitlePanel.SetActive(true);
 
-        yield return new WaitForSecondsRealtime(0.5f);
+        float duration = Mathf.Max(2.5f, message.Length * 0.1f);
+        float timer = 0f;
 
-        bool isSkipped = false;
-        bool wasReaching = false;
-
-        if (PlayerController.Instance != null) wasReaching = PlayerController.Instance.IsGripHeld;
-
-        while (!isSkipped)
+        while (timer < duration)
         {
-            if (PlayerController.Instance != null && PlayerController.Instance.IsGripHeld && !wasReaching) isSkipped = true;
-            if (PlayerController.Instance != null) wasReaching = PlayerController.Instance.IsGripHeld;
-            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) isSkipped = true;
+            timer += Time.unscaledDeltaTime;
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) break;
+            if (PlayerController.Instance != null && PlayerController.Instance.IsGripTriggered) break;
             yield return null;
         }
 

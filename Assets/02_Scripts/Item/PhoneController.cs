@@ -20,8 +20,8 @@ public class PhoneController : MonoBehaviour
     public Vector3 leftHandRotation = new Vector3(15f, 30f, 0f);
 
     [Header("최적화된 오디오 설정 (단 2개)")]
-    public AudioSource sfxSource;   // 진동, 다이얼, 낙하 등 통합 SFX
-    public AudioSource voiceSource; // 경찰 응답 보이스 전용
+    public AudioSource sfxSource;
+    public AudioSource voiceSource;
 
     [Header("사운드 에셋 이름 (SND-xxx)")]
     public string dropSlideClipName = "SND-049_PhoneSlide_OneShot";
@@ -73,7 +73,6 @@ public class PhoneController : MonoBehaviour
     {
         currentState = PhoneState.Dropping;
 
-        // [최적화] 통합 sfxSource 활용
         if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dropSlideClipName);
@@ -119,6 +118,16 @@ public class PhoneController : MonoBehaviour
 
     public void OnPhoneReached()
     {
+        // 폰 획득 방어 코드: 허용된 스테이지 범위를 벗어나면 상호작용 불능 처리
+        if (GameFlowManager.Instance != null)
+        {
+            GameStage current = GameFlowManager.Instance.currentStage;
+            if (current < GameStage.Stage8_Intruder || current > GameStage.Stage13_Ending)
+            {
+                return;
+            }
+        }
+
         if (_isInteracting || currentState != PhoneState.Dropped) return;
         StartCoroutine(RecoverRoutine());
     }
@@ -134,7 +143,6 @@ public class PhoneController : MonoBehaviour
 
         currentState = PhoneState.Recovered;
 
-        // [최적화] sfxSource 초기화 후 픽업 효과음 재생
         if (sfxSource != null)
         {
             sfxSource.Stop();
@@ -160,15 +168,23 @@ public class PhoneController : MonoBehaviour
 
     private IEnumerator WaitToCallRoutine()
     {
-        yield return new WaitForSeconds(1.5f);
-        if (currentState == PhoneState.Recovered) yield return StartCoroutine(CallRoutine());
+        while (currentState == PhoneState.Recovered)
+        {
+            bool isHiding = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
+            bool isFreeze = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
+
+            if (isHiding && isFreeze)
+            {
+                yield return StartCoroutine(CallRoutine());
+            }
+            yield return null;
+        }
     }
 
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
 
-        // [최적화] sfxSource로 다이얼음 루프
         if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
@@ -212,7 +228,6 @@ public class PhoneController : MonoBehaviour
 
         if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
-        // [최적화] voiceSource 독립 재생
         float voiceLength = 4.0f;
         if (voiceSource != null && AudioManager.Instance != null)
         {

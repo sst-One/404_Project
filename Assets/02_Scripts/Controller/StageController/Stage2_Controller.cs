@@ -61,7 +61,6 @@ public class Stage2_Controller : MonoBehaviour
             playDuration = tvNewsSource.clip.length;
         }
 
-        // 카메라 시선 강제 고정
         MonoBehaviour cameraLookScript = null;
         if (PlayerController.Instance != null && PlayerController.Instance.mainCamera != null)
         {
@@ -85,22 +84,15 @@ public class Stage2_Controller : MonoBehaviour
             }
         }
 
-        // [핵심 핫픽스 3] 클릭 대기를 유발하는 yield return 제거
-        // 비동기로 자막을 띄우기만 하고 로직은 계속 타이머를 흐르게 만듦
-        Coroutine subtitleRoutine = null;
-        if (UIManager.Instance != null)
-        {
-            subtitleRoutine = StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day1_TVNews));
-        }
+        // [핫픽스 1] 클릭 대기를 없애고 순수 자막 표시 후 타이머 경과 시 삭제
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day1_TVNews);
 
-        // 클릭과 무관하게 정확히 비디오 재생 시간(playDuration) 동안만 대기
         yield return new WaitForSeconds(Mathf.Max(0f, playDuration - 1.0f));
+
+        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
         if (tvVideoPlayer != null && tvVideoPlayer.isPlaying) tvVideoPlayer.Stop();
         if (tvNewsSource != null && tvNewsSource.isPlaying) tvNewsSource.Stop();
-
-        // 열려있는 자막 강제 종료 처리 (필요시 추가)
-        // 만약 UIManager에 자막을 강제로 끄는 함수(예: CloseSubtitle)가 있다면 여기서 호출해야 합니다.
 
         yield return new WaitForSeconds(1.5f);
 

@@ -7,7 +7,7 @@ public class Stage1_Controller : MonoBehaviour
     private ElevatorDoorController doorController;
 
     [Header("Item Audio Reference")]
-    public AudioSource elevatorAudioSource; // 엘리베이터 객체에 달린 소스
+    public AudioSource elevatorAudioSource;
 
     [Header("Audio Clip Names")]
     public string buttonClickClipName = "SND-013_ButtonClick_OneShot";
@@ -42,7 +42,6 @@ public class Stage1_Controller : MonoBehaviour
 
         if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.1f);
 
-        // [최적화] 일회성 클릭음은 AudioManager가 처리
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(buttonClickClipName))
         {
             AudioManager.Instance.PlayGlobal2D(buttonClickClipName, AudioManager.Instance.sfxMixerGroup);
@@ -55,13 +54,12 @@ public class Stage1_Controller : MonoBehaviour
     {
         if (doorController != null)
         {
-            doorController.animationDuration = 1.4f;
+            doorController.animationDuration = 3f;
             doorController.CloseDoors();
         }
 
-        yield return new WaitForSeconds(1.4f);
+        yield return new WaitForSeconds(3f);
 
-        // 루프 이동음은 엘리베이터 오디오 소스 사용
         if (elevatorAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(elevatorMoveClipName);
@@ -80,7 +78,6 @@ public class Stage1_Controller : MonoBehaviour
             elevatorAudioSource.Stop();
         }
 
-        // [최적화] 일회성 도착음은 AudioManager가 처리
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(elevatorArriveClipName))
         {
             AudioManager.Instance.PlayGlobal2D(elevatorArriveClipName, AudioManager.Instance.sfxMixerGroup);
@@ -88,11 +85,11 @@ public class Stage1_Controller : MonoBehaviour
 
         if (doorController != null)
         {
-            doorController.animationDuration = 1.3f;
+            doorController.animationDuration = 3f;
             doorController.OpenDoors();
         }
 
-        yield return new WaitForSeconds(1.3f);
+        yield return new WaitForSeconds(3f);
 
         if (GameFlowManager.Instance != null)
         {

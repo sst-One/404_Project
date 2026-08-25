@@ -54,7 +54,6 @@ public class EnemyAI : MonoBehaviour
     public string bigFootWalkClipName = "";
     public string enemyBreathCloseClipName = "";
 
-    // [최적화] 캐싱 변수
     private int _speedHash;
     private WaitForSeconds _fovWait;
     private WaitForSeconds _suspectWait;
@@ -66,7 +65,6 @@ public class EnemyAI : MonoBehaviour
         _animator = GetComponentInChildren<Animator>();
         _mainCamera = Camera.main;
 
-        // [최적화] 해시 및 코루틴 대기 객체 캐싱
         _speedHash = Animator.StringToHash("Speed");
         _fovWait = new WaitForSeconds(fovTickRate);
         _suspectWait = new WaitForSeconds(3f);
@@ -79,6 +77,9 @@ public class EnemyAI : MonoBehaviour
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
 
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
+
+        // [핫픽스 1] 컷신 전용 AI일 경우 여기서 즉시 스크립트 실행을 종료하여 Null 에러 원천 차단
+        if (isNarrativeMode) return;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))
         {
@@ -98,13 +99,12 @@ public class EnemyAI : MonoBehaviour
     {
         if (_animator != null && _agent != null)
         {
-            // [최적화] 문자열 대신 해시값 사용
             _animator.SetFloat(_speedHash, _agent.velocity.magnitude);
         }
 
         if (isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
-            if (_agent.isOnNavMesh) _agent.isStopped = true;
+            if (_agent != null && _agent.isOnNavMesh) _agent.isStopped = true;
             return;
         }
 
@@ -130,7 +130,6 @@ public class EnemyAI : MonoBehaviour
 
         if (_playerTransform != null)
         {
-            // [최적화] 연산이 무거운 Distance 대신 sqrMagnitude 사용 (2.5 * 2.5 = 6.25)
             float distanceSq = (transform.position - _playerTransform.position).sqrMagnitude;
             if (distanceSq <= 6.25f) isCloseToPlayer = true;
         }
@@ -210,7 +209,6 @@ public class EnemyAI : MonoBehaviour
         float distanceToTargetSq = (transform.position - _playerTransform.position).sqrMagnitude;
         float viewRadiusSq = viewRadius * viewRadius;
 
-        // [최적화] sqrMagnitude 연산 교체
         if (distanceToTargetSq <= viewRadiusSq)
         {
             if (Vector3.Angle(transform.forward, dirToTarget) < viewAngle * 0.5f)
@@ -312,7 +310,14 @@ public class EnemyAI : MonoBehaviour
 
     private void MoveToNextPatrolPoint()
     {
-        if (patrolPoints == null || patrolPoints.Length == 0) return;
+        // [핫픽스 1] 순찰 배열 방어 코드 완벽 강화
+        if (isNarrativeMode || patrolPoints == null || patrolPoints.Length == 0) return;
+        if (_currentPatrolIndex >= patrolPoints.Length || patrolPoints[_currentPatrolIndex] == null)
+        {
+            _currentPatrolIndex = 0; // 예외 발생 시 0으로 초기화
+            if (patrolPoints.Length == 0 || patrolPoints[0] == null) return;
+        }
+
         if (_agent.isOnNavMesh)
         {
             _agent.isStopped = false;

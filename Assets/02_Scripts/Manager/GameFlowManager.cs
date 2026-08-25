@@ -135,13 +135,9 @@ public class GameFlowManager : MonoBehaviour
 
     private IEnumerator ReturnToTitleRoutine()
     {
-        // 1. 화면 완전히 암전 (UIManager 전담)
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
-
-        // [지시 사항 반영] 완전히 어두워진 화면 상태에서 무조건 0.5초 대기
         yield return new WaitForSecondsRealtime(0.5f);
 
-        // 2. 씬 언로딩/로딩 처리 (화면은 계속 까만 상태 보장)
         if (!string.IsNullOrEmpty(_currentLoadedStageScene))
         {
             yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
@@ -153,27 +149,16 @@ public class GameFlowManager : MonoBehaviour
 
         if (TitleController.Instance != null) TitleController.Instance.ShowMainMenu();
 
-        // 3. 로딩 및 세팅 완료 후 비로소 화면 밝아짐
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen());
     }
 
     private IEnumerator LoadSceneAdditiveWithFade(GameStage nextStage, string targetScene)
     {
-        // 1. 화면 완전히 암전 (UIManager 전담)
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
-        }
-
-        // [지시 사항 반영] 완전히 어두워진 화면 상태에서 무조건 0.5초 대기
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
         yield return new WaitForSecondsRealtime(0.5f);
 
-        if (currentStage == GameStage.Title && TitleController.Instance != null)
-        {
-            TitleController.Instance.HideMainMenu();
-        }
+        if (currentStage == GameStage.Title && TitleController.Instance != null) TitleController.Instance.HideMainMenu();
 
-        // 2. 기존 씬 언로드 및 다음 씬 로딩 (화면은 100% 까만 상태 유지)
         if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
         yield return SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
 
@@ -184,14 +169,9 @@ public class GameFlowManager : MonoBehaviour
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
 
-        // 3. 씬 로딩 완료 후 미세한 엔진 초기화 버퍼 (0.2초)
         yield return new WaitForSecondsRealtime(0.2f);
 
-        // 4. 모든 준비가 완벽히 끝난 후 화면 밝아짐
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeInScreen());
-        }
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen());
     }
 
     private string GetSceneNameForStage(GameStage stage)
@@ -210,8 +190,8 @@ public class GameFlowManager : MonoBehaviour
             case GameStage.Stage9_Hide:
             case GameStage.Stage10_Pressure:
             case GameStage.Stage11_Call: return "07_Stage8_11";
-            case GameStage.Stage12_Police:
-            case GameStage.Stage13_Ending: return "08_Stage12_13";
+            case GameStage.Stage12_Police: return "08_Stage12_13";
+            case GameStage.Stage13_Ending: return "09_Ending"; // [핫픽스 1] 엔딩 씬 명칭 연결 완료
             default: return "";
         }
     }

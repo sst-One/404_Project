@@ -11,6 +11,11 @@ public class Stage12_13_Controller : MonoBehaviour
     public AudioSource phoneAudioSource;
     public AudioSource tvAudioSource;
 
+    // [핫픽스 2] TV 영상 재생기 레퍼런스 추가
+    [Header("TV Video Reference")]
+    public GameObject tvScreenDisplay;
+    public UnityEngine.Video.VideoPlayer tvVideoPlayer;
+
     [Header("Audio Clip Names")]
     public string phoneRingClipName = "SND-058_PhoneRing_Loop";
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
@@ -22,8 +27,8 @@ public class Stage12_13_Controller : MonoBehaviour
     private void Start()
     {
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
-
         if (endingGem != null) endingGem.gameObject.SetActive(false);
+        if (tvScreenDisplay != null) tvScreenDisplay.SetActive(false); // 시작 시 화면 꺼둠
 
         if (crackedPhone != null)
         {
@@ -83,8 +88,13 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator CallAndNewsSequence()
     {
-        if (UIManager.Instance != null)
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_Police);
+        yield return new WaitForSeconds(4.0f);
+        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
+
+        // [핫픽스 2] Day 5 뉴스 영상 시각적 출력 로직 동기화
+        if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
+        if (tvVideoPlayer != null) tvVideoPlayer.Play();
 
         if (tvAudioSource != null && AudioManager.Instance != null)
         {
@@ -96,10 +106,8 @@ public class Stage12_13_Controller : MonoBehaviour
             }
         }
 
-        if (UIManager.Instance != null)
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_TVNews);
 
-        // 이명은 2D 글로벌 Status 사운드 취급
         if (AudioManager.Instance != null)
         {
             AudioManager.Instance.PlayStatusSound(tinnitusClipName);
@@ -108,6 +116,8 @@ public class Stage12_13_Controller : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
         yield return new WaitForSeconds(6.0f);
+
+        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
         if (AudioManager.Instance != null)
         {

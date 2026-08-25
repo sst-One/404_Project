@@ -13,7 +13,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 5.0f;
+    public float maxGazeDistance = 1.0f; // [핫픽스 3] 상호작용 사거리 5.0m -> 1.5m로 대폭 축소
     public float gazeRadius = 0.3f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
@@ -55,17 +55,13 @@ public class PlayerController : MonoBehaviour
         _cc = GetComponent<CharacterController>();
         if (mainCamera == null) mainCamera = Camera.main;
 
-        // [최적화] 레이어 해시 캐싱
         _walkableLayer = LayerMask.NameToLayer("Walkable");
         _hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
     }
 
     private void Update()
     {
-        if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame)
-        {
-            forceFallbackMode = !forceFallbackMode;
-        }
+        if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame) forceFallbackMode = !forceFallbackMode;
 
         IsGripTriggered = false;
         IsLeanTriggered = false;
@@ -151,10 +147,7 @@ public class PlayerController : MonoBehaviour
                 ProcessTargetHover(hit.transform);
             }
         }
-        else
-        {
-            ClearAllFocus();
-        }
+        else ClearAllFocus();
     }
 
     private void ProcessTargetHover(Transform hitTransform)
@@ -177,10 +170,7 @@ public class PlayerController : MonoBehaviour
         IInteractable interactable = hitTransform.GetComponent<IInteractable>();
         if (interactable != null)
         {
-            if (_currentFocusedObject != interactable)
-            {
-                ChangeObjectFocus(interactable);
-            }
+            if (_currentFocusedObject != interactable) ChangeObjectFocus(interactable);
             else if (IsTargetReady)
             {
                 if (!_isObjectReadyTriggered)
@@ -195,10 +185,7 @@ public class PlayerController : MonoBehaviour
                     ClearObjectFocus();
                 }
             }
-            else
-            {
-                _isObjectReadyTriggered = false;
-            }
+            else _isObjectReadyTriggered = false;
         }
     }
 
@@ -233,10 +220,15 @@ public class PlayerController : MonoBehaviour
     {
         if (mainCamera == null || _cc == null || !_cc.enabled) return;
 
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Stage1_Elevator)
+        // [핫픽스 4] 엘리베이터 공간인 Stage 1, 3, 4에서 플레이어 이동 원천 금지
+        if (GameFlowManager.Instance != null)
         {
-            StopMovement();
-            return;
+            GameStage stage = GameFlowManager.Instance.currentStage;
+            if (stage == GameStage.Stage1_Elevator || stage == GameStage.Stage3_Anomaly || stage == GameStage.Stage4_Man)
+            {
+                StopMovement();
+                return;
+            }
         }
 
         Vector3 forwardDir = mainCamera.transform.forward;

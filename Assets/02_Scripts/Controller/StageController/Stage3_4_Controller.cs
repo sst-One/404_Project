@@ -65,11 +65,11 @@ public class Stage3_4_Controller : MonoBehaviour
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayGlobal2D(malfunctionClipName, AudioManager.Instance.sfxMixerGroup);
 
-        yield return new WaitForSeconds(0.8f);
+        yield return new WaitForSeconds(1.5f);
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
 
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(3.5f);
 
         if (elevatorButton != null)
         {
@@ -84,36 +84,28 @@ public class Stage3_4_Controller : MonoBehaviour
 
         if (doorController != null)
         {
-            doorController.animationDuration = 1.4f;
+            doorController.animationDuration = 3f;
             doorController.CloseDoors();
         }
 
-        yield return new WaitForSeconds(1.4f);
+        // 문이 닫히는 총 소요 시간(1.4초) 중 1.3초 대기 (거의 다 닫힐 때)
+        yield return new WaitForSeconds(2.5f);
 
-        if (elevatorAudioSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(moveClipName);
-            if (clip != null)
-            {
-                elevatorAudioSource.clip = clip;
-                elevatorAudioSource.loop = true;
-                elevatorAudioSource.Play();
-            }
-        }
-
-        yield return new WaitForSeconds(2.0f);
-
-        if (elevatorAudioSource != null && elevatorAudioSource.isPlaying) elevatorAudioSource.Stop();
-
+        // 남자 등장 및 쾅 소리
         if (AudioManager.Instance != null)
         {
             AudioManager.Instance.PlayGlobal2D(doorGrabClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (suspiciousMan != null) suspiciousMan.SetActive(true);
+
+        // 남자 등장 후 0.5초간 가만히 대기
+        yield return new WaitForSeconds(0.5f);
+
         if (doorController != null)
         {
-            doorController.animationDuration = 1.3f;
+            // 문 닫힘 속도와 동일하게 1.4f 속도로 서서히 열림
+            doorController.animationDuration = 3f;
             doorController.OpenDoors();
         }
 

@@ -50,18 +50,13 @@ public class HidingSpotAction : MonoBehaviour
     {
         if (_isTransitioning) return;
 
-        if (_isOccupied)
-            StartCoroutine(ExitRoutine());
-        else
-            StartCoroutine(EnterRoutine());
+        if (_isOccupied) StartCoroutine(ExitRoutine());
+        else StartCoroutine(EnterRoutine());
     }
 
     private void ForceEject()
     {
-        if (_isOccupied && !_isTransitioning)
-        {
-            StartCoroutine(ExitRoutine());
-        }
+        if (_isOccupied && !_isTransitioning) StartCoroutine(ExitRoutine());
     }
 
     private IEnumerator EnterRoutine()
@@ -70,34 +65,63 @@ public class HidingSpotAction : MonoBehaviour
         _isOccupied = true;
         if (_interactable != null) _interactable.isInteractable = false;
 
-        // [최적화] AudioSource 제거. AudioManager 위임
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(enterClipName))
-        {
             AudioManager.Instance.PlayGlobal2D(enterClipName, AudioManager.Instance.sfxMixerGroup);
-        }
 
         Transform playerRig = PlayerController.Instance.transform;
         if (_playerCC != null) _playerCC.enabled = false;
 
+        // [핫픽스 2] 은신처 진입 시 엉뚱한 곳을 보는 카메라 축 틀어짐 방지
+        FirstPersonCameraLook camLook = playerRig.GetComponentInChildren<FirstPersonCameraLook>();
+        Transform playerBody = null;
+        if (camLook != null)
+        {
+            camLook.enabled = false;
+            playerBody = camLook.playerBody;
+        }
+
         Vector3 startPos = playerRig.position;
-        Quaternion startRot = playerRig.rotation;
+        Quaternion startRigRot = playerRig.rotation;
+        Quaternion startBodyRot = playerBody != null ? playerBody.localRotation : Quaternion.identity;
+        Quaternion startCamRot = camLook != null ? camLook.transform.localRotation : Quaternion.identity;
 
         Vector3 targetPos = insidePoint != null ? insidePoint.position : startPos;
-        Quaternion targetRot = lookTarget != null ? Quaternion.LookRotation(lookTarget.position - targetPos) : startRot;
-        targetRot.x = 0; targetRot.z = 0;
+
+        Vector3 dirToTarget = playerRig.forward;
+        if (lookTarget != null)
+        {
+            dirToTarget = lookTarget.position - (camLook != null ? camLook.transform.position : targetPos);
+            dirToTarget.y = 0;
+        }
+        Quaternion targetRigRot = dirToTarget != Vector3.zero ? Quaternion.LookRotation(dirToTarget) : startRigRot;
 
         float timer = 0f;
         while (timer < transitionDuration)
         {
             timer += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, timer / transitionDuration);
+
             playerRig.position = Vector3.Lerp(startPos, targetPos, t);
-            playerRig.rotation = Quaternion.Slerp(startRot, targetRot, t);
+            playerRig.rotation = Quaternion.Slerp(startRigRot, targetRigRot, t);
+
+            // 진입하면서 마우스로 돌아갔던 카메라 각도를 0점으로 부드럽게 복구
+            if (playerBody != null) playerBody.localRotation = Quaternion.Slerp(startBodyRot, Quaternion.identity, t);
+            if (camLook != null) camLook.transform.localRotation = Quaternion.Slerp(startCamRot, Quaternion.identity, t);
+
             yield return null;
         }
 
         playerRig.position = targetPos;
-        playerRig.rotation = targetRot;
+        playerRig.rotation = targetRigRot;
+        if (playerBody != null) playerBody.localRotation = Quaternion.identity;
+        if (camLook != null) camLook.transform.localRotation = Quaternion.identity;
+
+        // 정렬이 완료되면 CameraLook 스크립트에 내부 각도가 0이 되었음을 알림
+        if (camLook != null)
+        {
+            camLook.SyncToCurrentLocalRotation();
+            camLook.enabled = true;
+        }
 
         if (_interactable != null) _interactable.isInteractable = true;
         _isTransitioning = false;
@@ -113,6 +137,15 @@ public class HidingSpotAction : MonoBehaviour
         if (HidingSpotManager.Instance != null) HidingSpotManager.Instance.StopHiding();
 
         Transform playerRig = PlayerController.Instance.transform;
+
+        FirstPersonCameraLook camLook = playerRig.GetComponentInChildren<FirstPersonCameraLook>();
+        Transform playerBody = null;
+        if (camLook != null)
+        {
+            camLook.enabled = false;
+            playerBody = camLook.playerBody;
+        }
+
         Vector3 startPos = playerRig.position;
         Vector3 targetPos = exitPoint != null ? exitPoint.position : startPos - playerRig.forward * 1.5f;
 
@@ -126,6 +159,12 @@ public class HidingSpotAction : MonoBehaviour
         }
 
         playerRig.position = targetPos;
+
+        if (camLook != null)
+        {
+            camLook.SyncToCurrentLocalRotation();
+            camLook.enabled = true;
+        }
 
         if (_playerCC != null) _playerCC.enabled = true;
         if (_interactable != null) _interactable.isInteractable = true;

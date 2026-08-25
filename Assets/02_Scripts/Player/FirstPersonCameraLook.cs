@@ -40,6 +40,20 @@ public class FirstPersonCameraLook : MonoBehaviour
         invertYaw = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
     }
 
+    // [핫픽스 2] 외부 요인(은신처)에 의해 카메라 로컬 각도가 강제로 초기화될 때 내부 변수를 동기화하는 기능
+    public void SyncToCurrentLocalRotation()
+    {
+        _baseYaw = playerBody != null ? playerBody.localEulerAngles.y : 0f;
+        _targetYaw = _baseYaw;
+        _currentYaw = _baseYaw;
+
+        float pitch = transform.localEulerAngles.x;
+        if (pitch > 180f) pitch -= 360f;
+        _basePitch = pitch;
+        _targetPitch = pitch;
+        _currentPitch = pitch;
+    }
+
     public void SetInvertYaw(bool value)
     {
         invertYaw = value;

@@ -23,6 +23,9 @@ public class HidingSpotManager : MonoBehaviour
 
     public event Action onForceEject;
 
+    // [핫픽스 3] 외부(폰)에서 은신처 진입 여부를 알 수 있도록 프로퍼티 개방
+    public bool IsHiding => _isHiding;
+
     private float _timeInSpot = 0f;
     private int _currentStage = 0;
     private bool _isHiding = false;
@@ -62,7 +65,6 @@ public class HidingSpotManager : MonoBehaviour
         ResetHidingSpot();
     }
 
-    // [핵심 수정] AudioSource 제거 및 AudioManager 2D 동적 재생으로 교체
     private void CheckDegradeStages()
     {
         if (_timeInSpot >= forcedTime && _currentStage < 3)

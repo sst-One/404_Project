@@ -13,7 +13,8 @@ public class ElevatorDoorController : MonoBehaviour
     public float animationDuration = 4f;
 
     [Header("Sound Settings (SND-xxx)")]
-    public string doorCloseClipName = "";
+    public string doorOpenClipName = "SND-018_DoorOpen_OneShot";
+    public string doorCloseClipName = "SND-019_DoorClose_OneShot";
     public float doorCloseSoundDelay = 0f;
 
     private Vector3 leftClosedPos;
@@ -58,30 +59,25 @@ public class ElevatorDoorController : MonoBehaviour
     {
         if (!isInitialized) return;
 
-        float syncDuration = animationDuration;
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
-            if (clip != null) syncDuration = clip.length;
-        }
-
         if (currentAnimation != null) StopCoroutine(currentAnimation);
-        currentAnimation = StartCoroutine(DoorAnimationRoutine(true, syncDuration));
+
+        // 사운드 길이에 맞추는 오버라이드 삭제, 무조건 animationDuration 속도로 통일
+        currentAnimation = StartCoroutine(DoorAnimationRoutine(true, animationDuration));
+
+        if (!string.IsNullOrEmpty(doorOpenClipName) && AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlayGlobal2D(doorOpenClipName, AudioManager.Instance.sfxMixerGroup);
+        }
     }
 
     public void CloseDoors()
     {
         if (!isInitialized) return;
 
-        float syncDuration = animationDuration;
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
-            if (clip != null) syncDuration = clip.length;
-        }
-
         if (currentAnimation != null) StopCoroutine(currentAnimation);
-        currentAnimation = StartCoroutine(DoorAnimationRoutine(false, syncDuration));
+
+        // 사운드 길이에 맞추는 오버라이드 삭제, 무조건 animationDuration 속도로 통일
+        currentAnimation = StartCoroutine(DoorAnimationRoutine(false, animationDuration));
 
         if (!string.IsNullOrEmpty(doorCloseClipName))
         {
@@ -89,7 +85,6 @@ public class ElevatorDoorController : MonoBehaviour
         }
     }
 
-    // [최적화] AudioSource 제거. AudioManager 위임
     private IEnumerator PlayDoorSoundRoutine()
     {
         yield return new WaitForSeconds(doorCloseSoundDelay);

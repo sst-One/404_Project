@@ -6,9 +6,10 @@ public class Stage1_Controller : MonoBehaviour
     private InteractableItem elevatorButton;
     private ElevatorDoorController doorController;
 
-    [Header("Audio Settings")]
-    public AudioSource buttonAudioSource;
-    public AudioSource elevatorMoveSource;
+    [Header("Item Audio Reference")]
+    public AudioSource elevatorAudioSource;
+
+    [Header("Audio Clip Names")]
     public string buttonClickClipName = "SND-013_ButtonClick_OneShot";
     public string elevatorMoveClipName = "SND-004_ElevatorMove_Loop_Timed";
     public string elevatorArriveClipName = "SND-005_ElevatorArrive_OneShot";
@@ -28,6 +29,16 @@ public class Stage1_Controller : MonoBehaviour
                 elevatorButton.onInteractEvent.AddListener(OnButtonReached);
             }
         }
+
+        StartCoroutine(InitDay1Routine());
+    }
+
+    private IEnumerator InitDay1Routine()
+    {
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.ShowDayTransition(1)); // 인자 단순화
+        }
     }
 
     private void OnButtonReached()
@@ -35,73 +46,34 @@ public class Stage1_Controller : MonoBehaviour
         if (elevatorButton != null)
         {
             elevatorButton.enabled = false;
-            if (elevatorButton.GetComponent<Collider>() != null)
-                elevatorButton.GetComponent<Collider>().enabled = false;
+            if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
         }
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddNoise(0.1f);
-        }
-
-        if (buttonAudioSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(buttonClickClipName);
-            if (clip != null) buttonAudioSource.PlayOneShot(clip);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.1f);
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(buttonClickClipName)) AudioManager.Instance.PlayGlobal2D(buttonClickClipName, AudioManager.Instance.sfxMixerGroup);
 
         StartCoroutine(ElevatorTravelSequence());
     }
 
     private IEnumerator ElevatorTravelSequence()
     {
-        if (doorController != null)
-        {
-            // [수정점] 기획 명세(EVT-005)에 맞춰 문 닫힘 애니메이션 시간 강제 동기화
-            doorController.animationDuration = 1.4f;
-            doorController.CloseDoors();
-        }
+        if (doorController != null) { doorController.animationDuration = 2.5f; doorController.CloseDoors(); }
+        yield return new WaitForSeconds(2.5f);
 
-        yield return new WaitForSeconds(1.4f);
-
-        if (elevatorMoveSource != null && AudioManager.Instance != null)
+        if (elevatorAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(elevatorMoveClipName);
-            if (clip != null)
-            {
-                elevatorMoveSource.clip = clip;
-                elevatorMoveSource.loop = true;
-                elevatorMoveSource.Play();
-            }
+            if (clip != null) { elevatorAudioSource.clip = clip; elevatorAudioSource.loop = true; elevatorAudioSource.Play(); }
         }
 
         yield return new WaitForSeconds(4.0f);
+        if (elevatorAudioSource != null && elevatorAudioSource.isPlaying) elevatorAudioSource.Stop();
 
-        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying)
-        {
-            elevatorMoveSource.Stop();
-        }
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(elevatorArriveClipName)) AudioManager.Instance.PlayGlobal2D(elevatorArriveClipName, AudioManager.Instance.sfxMixerGroup);
 
-        if (AudioManager.Instance != null)
-        {
-            AudioClip arriveClip = AudioManager.Instance.GetClip(elevatorArriveClipName);
-            if (arriveClip != null && buttonAudioSource != null)
-            {
-                buttonAudioSource.PlayOneShot(arriveClip);
-            }
-        }
+        if (doorController != null) { doorController.animationDuration = 2.5f; doorController.OpenDoors(); }
+        yield return new WaitForSeconds(2.5f);
 
-        if (doorController != null)
-        {
-            doorController.animationDuration = 1.3f; // EVT-006: Door Open 1.3s
-            doorController.OpenDoors();
-        }
-
-        yield return new WaitForSeconds(1.3f);
-
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage2_Room);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage2_Room);
     }
 }

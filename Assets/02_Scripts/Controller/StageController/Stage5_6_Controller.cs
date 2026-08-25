@@ -4,62 +4,100 @@ using UnityEngine;
 public class Stage5_6_Controller : MonoBehaviour
 {
     [Header("Lighting Settings")]
-    public Light mainRoomLight;
+    public GameObject mainRoomLightGroup;
 
     [Header("References")]
     public InteractableItem fuseBox;
+    public InteractableItem clueItem;
     public GameObject hallucinationDecals;
 
-    [Header("Audio Sources")]
-    public AudioSource fuseBoxSwitchSource;
-    public AudioSource hallucinationSource;
+    [Header("Item Audio Reference")]
     public AudioSource lightFlickerSource;
 
     [Header("Audio Clip Names")]
+    public string disasterAlertClip = "SND-028_Alert_OneShot";
+    public string clueMonologueClip = "SND-039_ClueMonologue_OneShot";
     public string fuseBoxClipName = "SND-031_FuseBoxSwitch_OneShot";
     public string hallucinationClipName = "SND-011_Hallucination_OneShot";
     public string lightFlickerClipName = "SND-012_LightFlicker_Loop_OneShot";
     public string lightRestoreClipName = "SND-032_LIghtRestore_OneShot";
 
     private bool isBlackout = false;
+    private bool hasFoundClue = false;
 
     private void Start()
     {
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
 
         if (fuseBox != null)
         {
-            fuseBox.enabled = false;
+            fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
-
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
         }
 
-        StartCoroutine(Stage5_ClueSequence());
-    }
-
-    private IEnumerator Stage5_ClueSequence()
-    {
-        yield return new WaitForSeconds(8.0f);
-
-        if (GameFlowManager.Instance != null)
+        if (clueItem != null)
         {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
+            clueItem.onInteractEvent.RemoveAllListeners();
+            clueItem.onInteractEvent.AddListener(OnClueFound);
         }
 
-        if (mainRoomLight != null) mainRoomLight.enabled = false;
+        StartCoroutine(Day3IntroSequence());
+    }
+
+    private IEnumerator Day3IntroSequence()
+    {
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(3));
+
+        yield return new WaitForSeconds(1.0f);
+
+        if (PhoneController.Instance != null)
+        {
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay3Message();
+
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+
+            // 5초간 텍스트 확인 대기
+            yield return new WaitForSeconds(5.0f);
+
+            // 확인 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
+        }
+
+        yield return new WaitForSeconds(8.0f);
+        if (!isBlackout) TriggerBlackout();
+    }
+
+    private void OnClueFound()
+    {
+        if (hasFoundClue || isBlackout) return;
+        hasFoundClue = true;
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(clueMonologueClip, AudioManager.Instance.voiceMixerGroup);
+        TriggerBlackout();
+    }
+
+    private void TriggerBlackout()
+    {
+        if (isBlackout) return;
         isBlackout = true;
 
-        if (StateManager.Instance != null)
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
+
+        // FEAT-021: 암전 시 핸드폰 화면 빛에 의존하기 위해 자동으로 폰을 다시 꺼냄
+        if (PhoneController.Instance != null)
         {
-            StateManager.Instance.AddHeartbeat(2);
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
         }
 
         if (fuseBox != null)
         {
-            fuseBox.enabled = true;
+            fuseBox.isInteractable = true;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = true;
         }
     }
@@ -67,73 +105,45 @@ public class Stage5_6_Controller : MonoBehaviour
     private void OnFuseBoxReached()
     {
         if (!isBlackout) return;
-
-        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(fuseBoxClipName);
-            if (clip != null) fuseBoxSwitchSource.PlayOneShot(clip);
-        }
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(fuseBoxClipName, AudioManager.Instance.sfxMixerGroup);
 
         if (fuseBox != null)
         {
-            fuseBox.enabled = false;
+            fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
         }
-
         StartCoroutine(Stage6_HallucinationSequence());
     }
 
     private IEnumerator Stage6_HallucinationSequence()
     {
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         isBlackout = false;
 
         yield return new WaitForSeconds(0.5f);
-
         if (hallucinationDecals != null) hallucinationDecals.SetActive(true);
-
-        if (hallucinationSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(hallucinationClipName);
-            if (clip != null) hallucinationSource.PlayOneShot(clip);
-        }
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(hallucinationClipName, AudioManager.Instance.playerStatusMixerGroup);
 
         yield return new WaitForSeconds(1.5f);
-
-        if (mainRoomLight != null) mainRoomLight.enabled = false;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
 
         if (lightFlickerSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(lightFlickerClipName);
-            if (clip != null)
-            {
-                lightFlickerSource.clip = clip;
-                lightFlickerSource.loop = true;
-                lightFlickerSource.Play();
-            }
+            if (clip != null) { lightFlickerSource.clip = clip; lightFlickerSource.loop = true; lightFlickerSource.Play(); }
         }
 
         yield return new WaitForSeconds(0.4f);
-
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
 
-        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
-        {
-            AudioClip restoreClip = AudioManager.Instance.GetClip(lightRestoreClipName);
-            if (restoreClip != null) fuseBoxSwitchSource.PlayOneShot(restoreClip);
-        }
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
+        if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
 
-        if (lightFlickerSource != null && lightFlickerSource.isPlaying)
-        {
-            lightFlickerSource.Stop();
-        }
+        // 환각 종료 및 조명 복구 완료 시 폰을 다시 집어넣음
+        if (PhoneController.Instance != null) PhoneController.Instance.HidePhone();
 
         yield return new WaitForSeconds(2.0f);
-
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
     }
 }

@@ -7,10 +7,8 @@ public class Stage7_Controller : MonoBehaviour
     public InteractableItem gemItem;
     public GameObject suspiciousMan;
 
-    [Header("Audio Sources")]
-    public AudioSource gemGetSource;
-
     [Header("Audio Clip Names")]
+    public string disasterAlertClip = "SND-028_Alert_OneShot";
     public string gemGetClipName = "SND-041_JemRecieve_OneShot";
 
     private void Start()
@@ -22,26 +20,37 @@ public class Stage7_Controller : MonoBehaviour
             if (ai != null) ai.isNarrativeMode = true;
         }
 
-        GameObject gemObj = GameObject.Find("Item_Gem_Normal");
-        if (gemObj != null)
+        if (gemItem != null)
         {
-            gemItem = gemObj.GetComponent<InteractableItem>();
-            if (gemItem != null)
-            {
-                gemItem.enabled = false;
-                if (gemItem.GetComponent<Collider>() != null)
-                    gemItem.GetComponent<Collider>().enabled = false;
-
-                gemItem.onInteractEvent.RemoveAllListeners();
-                gemItem.onInteractEvent.AddListener(OnGemReached);
-            }
+            gemItem.isInteractable = false;
+            if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = false;
+            gemItem.onInteractEvent.RemoveAllListeners();
+            gemItem.onInteractEvent.AddListener(OnGemReached);
         }
 
-        StartCoroutine(Stage7_NarrativeSequence());
+        StartCoroutine(Day4IntroSequence());
     }
 
-    private IEnumerator Stage7_NarrativeSequence()
+    private IEnumerator Day4IntroSequence()
     {
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(4));
+
+        yield return new WaitForSeconds(1.0f);
+
+        if (PhoneController.Instance != null)
+        {
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay4Message();
+
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+
+            // 5초간 텍스트 확인 대기
+            yield return new WaitForSeconds(5.0f);
+
+            // 확인 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
+        }
+
         if (UIManager.Instance != null)
         {
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_1));
@@ -51,37 +60,22 @@ public class Stage7_Controller : MonoBehaviour
 
         if (gemItem != null)
         {
-            gemItem.enabled = true;
-            if (gemItem.GetComponent<Collider>() != null)
-                gemItem.GetComponent<Collider>().enabled = true;
+            gemItem.isInteractable = true;
+            if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = true;
         }
     }
 
     private void OnGemReached()
     {
-        if (gemGetSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(gemGetClipName);
-            if (clip != null) gemGetSource.PlayOneShot(clip);
-        }
-
+        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(gemGetClipName, AudioManager.Instance.sfxMixerGroup);
         if (gemItem != null) gemItem.gameObject.SetActive(false);
-
         StartCoroutine(EndStage7Sequence());
     }
 
     private IEnumerator EndStage7Sequence()
     {
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(1);
-        }
-
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
         yield return new WaitForSeconds(2.0f);
-
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage8_Intruder);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage8_Intruder);
     }
 }

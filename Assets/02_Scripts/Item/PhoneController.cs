@@ -2,40 +2,51 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
 
-public enum PhoneState { Dropped, Recovered, Calling, Success }
+public enum PhoneState { Idle, Dropping, Dropped, Recovered, Calling, Success }
 
+[RequireComponent(typeof(InteractableItem))]
 public class PhoneController : MonoBehaviour
 {
+    public static PhoneController Instance { get; private set; }
+
     [Header("상태 및 수치 설정")]
-    public PhoneState currentState = PhoneState.Dropped;
-    public float recoverHoldTime = 1.0f;
+    public PhoneState currentState = PhoneState.Idle;
     public float callDuration = 10.0f;
+
+    [Header("UI 참조")]
+    public PhoneUIController phoneUI;
+
+    [Header("낙하 연출 설정 (Drop)")]
+    public float dropDuration = 0.8f;
+    public Vector3 dropRotation = new Vector3(90f, 0f, 0f);
 
     [Header("카메라 연동 (왼손 위치)")]
     public Vector3 leftHandPosition = new Vector3(-1.75f, -0.7f, 2.3f);
     public Vector3 leftHandRotation = new Vector3(15f, 30f, 0f);
 
-    [Header("오디오 설정 (AudioSources)")]
-    public AudioSource vibrationSource;
-    public AudioSource dialingSource;
-    public AudioSource policeVoiceSource;
-    public AudioSource phonePickupSource;
-    public AudioSource phoneFailSource;
+    [Header("최적화된 오디오 설정 (단 2개)")]
+    public AudioSource sfxSource;
+    public AudioSource voiceSource;
 
     [Header("사운드 에셋 이름 (SND-xxx)")]
-    public string vibrationClipName = "SND-049_PhoneSlide_OneShot";
-    public string dialingClipName = "";
-    public string policeVoiceClipName = "";
-    public string phonePickupClipName = "";
-    public string phoneFailClipName = "";
+    public string dropSlideClipName = "SND-049_PhoneSlide_OneShot";
+    public string vibrationClipName = "SND-050_PhoneVibration_Loop";
+    public string dialingClipName = "SND-053_PhoneDialTone_Loop";
+    public string policeVoiceClipName = "SND-054_PoliceResponse_OneShot";
+    public string phonePickupClipName = "SND-051_PhonePickup_OneShot";
+    public string phoneFailClipName = "SND-052_PhoneFailBeep_OneShot";
 
     [Header("성공 이벤트")]
     public UnityEvent onCallSuccess;
 
-    private Coroutine _actionCoroutine;
     private bool _isInteracting = false;
     private InteractableItem _interactable;
-    private Camera _mainCamera;
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+    }
 
     private void Start()
     {
@@ -44,94 +55,186 @@ public class PhoneController : MonoBehaviour
         if (_interactable != null)
         {
             _interactable.interactOnlyOnce = false;
+            _interactable.isInteractable = (currentState == PhoneState.Dropped);
+            _interactable.onInteractEvent.RemoveAllListeners();
+            _interactable.onInteractEvent.AddListener(OnPhoneReached);
         }
 
-        if (vibrationSource != null && currentState == PhoneState.Dropped && AudioManager.Instance != null)
+        if (currentState == PhoneState.Dropped)
+        {
+            StartVibration();
+            if (phoneUI != null) phoneUI.ShowDefaultScreen();
+        }
+        else
+        {
+            HidePhone();
+        }
+    }
+
+    // [핫픽스] 1인칭 오버레이 카메라(Item_Camera)를 직접 탐색
+    private Camera GetItemCamera()
+    {
+        GameObject itemCamObj = GameObject.Find("Item_Camera");
+        if (itemCamObj != null)
+        {
+            Camera cam = itemCamObj.GetComponent<Camera>();
+            if (cam != null) return cam;
+        }
+        return Camera.main; // 최후의 보루: 못 찾으면 메인 카메라 반환
+    }
+
+    public void ShowPhoneInHand()
+    {
+        gameObject.SetActive(true);
+        if (_interactable != null) _interactable.isInteractable = false;
+
+        Camera targetCam = GetItemCamera();
+        if (targetCam != null)
+        {
+            // 직접 1인칭 카메라의 자식으로 들어감
+            transform.SetParent(targetCam.transform);
+
+            gameObject.layer = LayerMask.NameToLayer("FP_Item");
+            foreach (Transform child in GetComponentsInChildren<Transform>(true))
+            {
+                child.gameObject.layer = LayerMask.NameToLayer("FP_Item");
+            }
+
+            // 인스펙터에 지정된 고유 로컬 좌표/회전값으로 렌더링 위치 복원
+            transform.localPosition = leftHandPosition;
+            transform.localRotation = Quaternion.Euler(leftHandRotation);
+        }
+    }
+
+    public void HidePhone()
+    {
+        gameObject.SetActive(false);
+    }
+
+    public void TriggerDrop(Transform targetFloorPoint)
+    {
+        if (currentState != PhoneState.Idle) return;
+        gameObject.SetActive(true);
+        StartCoroutine(DropRoutine(targetFloorPoint));
+    }
+
+    private IEnumerator DropRoutine(Transform targetFloorPoint)
+    {
+        currentState = PhoneState.Dropping;
+        if (phoneUI != null) phoneUI.TurnOffScreen();
+
+        if (sfxSource != null && AudioManager.Instance != null)
+        {
+            AudioClip clip = AudioManager.Instance.GetClip(dropSlideClipName);
+            if (clip != null) sfxSource.PlayOneShot(clip);
+        }
+
+        Vector3 startPos = transform.position;
+        Quaternion startRot = transform.rotation;
+        Quaternion endRot = Quaternion.Euler(dropRotation);
+
+        float timer = 0f;
+        while (timer < dropDuration)
+        {
+            timer += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, timer / dropDuration);
+            transform.position = Vector3.Lerp(startPos, targetFloorPoint.position, t);
+            transform.rotation = Quaternion.Slerp(startRot, endRot, t);
+            yield return null;
+        }
+
+        transform.position = targetFloorPoint.position;
+        transform.rotation = endRot;
+
+        currentState = PhoneState.Dropped;
+
+        gameObject.layer = LayerMask.NameToLayer("Interactable");
+        foreach (Transform child in GetComponentsInChildren<Transform>(true))
+        {
+            child.gameObject.layer = LayerMask.NameToLayer("Interactable");
+        }
+
+        if (_interactable != null) _interactable.isInteractable = true;
+
+        StartVibration();
+        if (phoneUI != null) phoneUI.ShowDefaultScreen();
+    }
+
+    private void StartVibration()
+    {
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(vibrationClipName);
             if (clip != null)
             {
-                vibrationSource.clip = clip;
-                vibrationSource.Play();
+                sfxSource.clip = clip;
+                sfxSource.loop = true;
+                if (!sfxSource.isPlaying) sfxSource.Play();
             }
         }
     }
 
-    private Camera GetPlayerCamera()
-    {
-        GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-        if (playerObj != null)
-        {
-            Camera playerCam = playerObj.GetComponentInChildren<Camera>();
-            if (playerCam != null) return playerCam;
-        }
-        return Camera.main;
-    }
-
     public void OnPhoneReached()
     {
+        if (GameFlowManager.Instance != null)
+        {
+            GameStage current = GameFlowManager.Instance.currentStage;
+            if (current < GameStage.Stage8_Intruder || current > GameStage.Stage13_Ending) return;
+        }
+
         if (_isInteracting || currentState != PhoneState.Dropped) return;
-        _actionCoroutine = StartCoroutine(RecoverRoutine());
+        StartCoroutine(RecoverRoutine());
     }
 
     private IEnumerator RecoverRoutine()
     {
         _isInteracting = true;
+        if (_interactable != null) _interactable.isInteractable = false;
 
-        float timer = 0f;
-        while (timer < recoverHoldTime)
-        {
-            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
-            if (PlayerController.Instance == null || !PlayerController.Instance.IsGripHeld)
-            {
-                _isInteracting = false;
-                if (_interactable != null) _interactable.isInteractable = true;
-                yield break;
-            }
-            timer += Time.deltaTime;
-
-            if (StateManager.Instance != null)
-                StateManager.Instance.AddNoise(0.15f * Time.deltaTime, transform.position);
-
-            yield return null;
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.2f, transform.position);
+        yield return new WaitForSeconds(0.1f);
 
         currentState = PhoneState.Recovered;
 
-        if (vibrationSource != null && vibrationSource.isPlaying) vibrationSource.Stop();
-
-        if (phonePickupSource != null && AudioManager.Instance != null)
+        if (sfxSource != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(phonePickupClipName);
-            if (clip != null) phonePickupSource.PlayOneShot(clip);
+            sfxSource.Stop();
+            sfxSource.loop = false;
+            if (AudioManager.Instance != null)
+            {
+                AudioClip pickupClip = AudioManager.Instance.GetClip(phonePickupClipName);
+                if (pickupClip != null) sfxSource.PlayOneShot(pickupClip);
+            }
         }
 
-        if (_interactable != null) _interactable.isInteractable = false;
-
-        _mainCamera = GetPlayerCamera();
-        if (_mainCamera != null)
-        {
-            transform.SetParent(_mainCamera.transform);
-            transform.localPosition = leftHandPosition;
-            transform.localRotation = Quaternion.Euler(leftHandRotation);
-        }
-
+        ShowPhoneInHand();
         _isInteracting = false;
         StartCoroutine(WaitToCallRoutine());
+    }
+
+    private IEnumerator WaitToCallRoutine()
+    {
+        if (phoneUI != null) phoneUI.ShowDial112();
+
+        while (currentState == PhoneState.Recovered)
+        {
+            bool isHiding = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
+            bool isFreeze = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
+
+            if (isHiding && isFreeze) yield return StartCoroutine(CallRoutine());
+            yield return null;
+        }
     }
 
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
+        if (phoneUI != null) phoneUI.ShowCalling();
 
-        if (dialingSource != null && AudioManager.Instance != null)
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
-            if (clip != null)
-            {
-                dialingSource.clip = clip;
-                dialingSource.Play();
-            }
+            if (clip != null) { sfxSource.clip = clip; sfxSource.loop = true; sfxSource.Play(); }
         }
 
         float timer = 0f;
@@ -139,20 +242,24 @@ public class PhoneController : MonoBehaviour
         {
             timer += Time.deltaTime;
 
-            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
             if (PlayerController.Instance == null || !PlayerController.Instance.IsFreezeActive)
             {
-                if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
-
-                if (phoneFailSource != null && AudioManager.Instance != null)
+                if (sfxSource != null)
                 {
-                    AudioClip clip = AudioManager.Instance.GetClip(phoneFailClipName);
-                    if (clip != null) phoneFailSource.PlayOneShot(clip);
+                    sfxSource.Stop();
+                    sfxSource.loop = false;
+                    if (AudioManager.Instance != null)
+                    {
+                        AudioClip failClip = AudioManager.Instance.GetClip(phoneFailClipName);
+                        if (failClip != null) sfxSource.PlayOneShot(failClip);
+                    }
                 }
 
                 currentState = PhoneState.Recovered;
+                if (phoneUI != null) phoneUI.ShowDial112();
                 if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
 
+                yield return new WaitForSeconds(1.0f);
                 StartCoroutine(WaitToCallRoutine());
                 yield break;
             }
@@ -160,44 +267,18 @@ public class PhoneController : MonoBehaviour
         }
 
         currentState = PhoneState.Success;
-        if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
+        if (phoneUI != null) phoneUI.ShowPoliceCall();
+        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
         float voiceLength = 4.0f;
-        if (policeVoiceSource != null && AudioManager.Instance != null)
+        if (voiceSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(policeVoiceClipName);
-            if (clip != null)
-            {
-                policeVoiceSource.clip = clip;
-                policeVoiceSource.Play();
-                voiceLength = clip.length;
-            }
+            if (clip != null) { voiceSource.clip = clip; voiceSource.Play(); voiceLength = clip.length; }
         }
 
         onCallSuccess?.Invoke();
-        StartCoroutine(SelfDestructRoutine(voiceLength));
-    }
-
-    private IEnumerator WaitToCallRoutine()
-    {
-        Debug.Log("[PhoneController] 신고 대기 상태. 휴대폰을 바라보고 스페이스바(Freeze)를 누르십시오.");
-
-        while (currentState == PhoneState.Recovered)
-        {
-            // [수정 완료] 삭제된 PlayerInputProvider 대신 통합된 PlayerController를 참조합니다.
-            if (_interactable != null && _interactable.IsFocused && PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive)
-            {
-                yield return StartCoroutine(CallRoutine());
-            }
-            yield return null;
-        }
-    }
-
-    private IEnumerator SelfDestructRoutine(float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        Debug.Log("[PhoneController] 통화 종료. 휴대폰 오브젝트를 파괴합니다.");
-        transform.SetParent(null);
-        Destroy(gameObject);
+        yield return new WaitForSeconds(voiceLength);
+        if (phoneUI != null) phoneUI.TurnOffScreen();
     }
 }

@@ -6,7 +6,7 @@ public class Stage8_11_Controller : MonoBehaviour
     [Header("Stage 8: Encounter References")]
     public Animator intruderAnimator;
     public AudioSource knifeStrikeAudio;
-    public GameObject playerPhone;
+    public PhoneController phoneController;
     public Transform phoneDropTarget;
 
     [Header("Stage 8: Encounter Settings")]
@@ -22,7 +22,6 @@ public class Stage8_11_Controller : MonoBehaviour
     public string policeSirenClipName = "SND-055_PoliceSiren_Loop";
     public string doorKnockClipName = "SND-057_DoorKnock_OneShot";
 
-    private PhoneController phoneController;
     private bool hasEncounterTriggered = false;
 
     private void Start()
@@ -36,29 +35,34 @@ public class Stage8_11_Controller : MonoBehaviour
             enemy.isNarrativeMode = false;
         }
 
-        GameObject phoneObj = GameObject.Find("Item_Phone");
-        if (phoneObj != null)
+        if (phoneController != null)
         {
-            phoneController = phoneObj.GetComponent<PhoneController>();
-            if (phoneController != null)
-            {
-                phoneController.onCallSuccess.RemoveAllListeners();
-                phoneController.onCallSuccess.AddListener(OnStage11Completed);
+            phoneController.onCallSuccess.RemoveAllListeners();
+            phoneController.onCallSuccess.AddListener(OnStage11Completed);
+            phoneController.currentState = PhoneState.Idle;
 
-                // [핵심 추가] 씬 시작 시 플레이어의 카메라를 찾아 휴대폰을 왼손 위치에 쥐어줍니다.
-                if (PlayerController.Instance != null && PlayerController.Instance.mainCamera != null)
-                {
-                    phoneController.transform.SetParent(PlayerController.Instance.mainCamera.transform);
-                    phoneController.transform.localPosition = phoneController.leftHandPosition;
-                    phoneController.transform.localRotation = Quaternion.Euler(phoneController.leftHandRotation);
-                }
+            Camera cam = Camera.main;
+            if (cam != null)
+            {
+                phoneController.transform.SetParent(cam.transform);
+                phoneController.transform.localPosition = phoneController.leftHandPosition;
+                phoneController.transform.localRotation = Quaternion.Euler(phoneController.leftHandRotation);
             }
+            else
+            {
+                Debug.LogError("[Stage8_11_Controller] MainCamera 태그가 설정된 카메라가 없습니다.");
+            }
+        }
+        else
+        {
+            Debug.LogError("[Stage8_11_Controller] Phone Controller 슬롯이 비어있습니다.");
         }
     }
 
-    private void OnTriggerEnter(Collider other)
+    // [핵심 핫픽스] 릴레이 스크립트에서 호출할 수 있도록 public으로 열어둠
+    public void StartEncounterEvent()
     {
-        if (!hasEncounterTriggered && other.CompareTag("Player"))
+        if (!hasEncounterTriggered)
         {
             hasEncounterTriggered = true;
             StartCoroutine(EncounterSequence());
@@ -69,10 +73,8 @@ public class Stage8_11_Controller : MonoBehaviour
     {
         if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
 
-        // 칼을 높이 드는 애니메이션 대기
         yield return new WaitForSeconds(strikeDelay);
 
-        // 바닥을 찍는 사운드 재생
         if (knifeStrikeAudio != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(knifeStrikeClipName);
@@ -81,13 +83,10 @@ public class Stage8_11_Controller : MonoBehaviour
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
-        // [핵심 수정] 수동 Lerp 연산을 제거하고 PhoneController 전용 함수를 통해 시각/청각 완벽 동기화
         if (phoneController != null && phoneDropTarget != null)
         {
-            phoneController.transform.SetParent(null); // 플레이어 종속 해제
+            phoneController.transform.SetParent(null);
             phoneController.TriggerDrop(phoneDropTarget);
-
-            // 휴대폰이 바닥에 미끄러지며 떨어지는 연출 시간만큼 씬 전환 대기
             yield return new WaitForSeconds(dropDuration);
         }
 

@@ -26,6 +26,9 @@ public class EnemyAI : MonoBehaviour
     public float investigateSpeed = 1.5f;  // Run 애니메이션 속도 (소음 High)
     public float chaseSpeed = 2.5f;        // Chase 애니메이션 속도 (시야 노출 / 소음 Critical)
 
+    [Header("Patrol Settings")]
+    public float patrolWaitTime = 2.0f;    // [신규] 목적지 도착 시 대기하는 시간
+
     [Header("Detection Settings (SYS-005)")]
     public float criticalDetectionDistance = 1.0f;
 
@@ -38,6 +41,7 @@ public class EnemyAI : MonoBehaviour
 
     private Coroutine _fovCoroutine;
     private Coroutine _suspectCoroutine;
+    private Coroutine _patrolWaitCoroutine; // [신규] 대기 코루틴 추적용 변수
     private float _lastNoiseReactionTime = 0f;
 
     [Header("오디오 설정 (AudioSources)")]
@@ -95,8 +99,16 @@ public class EnemyAI : MonoBehaviour
         {
             if (_agent.isOnNavMesh && !_agent.pathPending && _agent.remainingDistance < 0.5f)
             {
-                if (currentState == EnemyState.Investigate) ChangeState(EnemyState.Patrol);
-                MoveToNextPatrolPoint();
+                if (currentState == EnemyState.Investigate)
+                {
+                    ChangeState(EnemyState.Patrol);
+                }
+
+                // [핵심 수정] 즉시 이동하지 않고 대기 코루틴 실행
+                if (_patrolWaitCoroutine == null)
+                {
+                    _patrolWaitCoroutine = StartCoroutine(WaitAtPatrolPointRoutine());
+                }
             }
         }
         else if (currentState == EnemyState.Chase)
@@ -116,10 +128,43 @@ public class EnemyAI : MonoBehaviour
         UpdateAudioState(isChasing, isCloseToPlayer);
     }
 
-    // [핵심 핫픽스] 마스터 데이터에 맞게 3단계 속도 제어
+    // [신규] 목적지 도착 시 지정된 시간만큼 대기(Idle)하는 로직
+    private IEnumerator WaitAtPatrolPointRoutine()
+    {
+        if (_agent.isOnNavMesh)
+        {
+            _agent.isStopped = true;
+            _agent.speed = 0f; // 이동 속도 0 -> 블렌드 트리에서 자동으로 Idle 애니메이션 재생
+        }
+
+        yield return new WaitForSeconds(patrolWaitTime);
+
+        // 대기 중 소음이나 시야로 인해 상태가 변하지 않았을 때만 다음 목적지로 출발
+        if (currentState == EnemyState.Patrol)
+        {
+            if (_agent.isOnNavMesh)
+            {
+                _agent.isStopped = false;
+                _agent.speed = patrolSpeed;
+            }
+            MoveToNextPatrolPoint();
+        }
+
+        _patrolWaitCoroutine = null;
+    }
+
+    // [핵심 핫픽스] 마스터 데이터에 맞게 3단계 속도 제어 및 대기 상태 캔슬 방어
     private void ChangeState(EnemyState newState)
     {
         if (currentState == newState) return;
+
+        // [중요 방어] 상태가 변할 때 대기 중이었다면 즉시 대기 코루틴 폭파 (소음/시야 감지 우선순위)
+        if (_patrolWaitCoroutine != null)
+        {
+            StopCoroutine(_patrolWaitCoroutine);
+            _patrolWaitCoroutine = null;
+        }
+
         if (currentState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.RemoveThreat();
         if (newState == EnemyState.Chase && StateManager.Instance != null) StateManager.Instance.AddThreat();
 

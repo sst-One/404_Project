@@ -8,8 +8,7 @@ public enum PhoneState { Idle, Dropping, Dropped, Recovered, Calling, Success }
 public class PhoneController : MonoBehaviour
 {
     [Header("상태 및 수치 설정")]
-    public PhoneState currentState = PhoneState.Idle; // 낙하 전 대기 상태 추가
-    public float recoverHoldTime = 1.0f;
+    public PhoneState currentState = PhoneState.Idle;
     public float callDuration = 10.0f;
 
     [Header("낙하 연출 설정 (Drop)")]
@@ -28,7 +27,7 @@ public class PhoneController : MonoBehaviour
     public AudioSource phoneFailSource;
 
     [Header("사운드 에셋 이름 (SND-xxx)")]
-    public string dropSlideClipName = "SND-049_PhoneSlide_OneShot"; // 미끄러지는 소리
+    public string dropSlideClipName = "SND-049_PhoneSlide_OneShot";
     public string vibrationClipName = "SND-050_PhoneVibration_Loop";
     public string dialingClipName = "SND-053_PhoneDialTone_Loop";
     public string policeVoiceClipName = "SND-054_PoliceResponse_OneShot";
@@ -38,7 +37,6 @@ public class PhoneController : MonoBehaviour
     [Header("성공 이벤트")]
     public UnityEvent onCallSuccess;
 
-    private Coroutine _actionCoroutine;
     private bool _isInteracting = false;
     private InteractableItem _interactable;
     private Camera _mainCamera;
@@ -50,11 +48,11 @@ public class PhoneController : MonoBehaviour
         if (_interactable != null)
         {
             _interactable.interactOnlyOnce = false;
-            // 낙하하기 전까지는 상호작용 불가
             _interactable.isInteractable = (currentState == PhoneState.Dropped);
+            _interactable.onInteractEvent.RemoveAllListeners();
+            _interactable.onInteractEvent.AddListener(OnPhoneReached);
         }
 
-        // 씬 시작 시 이미 떨어져 있는 상태라면 진동 시작
         if (currentState == PhoneState.Dropped)
         {
             StartVibration();
@@ -72,7 +70,6 @@ public class PhoneController : MonoBehaviour
         return Camera.main;
     }
 
-    // [신규 로직] 외부 컨트롤러(Stage8_11)에서 호출하여 핸드폰을 바닥으로 떨어뜨리는 함수
     public void TriggerDrop(Transform targetFloorPoint)
     {
         if (currentState != PhoneState.Idle) return;
@@ -83,7 +80,6 @@ public class PhoneController : MonoBehaviour
     {
         currentState = PhoneState.Dropping;
 
-        // 떨어지는 사운드 재생
         if (vibrationSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dropSlideClipName);
@@ -107,7 +103,6 @@ public class PhoneController : MonoBehaviour
         transform.position = targetFloorPoint.position;
         transform.rotation = endRot;
 
-        // 바닥에 안착 후 Dropped 상태 전환 및 진동 시작
         currentState = PhoneState.Dropped;
         if (_interactable != null) _interactable.isInteractable = true;
 
@@ -131,29 +126,18 @@ public class PhoneController : MonoBehaviour
     public void OnPhoneReached()
     {
         if (_isInteracting || currentState != PhoneState.Dropped) return;
-        _actionCoroutine = StartCoroutine(RecoverRoutine());
+        StartCoroutine(RecoverRoutine());
     }
 
     private IEnumerator RecoverRoutine()
     {
         _isInteracting = true;
+        if (_interactable != null) _interactable.isInteractable = false;
 
-        float timer = 0f;
-        while (timer < recoverHoldTime)
-        {
-            if (PlayerController.Instance == null || !PlayerController.Instance.IsGripHeld)
-            {
-                _isInteracting = false;
-                if (_interactable != null) _interactable.isInteractable = true;
-                yield break;
-            }
-            timer += Time.deltaTime;
+        if (StateManager.Instance != null)
+            StateManager.Instance.AddNoise(0.2f, transform.position);
 
-            if (StateManager.Instance != null)
-                StateManager.Instance.AddNoise(0.15f * Time.deltaTime, transform.position);
-
-            yield return null;
-        }
+        yield return new WaitForSeconds(0.1f);
 
         currentState = PhoneState.Recovered;
 
@@ -165,8 +149,6 @@ public class PhoneController : MonoBehaviour
             if (clip != null) phonePickupSource.PlayOneShot(clip);
         }
 
-        if (_interactable != null) _interactable.isInteractable = false;
-
         _mainCamera = GetPlayerCamera();
         if (_mainCamera != null)
         {
@@ -176,28 +158,27 @@ public class PhoneController : MonoBehaviour
         }
 
         _isInteracting = false;
+
         StartCoroutine(WaitToCallRoutine());
     }
 
-    // [핵심 수정] 시선 고정(Gaze) 조건 삭제. 휴대폰을 주운 상태면 손뻗기(Reach/Click) 입력만으로 바로 112 신고 시작
     private IEnumerator WaitToCallRoutine()
     {
-        Debug.Log("[PhoneController] 112 신고 대기 상태. 손 뻗기(Reach/Click) 입력 시 전화 연결 시도.");
+        Debug.Log("[PhoneController] 휴대폰 획득. 1.5초 후 112 자동 연결 시도 (Origin Freeze 유지 요망)");
 
-        while (currentState == PhoneState.Recovered)
+        // [핵심 핫픽스] Reach 입력 락(Lock)을 제거하고, 1.5초의 숨 고르기 버퍼 후 즉각 연결 시도
+        yield return new WaitForSeconds(1.5f);
+
+        if (currentState == PhoneState.Recovered)
         {
-            // IsFocused 조건 제거. PlayerController의 IsGripTriggered(손 뻗기/클릭)만 감지
-            if (PlayerController.Instance != null && PlayerController.Instance.IsGripTriggered)
-            {
-                yield return StartCoroutine(CallRoutine());
-            }
-            yield return null;
+            yield return StartCoroutine(CallRoutine());
         }
     }
 
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
+        Debug.Log("[PhoneController] 112 발신 중... 움직임이 감지되면 통화가 끊어집니다.");
 
         if (dialingSource != null && AudioManager.Instance != null)
         {
@@ -214,9 +195,10 @@ public class PhoneController : MonoBehaviour
         {
             timer += Time.deltaTime;
 
-            // 통화 중에는 멈추기(Origin Freeze) 상태를 엄격히 유지해야 함
+            // [판정] 움직이거나 숨을 참지 못해 Origin Freeze가 풀린 경우
             if (PlayerController.Instance == null || !PlayerController.Instance.IsFreezeActive)
             {
+                Debug.LogWarning("[PhoneController] 미세 움직임 감지! 112 연결 실패. 재발신 대기.");
                 if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
 
                 if (phoneFailSource != null && AudioManager.Instance != null)
@@ -226,8 +208,10 @@ public class PhoneController : MonoBehaviour
                 }
 
                 currentState = PhoneState.Recovered;
-                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
+                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position); // 실패 시 페널티 소음 발생
 
+                // 1초 패널티 후 1.5초 뒤 다시 자동 발신 무한 루프
+                yield return new WaitForSeconds(1.0f);
                 StartCoroutine(WaitToCallRoutine());
                 yield break;
             }
@@ -235,6 +219,8 @@ public class PhoneController : MonoBehaviour
         }
 
         currentState = PhoneState.Success;
+        Debug.Log("[PhoneController] 112 통화 10초 유지 성공. 경찰 응답 수신 중.");
+
         if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
 
         float voiceLength = 4.0f;
@@ -256,7 +242,6 @@ public class PhoneController : MonoBehaviour
     private IEnumerator SelfDestructRoutine(float delay)
     {
         yield return new WaitForSeconds(delay);
-        Debug.Log("[PhoneController] 통화 종료. 휴대폰 오브젝트 파괴.");
         transform.SetParent(null);
         Destroy(gameObject);
     }

@@ -13,7 +13,6 @@ public class ElevatorDoorController : MonoBehaviour
     public float animationDuration = 4f;
 
     [Header("Sound Settings (SND-xxx)")]
-    public AudioSource doorAudioSource;
     public string doorCloseClipName = "";
     public float doorCloseSoundDelay = 0f;
 
@@ -59,9 +58,8 @@ public class ElevatorDoorController : MonoBehaviour
     {
         if (!isInitialized) return;
 
-        // [핫픽스] 사운드 파일의 길이만큼 문 열림 시간을 강제 동기화
         float syncDuration = animationDuration;
-        if (doorAudioSource != null && AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
         {
             AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
             if (clip != null) syncDuration = clip.length;
@@ -75,9 +73,8 @@ public class ElevatorDoorController : MonoBehaviour
     {
         if (!isInitialized) return;
 
-        // [핫픽스] 사운드 파일의 길이만큼 문 닫힘 시간을 강제 동기화
         float syncDuration = animationDuration;
-        if (doorAudioSource != null && AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
         {
             AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
             if (clip != null) syncDuration = clip.length;
@@ -86,23 +83,19 @@ public class ElevatorDoorController : MonoBehaviour
         if (currentAnimation != null) StopCoroutine(currentAnimation);
         currentAnimation = StartCoroutine(DoorAnimationRoutine(false, syncDuration));
 
-        if (doorAudioSource != null && !string.IsNullOrEmpty(doorCloseClipName))
+        if (!string.IsNullOrEmpty(doorCloseClipName))
         {
             StartCoroutine(PlayDoorSoundRoutine());
         }
     }
 
+    // [최적화] AudioSource 제거. AudioManager 위임
     private IEnumerator PlayDoorSoundRoutine()
     {
         yield return new WaitForSeconds(doorCloseSoundDelay);
-        if (doorAudioSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(doorCloseClipName))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(doorCloseClipName);
-            if (clip != null)
-            {
-                doorAudioSource.clip = clip;
-                doorAudioSource.Play();
-            }
+            AudioManager.Instance.PlayGlobal2D(doorCloseClipName, AudioManager.Instance.sfxMixerGroup);
         }
     }
 

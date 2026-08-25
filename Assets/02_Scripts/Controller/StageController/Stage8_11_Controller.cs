@@ -5,17 +5,12 @@ public class Stage8_11_Controller : MonoBehaviour
 {
     [Header("Stage 8: Encounter References")]
     public Animator intruderAnimator;
-    public AudioSource knifeStrikeAudio;
     public PhoneController phoneController;
     public Transform phoneDropTarget;
 
     [Header("Stage 8: Encounter Settings")]
     public float strikeDelay = 0.5f;
     public float dropDuration = 0.8f;
-
-    [Header("Stage 11: Police Arrival References")]
-    public AudioSource policeSirenSource;
-    public AudioSource doorKnockSource;
 
     [Header("Audio Clip Names")]
     public string knifeStrikeClipName = "SND-047_KnifeStrike_OneShot";
@@ -48,18 +43,9 @@ public class Stage8_11_Controller : MonoBehaviour
                 phoneController.transform.localPosition = phoneController.leftHandPosition;
                 phoneController.transform.localRotation = Quaternion.Euler(phoneController.leftHandRotation);
             }
-            else
-            {
-                Debug.LogError("[Stage8_11_Controller] MainCamera 태그가 설정된 카메라가 없습니다.");
-            }
-        }
-        else
-        {
-            Debug.LogError("[Stage8_11_Controller] Phone Controller 슬롯이 비어있습니다.");
         }
     }
 
-    // [핵심 핫픽스] 릴레이 스크립트에서 호출할 수 있도록 public으로 열어둠
     public void StartEncounterEvent()
     {
         if (!hasEncounterTriggered)
@@ -75,10 +61,9 @@ public class Stage8_11_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(strikeDelay);
 
-        if (knifeStrikeAudio != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(knifeStrikeClipName);
-            if (clip != null) knifeStrikeAudio.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(knifeStrikeClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
@@ -90,10 +75,7 @@ public class Stage8_11_Controller : MonoBehaviour
             yield return new WaitForSeconds(dropDuration);
         }
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage9_Hide);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage9_Hide);
     }
 
     private void OnStage11Completed()
@@ -105,10 +87,7 @@ public class Stage8_11_Controller : MonoBehaviour
         }
 
         GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
-        foreach (GameObject enemyObj in enemies)
-        {
-            enemyObj.SetActive(false);
-        }
+        foreach (GameObject enemyObj in enemies) enemyObj.SetActive(false);
 
         StartCoroutine(PoliceArrivalSequence());
     }
@@ -120,33 +99,20 @@ public class Stage8_11_Controller : MonoBehaviour
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
         else yield return new WaitForSeconds(2.0f);
 
-        if (policeSirenSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(policeSirenClipName);
-            if (clip != null)
-            {
-                policeSirenSource.clip = clip;
-                policeSirenSource.Play();
-            }
+            AudioManager.Instance.PlayGlobal2D(policeSirenClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         yield return new WaitForSeconds(4.0f);
 
-        if (doorKnockSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(doorKnockClipName);
-            if (clip != null)
-            {
-                doorKnockSource.clip = clip;
-                doorKnockSource.Play();
-            }
+            AudioManager.Instance.PlayGlobal2D(doorKnockClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         yield return new WaitForSeconds(4.0f);
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage12_Police);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage12_Police);
     }
 }

@@ -6,9 +6,10 @@ public class Stage1_Controller : MonoBehaviour
     private InteractableItem elevatorButton;
     private ElevatorDoorController doorController;
 
-    [Header("Audio Settings")]
-    public AudioSource buttonAudioSource;
-    public AudioSource elevatorMoveSource;
+    [Header("Item Audio Reference")]
+    public AudioSource elevatorAudioSource; // 엘리베이터 객체에 달린 소스
+
+    [Header("Audio Clip Names")]
     public string buttonClickClipName = "SND-013_ButtonClick_OneShot";
     public string elevatorMoveClipName = "SND-004_ElevatorMove_Loop_Timed";
     public string elevatorArriveClipName = "SND-005_ElevatorArrive_OneShot";
@@ -39,15 +40,12 @@ public class Stage1_Controller : MonoBehaviour
                 elevatorButton.GetComponent<Collider>().enabled = false;
         }
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddNoise(0.1f);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.1f);
 
-        if (buttonAudioSource != null && AudioManager.Instance != null)
+        // [최적화] 일회성 클릭음은 AudioManager가 처리
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(buttonClickClipName))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(buttonClickClipName);
-            if (clip != null) buttonAudioSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(buttonClickClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         StartCoroutine(ElevatorTravelSequence());
@@ -57,43 +55,40 @@ public class Stage1_Controller : MonoBehaviour
     {
         if (doorController != null)
         {
-            // [수정점] 기획 명세(EVT-005)에 맞춰 문 닫힘 애니메이션 시간 강제 동기화
             doorController.animationDuration = 1.4f;
             doorController.CloseDoors();
         }
 
         yield return new WaitForSeconds(1.4f);
 
-        if (elevatorMoveSource != null && AudioManager.Instance != null)
+        // 루프 이동음은 엘리베이터 오디오 소스 사용
+        if (elevatorAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(elevatorMoveClipName);
             if (clip != null)
             {
-                elevatorMoveSource.clip = clip;
-                elevatorMoveSource.loop = true;
-                elevatorMoveSource.Play();
+                elevatorAudioSource.clip = clip;
+                elevatorAudioSource.loop = true;
+                elevatorAudioSource.Play();
             }
         }
 
         yield return new WaitForSeconds(4.0f);
 
-        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying)
+        if (elevatorAudioSource != null && elevatorAudioSource.isPlaying)
         {
-            elevatorMoveSource.Stop();
+            elevatorAudioSource.Stop();
         }
 
-        if (AudioManager.Instance != null)
+        // [최적화] 일회성 도착음은 AudioManager가 처리
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(elevatorArriveClipName))
         {
-            AudioClip arriveClip = AudioManager.Instance.GetClip(elevatorArriveClipName);
-            if (arriveClip != null && buttonAudioSource != null)
-            {
-                buttonAudioSource.PlayOneShot(arriveClip);
-            }
+            AudioManager.Instance.PlayGlobal2D(elevatorArriveClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (doorController != null)
         {
-            doorController.animationDuration = 1.3f; // EVT-006: Door Open 1.3s
+            doorController.animationDuration = 1.3f;
             doorController.OpenDoors();
         }
 

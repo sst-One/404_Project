@@ -19,12 +19,9 @@ public class PhoneController : MonoBehaviour
     public Vector3 leftHandPosition = new Vector3(-1.75f, -0.7f, 2.3f);
     public Vector3 leftHandRotation = new Vector3(15f, 30f, 0f);
 
-    [Header("오디오 설정 (AudioSources)")]
-    public AudioSource vibrationSource;
-    public AudioSource dialingSource;
-    public AudioSource policeVoiceSource;
-    public AudioSource phonePickupSource;
-    public AudioSource phoneFailSource;
+    [Header("최적화된 오디오 설정 (단 2개)")]
+    public AudioSource sfxSource;   // 진동, 다이얼, 낙하 등 통합 SFX
+    public AudioSource voiceSource; // 경찰 응답 보이스 전용
 
     [Header("사운드 에셋 이름 (SND-xxx)")]
     public string dropSlideClipName = "SND-049_PhoneSlide_OneShot";
@@ -39,7 +36,6 @@ public class PhoneController : MonoBehaviour
 
     private bool _isInteracting = false;
     private InteractableItem _interactable;
-    private Camera _mainCamera;
 
     private void Start()
     {
@@ -53,10 +49,7 @@ public class PhoneController : MonoBehaviour
             _interactable.onInteractEvent.AddListener(OnPhoneReached);
         }
 
-        if (currentState == PhoneState.Dropped)
-        {
-            StartVibration();
-        }
+        if (currentState == PhoneState.Dropped) StartVibration();
     }
 
     private Camera GetPlayerCamera()
@@ -80,10 +73,11 @@ public class PhoneController : MonoBehaviour
     {
         currentState = PhoneState.Dropping;
 
-        if (vibrationSource != null && AudioManager.Instance != null)
+        // [최적화] 통합 sfxSource 활용
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dropSlideClipName);
-            if (clip != null) vibrationSource.PlayOneShot(clip);
+            if (clip != null) sfxSource.PlayOneShot(clip);
         }
 
         Vector3 startPos = transform.position;
@@ -111,14 +105,14 @@ public class PhoneController : MonoBehaviour
 
     private void StartVibration()
     {
-        if (vibrationSource != null && AudioManager.Instance != null)
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(vibrationClipName);
             if (clip != null)
             {
-                vibrationSource.clip = clip;
-                vibrationSource.loop = true;
-                if (!vibrationSource.isPlaying) vibrationSource.Play();
+                sfxSource.clip = clip;
+                sfxSource.loop = true;
+                if (!sfxSource.isPlaying) sfxSource.Play();
             }
         }
     }
@@ -134,59 +128,55 @@ public class PhoneController : MonoBehaviour
         _isInteracting = true;
         if (_interactable != null) _interactable.isInteractable = false;
 
-        if (StateManager.Instance != null)
-            StateManager.Instance.AddNoise(0.2f, transform.position);
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.2f, transform.position);
 
         yield return new WaitForSeconds(0.1f);
 
         currentState = PhoneState.Recovered;
 
-        if (vibrationSource != null && vibrationSource.isPlaying) vibrationSource.Stop();
-
-        if (phonePickupSource != null && AudioManager.Instance != null)
+        // [최적화] sfxSource 초기화 후 픽업 효과음 재생
+        if (sfxSource != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(phonePickupClipName);
-            if (clip != null) phonePickupSource.PlayOneShot(clip);
+            sfxSource.Stop();
+            sfxSource.loop = false;
+            if (AudioManager.Instance != null)
+            {
+                AudioClip pickupClip = AudioManager.Instance.GetClip(phonePickupClipName);
+                if (pickupClip != null) sfxSource.PlayOneShot(pickupClip);
+            }
         }
 
-        _mainCamera = GetPlayerCamera();
-        if (_mainCamera != null)
+        Camera cam = GetPlayerCamera();
+        if (cam != null)
         {
-            transform.SetParent(_mainCamera.transform);
+            transform.SetParent(cam.transform);
             transform.localPosition = leftHandPosition;
             transform.localRotation = Quaternion.Euler(leftHandRotation);
         }
 
         _isInteracting = false;
-
         StartCoroutine(WaitToCallRoutine());
     }
 
     private IEnumerator WaitToCallRoutine()
     {
-        Debug.Log("[PhoneController] 휴대폰 획득. 1.5초 후 112 자동 연결 시도 (Origin Freeze 유지 요망)");
-
-        // [핵심 핫픽스] Reach 입력 락(Lock)을 제거하고, 1.5초의 숨 고르기 버퍼 후 즉각 연결 시도
         yield return new WaitForSeconds(1.5f);
-
-        if (currentState == PhoneState.Recovered)
-        {
-            yield return StartCoroutine(CallRoutine());
-        }
+        if (currentState == PhoneState.Recovered) yield return StartCoroutine(CallRoutine());
     }
 
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
-        Debug.Log("[PhoneController] 112 발신 중... 움직임이 감지되면 통화가 끊어집니다.");
 
-        if (dialingSource != null && AudioManager.Instance != null)
+        // [최적화] sfxSource로 다이얼음 루프
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
             if (clip != null)
             {
-                dialingSource.clip = clip;
-                dialingSource.Play();
+                sfxSource.clip = clip;
+                sfxSource.loop = true;
+                sfxSource.Play();
             }
         }
 
@@ -195,22 +185,22 @@ public class PhoneController : MonoBehaviour
         {
             timer += Time.deltaTime;
 
-            // [판정] 움직이거나 숨을 참지 못해 Origin Freeze가 풀린 경우
             if (PlayerController.Instance == null || !PlayerController.Instance.IsFreezeActive)
             {
-                Debug.LogWarning("[PhoneController] 미세 움직임 감지! 112 연결 실패. 재발신 대기.");
-                if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
-
-                if (phoneFailSource != null && AudioManager.Instance != null)
+                if (sfxSource != null)
                 {
-                    AudioClip clip = AudioManager.Instance.GetClip(phoneFailClipName);
-                    if (clip != null) phoneFailSource.PlayOneShot(clip);
+                    sfxSource.Stop();
+                    sfxSource.loop = false;
+                    if (AudioManager.Instance != null)
+                    {
+                        AudioClip failClip = AudioManager.Instance.GetClip(phoneFailClipName);
+                        if (failClip != null) sfxSource.PlayOneShot(failClip);
+                    }
                 }
 
                 currentState = PhoneState.Recovered;
-                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position); // 실패 시 페널티 소음 발생
+                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
 
-                // 1초 패널티 후 1.5초 뒤 다시 자동 발신 무한 루프
                 yield return new WaitForSeconds(1.0f);
                 StartCoroutine(WaitToCallRoutine());
                 yield break;
@@ -219,18 +209,18 @@ public class PhoneController : MonoBehaviour
         }
 
         currentState = PhoneState.Success;
-        Debug.Log("[PhoneController] 112 통화 10초 유지 성공. 경찰 응답 수신 중.");
 
-        if (dialingSource != null && dialingSource.isPlaying) dialingSource.Stop();
+        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
+        // [최적화] voiceSource 독립 재생
         float voiceLength = 4.0f;
-        if (policeVoiceSource != null && AudioManager.Instance != null)
+        if (voiceSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(policeVoiceClipName);
             if (clip != null)
             {
-                policeVoiceSource.clip = clip;
-                policeVoiceSource.Play();
+                voiceSource.clip = clip;
+                voiceSource.Play();
                 voiceLength = clip.length;
             }
         }

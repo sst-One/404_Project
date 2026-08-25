@@ -7,11 +7,9 @@ public class Stage12_13_Controller : MonoBehaviour
     public InteractableItem crackedPhone;
     public InteractableItem endingGem;
 
-    [Header("Audio Sources")]
-    public AudioSource phoneRingSource;
-    public AudioSource tvNewsSource;
-    public AudioSource tinnitusSource;
-    public AudioSource gemDropSource;
+    [Header("Item Audio Reference")]
+    public AudioSource phoneAudioSource;
+    public AudioSource tvAudioSource;
 
     [Header("Audio Clip Names")]
     public string phoneRingClipName = "SND-058_PhoneRing_Loop";
@@ -23,15 +21,9 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private void Start()
     {
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.ResetHeartbeat();
-        }
+        if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
-        if (endingGem != null)
-        {
-            endingGem.gameObject.SetActive(false);
-        }
+        if (endingGem != null) endingGem.gameObject.SetActive(false);
 
         if (crackedPhone != null)
         {
@@ -44,7 +36,6 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator InitAndFadeInSequence()
     {
-        // UIManager의 전역 페이드 캔버스를 활용한 페이드 인 (검은 화면 -> 밝아짐)
         if (UIManager.Instance != null && UIManager.Instance.globalFadeCanvasGroup != null)
         {
             UIManager.Instance.globalFadeCanvasGroup.alpha = 1f;
@@ -58,21 +49,18 @@ public class Stage12_13_Controller : MonoBehaviour
             }
             UIManager.Instance.globalFadeCanvasGroup.alpha = 0f;
         }
-        else
-        {
-            yield return new WaitForSeconds(2.0f);
-        }
+        else yield return new WaitForSeconds(2.0f);
 
         yield return new WaitForSeconds(3.0f);
 
-        if (phoneRingSource != null && AudioManager.Instance != null)
+        if (phoneAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(phoneRingClipName);
             if (clip != null)
             {
-                phoneRingSource.clip = clip;
-                phoneRingSource.loop = true;
-                phoneRingSource.Play();
+                phoneAudioSource.clip = clip;
+                phoneAudioSource.loop = true;
+                phoneAudioSource.Play();
             }
         }
     }
@@ -85,11 +73,10 @@ public class Stage12_13_Controller : MonoBehaviour
         if (crackedPhone != null)
         {
             crackedPhone.enabled = false;
-            if (crackedPhone.GetComponent<Collider>() != null)
-                crackedPhone.GetComponent<Collider>().enabled = false;
+            if (crackedPhone.GetComponent<Collider>() != null) crackedPhone.GetComponent<Collider>().enabled = false;
         }
 
-        if (phoneRingSource != null) phoneRingSource.Stop();
+        if (phoneAudioSource != null) phoneAudioSource.Stop();
 
         StartCoroutine(CallAndNewsSequence());
     }
@@ -97,47 +84,34 @@ public class Stage12_13_Controller : MonoBehaviour
     private IEnumerator CallAndNewsSequence()
     {
         if (UIManager.Instance != null)
-        {
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_Police));
-        }
 
-        if (tvNewsSource != null && AudioManager.Instance != null)
+        if (tvAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(tvNewsClipName);
             if (clip != null)
             {
-                tvNewsSource.clip = clip;
-                tvNewsSource.Play();
+                tvAudioSource.clip = clip;
+                tvAudioSource.Play();
             }
         }
 
         if (UIManager.Instance != null)
-        {
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day5_TVNews));
-        }
 
-        if (tinnitusSource != null && AudioManager.Instance != null)
+        // 이명은 2D 글로벌 Status 사운드 취급
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(tinnitusClipName);
-            if (clip != null)
-            {
-                tinnitusSource.clip = clip;
-                tinnitusSource.Play();
-            }
+            AudioManager.Instance.PlayStatusSound(tinnitusClipName);
         }
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(2);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
-        // 이명 발생 후 보석 낙하 전까지의 대기 시간
         yield return new WaitForSeconds(6.0f);
 
-        if (gemDropSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(gemDropClipName);
-            if (clip != null) gemDropSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(gemDropClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (endingGem != null)
@@ -153,8 +127,7 @@ public class Stage12_13_Controller : MonoBehaviour
         if (endingGem != null)
         {
             endingGem.enabled = false;
-            if (endingGem.GetComponent<Collider>() != null)
-                endingGem.GetComponent<Collider>().enabled = false;
+            if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = false;
         }
 
         StartCoroutine(FlashbackAndEndingSequence());
@@ -162,23 +135,14 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator FlashbackAndEndingSequence()
     {
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(3);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
-        // 플래시백 연출 시퀀스 대기 시간 (Timeline 또는 애니메이터가 재생되는 시간)
         yield return new WaitForSeconds(10.0f);
 
-        // 엔딩 씬으로 전이 전 자연스러운 화면 페이드 아웃
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
-        }
+        if (AudioManager.Instance != null) AudioManager.Instance.StopStatusSound();
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage13_Ending);
-        }
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage13_Ending);
     }
 }

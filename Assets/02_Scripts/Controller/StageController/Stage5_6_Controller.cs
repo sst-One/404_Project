@@ -3,17 +3,13 @@ using UnityEngine;
 
 public class Stage5_6_Controller : MonoBehaviour
 {
-    [Header("Lighting Settings")]
-    public Light mainRoomLight;
+    [Header("Lighting Settings (그룹 최적화)")]
+    [Tooltip("모든 조명을 자식으로 묶어둔 부모 빈 오브젝트를 이곳에 할당하세요.")]
+    public GameObject mainRoomLightGroup;
 
     [Header("References")]
     public InteractableItem fuseBox;
     public GameObject hallucinationDecals;
-
-    [Header("Audio Sources")]
-    public AudioSource fuseBoxSwitchSource;
-    public AudioSource hallucinationSource;
-    public AudioSource lightFlickerSource;
 
     [Header("Audio Clip Names")]
     public string fuseBoxClipName = "SND-031_FuseBoxSwitch_OneShot";
@@ -25,14 +21,13 @@ public class Stage5_6_Controller : MonoBehaviour
 
     private void Start()
     {
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
 
         if (fuseBox != null)
         {
             fuseBox.enabled = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
-
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
         }
@@ -44,18 +39,12 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         yield return new WaitForSeconds(8.0f);
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
 
-        if (mainRoomLight != null) mainRoomLight.enabled = false;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
         isBlackout = true;
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(2);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
         if (fuseBox != null)
         {
@@ -68,11 +57,8 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         if (!isBlackout) return;
 
-        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(fuseBoxClipName);
-            if (clip != null) fuseBoxSwitchSource.PlayOneShot(clip);
-        }
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(fuseBoxClipName, AudioManager.Instance.sfxMixerGroup);
 
         if (fuseBox != null)
         {
@@ -85,55 +71,36 @@ public class Stage5_6_Controller : MonoBehaviour
 
     private IEnumerator Stage6_HallucinationSequence()
     {
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         isBlackout = false;
 
         yield return new WaitForSeconds(0.5f);
 
         if (hallucinationDecals != null) hallucinationDecals.SetActive(true);
 
-        if (hallucinationSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(hallucinationClipName);
-            if (clip != null) hallucinationSource.PlayOneShot(clip);
-        }
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(hallucinationClipName, AudioManager.Instance.playerStatusMixerGroup);
 
         yield return new WaitForSeconds(1.5f);
 
-        if (mainRoomLight != null) mainRoomLight.enabled = false;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
 
-        if (lightFlickerSource != null && AudioManager.Instance != null)
+        // [최적화] AudioSource 변수 삭제. 0.4초간의 짧은 지직거림은 Global 2D로 한 번만 재생
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(lightFlickerClipName))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(lightFlickerClipName);
-            if (clip != null)
-            {
-                lightFlickerSource.clip = clip;
-                lightFlickerSource.loop = true;
-                lightFlickerSource.Play();
-            }
+            AudioManager.Instance.PlayGlobal2D(lightFlickerClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         yield return new WaitForSeconds(0.4f);
 
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
-        if (mainRoomLight != null) mainRoomLight.enabled = true;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
 
-        if (fuseBoxSwitchSource != null && AudioManager.Instance != null)
-        {
-            AudioClip restoreClip = AudioManager.Instance.GetClip(lightRestoreClipName);
-            if (restoreClip != null) fuseBoxSwitchSource.PlayOneShot(restoreClip);
-        }
-
-        if (lightFlickerSource != null && lightFlickerSource.isPlaying)
-        {
-            lightFlickerSource.Stop();
-        }
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
 
         yield return new WaitForSeconds(2.0f);
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
     }
 }

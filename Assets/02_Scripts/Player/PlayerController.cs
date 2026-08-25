@@ -14,7 +14,6 @@ public class PlayerController : MonoBehaviour
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
     public float maxGazeDistance = 5.0f;
-    // [수정 완료] 0.4f에서 0.1f로 축소. 정확한 조준 필요.
     public float gazeRadius = 0.3f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
@@ -24,7 +23,7 @@ public class PlayerController : MonoBehaviour
     public float moveSpeed = 3.0f;
     public float footstepInterval = 0.4f;
 
-    [Header("Audio Settings")]
+    [Header("Audio Settings (3D Spatial)")]
     public AudioSource playerFootstepSource;
     public string footstepClipName = "SND-006_FootWalk_Oneshot_Loop";
 
@@ -46,6 +45,8 @@ public class PlayerController : MonoBehaviour
     private bool _isObjectReadyTriggered;
     private CharacterController _cc;
     private float _footstepTimer = 0f;
+    private int _walkableLayer;
+    private int _hidingSpotLayer;
 
     private void Awake()
     {
@@ -53,6 +54,10 @@ public class PlayerController : MonoBehaviour
         Instance = this;
         _cc = GetComponent<CharacterController>();
         if (mainCamera == null) mainCamera = Camera.main;
+
+        // [최적화] 레이어 해시 캐싱
+        _walkableLayer = LayerMask.NameToLayer("Walkable");
+        _hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
     }
 
     private void Update()
@@ -79,7 +84,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        GazeScreenPosition = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
         ProcessInputs();
         ProcessGazeAndInteraction();
 
@@ -127,21 +132,21 @@ public class PlayerController : MonoBehaviour
         Ray ray = mainCamera.ScreenPointToRay(GazeScreenPosition);
         if (Physics.SphereCast(ray, gazeRadius, out RaycastHit hit, maxGazeDistance, targetMask | obstacleMask))
         {
-            if ((obstacleMask & (1 << hit.transform.gameObject.layer)) != 0)
+            GameObject hitObj = hit.transform.gameObject;
+            int hitLayer = hitObj.layer;
+
+            if ((obstacleMask & (1 << hitLayer)) != 0)
             {
                 ClearAllFocus();
                 return;
             }
 
-            int walkableLayer = LayerMask.NameToLayer("Walkable");
-            int hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
-
-            if (hit.transform.gameObject.layer == walkableLayer || hit.transform.gameObject.layer == hidingSpotLayer)
+            if (hitLayer == _walkableLayer || hitLayer == _hidingSpotLayer)
             {
                 IsFloorValid = true;
                 ClearObjectFocus();
             }
-            else if ((targetMask & (1 << hit.transform.gameObject.layer)) != 0)
+            else if ((targetMask & (1 << hitLayer)) != 0)
             {
                 ProcessTargetHover(hit.transform);
             }
@@ -228,7 +233,6 @@ public class PlayerController : MonoBehaviour
     {
         if (mainCamera == null || _cc == null || !_cc.enabled) return;
 
-        // [핫픽스] Stage 1(엘리베이터 이동)에서는 자유 이동 금지
         if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Stage1_Elevator)
         {
             StopMovement();

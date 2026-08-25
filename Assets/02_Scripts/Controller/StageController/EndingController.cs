@@ -17,26 +17,19 @@ public class EndingController : MonoBehaviour
     [Tooltip("크레딧이 멈출 최종 Y좌표 수동 설정 (0이면 자동 계산)")]
     public float overrideTargetY = 0f;
 
-    [Header("Audio Settings")]
-    public AudioSource endingBgmSource;
+    [Header("Audio Clip Name")]
     public string endingBgmClipName = "SND-065_EndingTheme_Loop";
 
     private void Start()
     {
         if (titleCanvasGroup != null) titleCanvasGroup.alpha = 0f;
 
-        // BGM 재생 연동 (AudioManager 라우팅)
-        if (endingBgmSource != null && AudioManager.Instance != null)
+        // [최적화] BGM 재생 로직을 전역 AudioManager.PlayBGM으로 완전히 위임
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(endingBgmClipName))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(endingBgmClipName);
-            if (clip != null)
-            {
-                endingBgmSource.clip = clip;
-                endingBgmSource.Play();
-            }
+            AudioManager.Instance.PlayBGM(endingBgmClipName);
         }
 
-        // 마우스 커서 숨김 및 UI 상호작용 강제 차단 (POL-017)
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
         if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = true;
@@ -46,7 +39,6 @@ public class EndingController : MonoBehaviour
 
     private IEnumerator EndingSequenceRoutine()
     {
-        // 1. 타이틀 페이드 인
         if (titleCanvasGroup != null)
         {
             float timer = 0f;
@@ -58,10 +50,8 @@ public class EndingController : MonoBehaviour
             }
             titleCanvasGroup.alpha = 1f;
 
-            // 2. 타이틀 유지
             yield return new WaitForSeconds(titleHoldTime);
 
-            // 3. 타이틀 페이드 아웃
             timer = 0f;
             while (timer < titleFadeTime)
             {
@@ -72,7 +62,6 @@ public class EndingController : MonoBehaviour
             titleCanvasGroup.alpha = 0f;
         }
 
-        // 4. 크레딧 스크롤
         if (creditsRectTransform != null)
         {
             float targetY = overrideTargetY > 0f ? overrideTargetY : creditsRectTransform.rect.height + Screen.height;
@@ -83,15 +72,12 @@ public class EndingController : MonoBehaviour
             }
         }
 
-        // 5. 종료 대기
         yield return new WaitForSeconds(endDelay);
 
-        // 6. 타이틀 화면 복귀 및 제어권 반환 (강제 종료 Application.Quit() 폐기)
+        if (AudioManager.Instance != null) AudioManager.Instance.StopBGM();
+
         if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = false;
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
     }
 }

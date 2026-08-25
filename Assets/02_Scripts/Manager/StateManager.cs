@@ -22,10 +22,6 @@ public class StateManager : MonoBehaviour
     private Coroutine _threatCoroutine;
     private Vector3 _lastNoisePosition;
 
-    [Header("상태 사운드 (2D AudioSources)")]
-    public AudioSource playerBreathSource;
-    public AudioSource playerHeartbeatSource;
-
     [Header("사운드 에셋 이름 (SND-xxx)")]
     public string normalBreathClipName = "";
     public string nervousBreathClipName = "";
@@ -41,11 +37,25 @@ public class StateManager : MonoBehaviour
     private bool _requireInputReset;
     private Coroutine _freezeHeartbeatCoroutine;
 
+    // [최적화] 코루틴 캐싱 객체
+    private WaitForSeconds _freezeWait;
+    private WaitForSeconds _overloadWait;
+    private WaitForSeconds _noiseWait;
+    private WaitForSeconds _threatWait;
+    private WaitForSeconds _cooldownWait;
+
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        // [최적화] Awake 할당으로 런타임 GC 발생 억제
+        _freezeWait = new WaitForSeconds(heartbeatIncreaseInterval);
+        _overloadWait = new WaitForSeconds(2.0f);
+        _noiseWait = new WaitForSeconds(1.0f);
+        _threatWait = new WaitForSeconds(0.5f);
+        _cooldownWait = new WaitForSeconds(1.5f);
     }
 
     private void Start()
@@ -59,7 +69,6 @@ public class StateManager : MonoBehaviour
         ProcessFreezeState();
     }
 
-    // --- [병합된 FreezeManager 로직] ---
     private void ProcessFreezeState()
     {
         if (_isOverloaded || PlayerController.Instance == null) return;
@@ -86,10 +95,9 @@ public class StateManager : MonoBehaviour
 
     private IEnumerator FreezeHeartbeatRoutine()
     {
-        WaitForSeconds wait = new WaitForSeconds(heartbeatIncreaseInterval);
         while (_isFreezing)
         {
-            yield return wait;
+            yield return _freezeWait;
             AddHeartbeat(heartbeatAmountPerTick);
         }
     }
@@ -106,11 +114,10 @@ public class StateManager : MonoBehaviour
 
     private IEnumerator OverloadRecoveryRoutine()
     {
-        yield return new WaitForSeconds(2.0f);
+        yield return _overloadWait;
         _isOverloaded = false;
         _requireInputReset = true;
     }
-    // ----------------------------------
 
     public void AddNoise(float amount, Vector3 noiseSourcePosition = default)
     {
@@ -128,10 +135,9 @@ public class StateManager : MonoBehaviour
 
     private IEnumerator NoiseCooldownRoutine()
     {
-        WaitForSeconds wait = new WaitForSeconds(1.0f);
         while (true)
         {
-            yield return wait;
+            yield return _noiseWait;
             if (_currentNoiseValue > 0f)
             {
                 _currentNoiseValue = Mathf.Clamp(_currentNoiseValue - 0.15f, 0f, 1f);
@@ -187,20 +193,18 @@ public class StateManager : MonoBehaviour
 
     private IEnumerator ThreatHeartbeatRoutine()
     {
-        WaitForSeconds wait = new WaitForSeconds(0.5f);
         while (_threatCount > 0)
         {
-            yield return wait;
+            yield return _threatWait;
             AddHeartbeat(1);
         }
     }
 
     private IEnumerator HeartbeatCooldownRoutine()
     {
-        WaitForSeconds wait = new WaitForSeconds(1.5f);
         while (true)
         {
-            yield return wait;
+            yield return _cooldownWait;
             bool isFreezingInput = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
             if (_threatCount == 0 && !isFreezingInput && _currentHeartbeatValue > 0)
             {
@@ -212,30 +216,16 @@ public class StateManager : MonoBehaviour
     private void UpdateHeartbeatEffects(int level)
     {
         if (AudioManager.Instance == null) return;
+
         if (level >= 2)
         {
-            AudioClip nervousBreath = AudioManager.Instance.GetClip(nervousBreathClipName);
-            if (playerBreathSource != null && nervousBreath != null)
-            {
-                if (playerBreathSource.clip != nervousBreath) playerBreathSource.clip = nervousBreath;
-                if (!playerBreathSource.isPlaying) playerBreathSource.Play();
-            }
-            AudioClip nervousHeartbeat = AudioManager.Instance.GetClip(nervousHeartbeatClipName);
-            if (playerHeartbeatSource != null && nervousHeartbeat != null)
-            {
-                if (playerHeartbeatSource.clip != nervousHeartbeat) playerHeartbeatSource.clip = nervousHeartbeat;
-                if (!playerHeartbeatSource.isPlaying) playerHeartbeatSource.Play();
-            }
+            if (!string.IsNullOrEmpty(nervousBreathClipName)) AudioManager.Instance.PlayBreathSound(nervousBreathClipName);
+            if (!string.IsNullOrEmpty(nervousHeartbeatClipName)) AudioManager.Instance.PlayStatusSound(nervousHeartbeatClipName);
         }
         else
         {
-            AudioClip normalBreath = AudioManager.Instance.GetClip(normalBreathClipName);
-            if (playerBreathSource != null && normalBreath != null)
-            {
-                if (playerBreathSource.clip != normalBreath) playerBreathSource.clip = normalBreath;
-                if (!playerBreathSource.isPlaying) playerBreathSource.Play();
-            }
-            if (playerHeartbeatSource != null && playerHeartbeatSource.isPlaying) playerHeartbeatSource.Stop();
+            if (!string.IsNullOrEmpty(normalBreathClipName)) AudioManager.Instance.PlayBreathSound(normalBreathClipName);
+            AudioManager.Instance.StopStatusSound();
         }
     }
 }

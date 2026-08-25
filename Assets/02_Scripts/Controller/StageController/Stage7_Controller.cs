@@ -7,9 +7,6 @@ public class Stage7_Controller : MonoBehaviour
     public InteractableItem gemItem;
     public GameObject suspiciousMan;
 
-    [Header("Audio Sources")]
-    public AudioSource gemGetSource;
-
     [Header("Audio Clip Names")]
     public string gemGetClipName = "SND-041_JemRecieve_OneShot";
 
@@ -29,8 +26,7 @@ public class Stage7_Controller : MonoBehaviour
             if (gemItem != null)
             {
                 gemItem.enabled = false;
-                if (gemItem.GetComponent<Collider>() != null)
-                    gemItem.GetComponent<Collider>().enabled = false;
+                if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = false;
 
                 gemItem.onInteractEvent.RemoveAllListeners();
                 gemItem.onInteractEvent.AddListener(OnGemReached);
@@ -52,17 +48,15 @@ public class Stage7_Controller : MonoBehaviour
         if (gemItem != null)
         {
             gemItem.enabled = true;
-            if (gemItem.GetComponent<Collider>() != null)
-                gemItem.GetComponent<Collider>().enabled = true;
+            if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = true;
         }
     }
 
     private void OnGemReached()
     {
-        if (gemGetSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(gemGetClipName);
-            if (clip != null) gemGetSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(gemGetClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (gemItem != null) gemItem.gameObject.SetActive(false);
@@ -72,16 +66,10 @@ public class Stage7_Controller : MonoBehaviour
 
     private IEnumerator EndStage7Sequence()
     {
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(1);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
 
         yield return new WaitForSeconds(2.0f);
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage8_Intruder);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage8_Intruder);
     }
 }

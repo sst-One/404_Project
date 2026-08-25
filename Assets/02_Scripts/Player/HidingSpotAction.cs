@@ -11,7 +11,6 @@ public class HidingSpotAction : MonoBehaviour
 
     [Header("Settings")]
     public float transitionDuration = 1.0f;
-    public AudioSource hideAudioSource;
     public string enterClipName = "SND-020_HideEnter_OneShot";
 
     private InteractableItem _interactable;
@@ -71,10 +70,10 @@ public class HidingSpotAction : MonoBehaviour
         _isOccupied = true;
         if (_interactable != null) _interactable.isInteractable = false;
 
-        if (hideAudioSource != null && AudioManager.Instance != null)
+        // [최적화] AudioSource 제거. AudioManager 위임
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(enterClipName))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(enterClipName);
-            if (clip != null) hideAudioSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(enterClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         Transform playerRig = PlayerController.Instance.transform;
@@ -85,7 +84,7 @@ public class HidingSpotAction : MonoBehaviour
 
         Vector3 targetPos = insidePoint != null ? insidePoint.position : startPos;
         Quaternion targetRot = lookTarget != null ? Quaternion.LookRotation(lookTarget.position - targetPos) : startRot;
-        targetRot.x = 0; targetRot.z = 0; // 고개 상하 꺾임 방지
+        targetRot.x = 0; targetRot.z = 0;
 
         float timer = 0f;
         while (timer < transitionDuration)

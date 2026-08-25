@@ -8,11 +8,8 @@ public class Stage3_4_Controller : MonoBehaviour
     public ElevatorDoorController doorController;
     public GameObject suspiciousMan;
 
-    [Header("Audio Sources")]
-    public AudioSource errorAlarmSource;
-    public AudioSource doorGrabSource;
-    public AudioSource suspectVoiceSource;
-    public AudioSource elevatorMoveSource;
+    [Header("Item Audio Reference")]
+    public AudioSource elevatorAudioSource;
 
     [Header("Audio Clip Names")]
     public string malfunctionClipName = "SND-014_ButtonMalfunction_OneShot";
@@ -54,88 +51,63 @@ public class Stage3_4_Controller : MonoBehaviour
         if (elevatorButton != null)
         {
             elevatorButton.enabled = false;
-            if (elevatorButton.GetComponent<Collider>() != null)
-                elevatorButton.GetComponent<Collider>().enabled = false;
+            if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
         }
 
-        if (buttonPressCount == 1)
-        {
-            StartCoroutine(Stage3_AnomalySequence());
-        }
-        else if (buttonPressCount == 2)
-        {
-            StartCoroutine(Stage4_EncounterSequence());
-        }
+        if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
+        else if (buttonPressCount == 2) StartCoroutine(Stage4_EncounterSequence());
     }
 
     private IEnumerator Stage3_AnomalySequence()
     {
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
 
-        if (errorAlarmSource != null && AudioManager.Instance != null)
-        {
-            AudioClip clip = AudioManager.Instance.GetClip(malfunctionClipName);
-            if (clip != null) errorAlarmSource.PlayOneShot(clip);
-        }
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(malfunctionClipName, AudioManager.Instance.sfxMixerGroup);
 
         yield return new WaitForSeconds(0.8f);
 
-        if (StateManager.Instance != null)
-        {
-            StateManager.Instance.AddHeartbeat(1);
-        }
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
 
         yield return new WaitForSeconds(1.5f);
 
         if (elevatorButton != null)
         {
             elevatorButton.enabled = true;
-            if (elevatorButton.GetComponent<Collider>() != null)
-                elevatorButton.GetComponent<Collider>().enabled = true;
+            if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = true;
         }
     }
 
     private IEnumerator Stage4_EncounterSequence()
     {
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
 
         if (doorController != null)
         {
-            // [수정점] 문 닫힘 애니메이션 시간 강제 주입
             doorController.animationDuration = 1.4f;
             doorController.CloseDoors();
         }
 
         yield return new WaitForSeconds(1.4f);
 
-        if (elevatorMoveSource != null && AudioManager.Instance != null)
+        if (elevatorAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(moveClipName);
             if (clip != null)
             {
-                elevatorMoveSource.clip = clip;
-                elevatorMoveSource.loop = true;
-                elevatorMoveSource.Play();
+                elevatorAudioSource.clip = clip;
+                elevatorAudioSource.loop = true;
+                elevatorAudioSource.Play();
             }
         }
 
         yield return new WaitForSeconds(2.0f);
 
-        if (elevatorMoveSource != null && elevatorMoveSource.isPlaying)
-        {
-            elevatorMoveSource.Stop();
-        }
+        if (elevatorAudioSource != null && elevatorAudioSource.isPlaying) elevatorAudioSource.Stop();
 
-        if (doorGrabSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(doorGrabClipName);
-            if (clip != null) doorGrabSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(doorGrabClipName, AudioManager.Instance.sfxMixerGroup);
         }
 
         if (suspiciousMan != null) suspiciousMan.SetActive(true);
@@ -145,10 +117,9 @@ public class Stage3_4_Controller : MonoBehaviour
             doorController.OpenDoors();
         }
 
-        if (suspectVoiceSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(suspectVoiceClipName);
-            if (clip != null) suspectVoiceSource.PlayOneShot(clip);
+            AudioManager.Instance.PlayGlobal2D(suspectVoiceClipName, AudioManager.Instance.voiceMixerGroup);
         }
 
         if (UIManager.Instance != null)
@@ -158,9 +129,6 @@ public class Stage3_4_Controller : MonoBehaviour
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_3));
         }
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
     }
 }

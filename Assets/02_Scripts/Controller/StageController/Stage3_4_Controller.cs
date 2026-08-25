@@ -3,9 +3,6 @@ using UnityEngine;
 
 public class Stage3_4_Controller : MonoBehaviour
 {
-    [Header("Narrative Phone (UI 팝업용)")]
-    public PhoneUIController narrativePhone;
-
     [Header("References")]
     public InteractableItem elevatorButton;
     public ElevatorDoorController doorController;
@@ -35,7 +32,8 @@ public class Stage3_4_Controller : MonoBehaviour
 
         if (elevatorButton != null)
         {
-            elevatorButton.enabled = false;
+            elevatorButton.interactOnlyOnce = false;
+            elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
             elevatorButton.onInteractEvent.RemoveAllListeners();
             elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
@@ -50,19 +48,23 @@ public class Stage3_4_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
-        if (narrativePhone != null)
+        if (PhoneController.Instance != null)
         {
-            narrativePhone.gameObject.SetActive(true);
-            narrativePhone.ShowDay2Message();
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay2Message();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+
+            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
-            narrativePhone.gameObject.SetActive(false);
+
+            // 확인 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
         }
 
         if (elevatorButton != null)
         {
-            elevatorButton.enabled = true;
+            elevatorButton.isInteractable = true;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = true;
         }
     }
@@ -72,7 +74,7 @@ public class Stage3_4_Controller : MonoBehaviour
         buttonPressCount++;
         if (elevatorButton != null)
         {
-            elevatorButton.enabled = false;
+            elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
         }
 
@@ -84,13 +86,14 @@ public class Stage3_4_Controller : MonoBehaviour
     {
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(malfunctionClipName, AudioManager.Instance.sfxMixerGroup);
+
         yield return new WaitForSeconds(1.5f);
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
         yield return new WaitForSeconds(3.5f);
 
         if (elevatorButton != null)
         {
-            elevatorButton.enabled = true;
+            elevatorButton.isInteractable = true;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = true;
         }
     }
@@ -100,14 +103,14 @@ public class Stage3_4_Controller : MonoBehaviour
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
         if (doorController != null) { doorController.animationDuration = 2.5f; doorController.CloseDoors(); }
 
-        yield return new WaitForSeconds(2.4f);
+        yield return new WaitForSeconds(2f);
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(doorGrabClipName, AudioManager.Instance.sfxMixerGroup);
         if (suspiciousMan != null) suspiciousMan.SetActive(true);
+
         yield return new WaitForSeconds(0.5f);
 
         if (doorController != null) { doorController.animationDuration = 1.5f; doorController.OpenDoors(); }
-
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(suspectVoiceClipName, AudioManager.Instance.voiceMixerGroup);
 
         if (UIManager.Instance != null)

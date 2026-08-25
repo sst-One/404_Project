@@ -21,14 +21,14 @@ public class UIManager : MonoBehaviour
     public GameObject dayTransitionPanel;
     public RawImage dayTransitionImage;
     public TextMeshProUGUI dayTransitionText;
-    [Tooltip("Day 1부터 Day 5까지 차례대로 배열에 5개의 텍스처를 할당하세요.")]
-    public Texture[] dayTextures; // [핫픽스] 배열 집중화
+    public Texture[] dayTextures;
 
     public UnityEngine.UI.Button btnResume;
     public UnityEngine.UI.Button btnQuit;
 
     public bool IsPaused { get; private set; } = false;
     public bool IsDialogueActive { get; set; } = false;
+    public bool isDayTransitioning { get; private set; } = false;
 
     private void Awake()
     {
@@ -193,6 +193,9 @@ public class UIManager : MonoBehaviour
 
     public IEnumerator FadeInScreen(float customDuration = -1f)
     {
+        // [핫픽스 3] Day 전환 중일 때는 강제 페이드(밝아짐)를 무시하고 락을 검
+        if (isDayTransitioning) yield break;
+
         if (globalFadeCanvasGroup == null) yield break;
         float fadeTime = customDuration < 0f ? defaultFadeDuration : customDuration;
         globalFadeCanvasGroup.gameObject.SetActive(true);
@@ -209,15 +212,20 @@ public class UIManager : MonoBehaviour
         globalFadeCanvasGroup.gameObject.SetActive(false);
     }
 
-    // [핫픽스] 텍스처 인자를 없애고 자체 배열에서 인덱스 참조
+    // [요구사항 100% 동기화 시퀀스]
     public IEnumerator ShowDayTransition(int day)
     {
-        if (dayTransitionPanel == null) yield break;
+        isDayTransitioning = true;
+        if (dayTransitionPanel == null)
+        {
+            isDayTransitioning = false;
+            yield break;
+        }
 
+        // Day 패널 세팅 및 100% 불투명 처리 (현재 글로벌 블랙 화면에 가려져 보이지 않음)
         dayTransitionPanel.SetActive(true);
         if (dayTransitionText != null) dayTransitionText.text = "Day " + day;
 
-        // 인덱스는 0부터 시작하므로 day - 1
         int index = day - 1;
         if (dayTransitionImage != null && dayTextures != null && index >= 0 && index < dayTextures.Length && dayTextures[index] != null)
         {
@@ -228,18 +236,36 @@ public class UIManager : MonoBehaviour
 
         CanvasGroup cg = dayTransitionPanel.GetComponent<CanvasGroup>();
         if (cg == null) cg = dayTransitionPanel.AddComponent<CanvasGroup>();
-
-        cg.alpha = 0f;
-        float timer = 0f;
-        while (timer < 1.0f) { timer += Time.unscaledDeltaTime; cg.alpha = timer; yield return null; }
         cg.alpha = 1f;
 
-        yield return new WaitForSecondsRealtime(2.5f);
+        // 1. 이전 씬 종료 후 계속 어두운 상태로 0.5초 대기
+        yield return new WaitForSecondsRealtime(0.5f);
 
-        timer = 0f;
-        while (timer < 1.0f) { timer += Time.unscaledDeltaTime; cg.alpha = 1f - timer; yield return null; }
+        // 2. 0.5초 뒤 밝아지면서 (글로벌 페이드 해제) Day 이미지가 보임
+        if (globalFadeCanvasGroup != null)
+        {
+            float fadeTime = defaultFadeDuration; // 보통 0.4~0.8초
+            float timer = 0f;
+            while (timer < fadeTime)
+            {
+                timer += Time.unscaledDeltaTime;
+                globalFadeCanvasGroup.alpha = Mathf.Lerp(1f, 0f, timer / fadeTime);
+                yield return null;
+            }
+            globalFadeCanvasGroup.alpha = 0f;
+            globalFadeCanvasGroup.blocksRaycasts = false;
+            globalFadeCanvasGroup.gameObject.SetActive(false);
+        }
+
+        // 3. 밝아진 상태로 Day 이미지를 약 1.5초 유지하며 감상
+        yield return new WaitForSecondsRealtime(1.5f);
+
+        // 4. 서서히 사라지며 정상 게임 화면으로 복귀
+        float hideTimer = 0f;
+        while (hideTimer < 1.0f) { hideTimer += Time.unscaledDeltaTime; cg.alpha = 1f - hideTimer; yield return null; }
         cg.alpha = 0f;
 
         dayTransitionPanel.SetActive(false);
+        isDayTransitioning = false; // 락 해제
     }
 }

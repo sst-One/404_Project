@@ -3,9 +3,6 @@ using UnityEngine;
 
 public class Stage5_6_Controller : MonoBehaviour
 {
-    [Header("Narrative Phone (UI 팝업용)")]
-    public PhoneUIController narrativePhone;
-
     [Header("Lighting Settings")]
     public GameObject mainRoomLightGroup;
 
@@ -35,7 +32,7 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (fuseBox != null)
         {
-            fuseBox.enabled = false;
+            fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
             fuseBox.onInteractEvent.RemoveAllListeners();
             fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
@@ -56,15 +53,18 @@ public class Stage5_6_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
-        if (narrativePhone != null)
+        if (PhoneController.Instance != null)
         {
-            narrativePhone.gameObject.SetActive(true);
-            narrativePhone.ShowDay3Message();
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay3Message();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
 
+            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
-            narrativePhone.gameObject.SetActive(false);
+
+            // 확인 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
         }
 
         yield return new WaitForSeconds(8.0f);
@@ -75,7 +75,6 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         if (hasFoundClue || isBlackout) return;
         hasFoundClue = true;
-
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(clueMonologueClip, AudioManager.Instance.voiceMixerGroup);
         TriggerBlackout();
     }
@@ -89,9 +88,16 @@ public class Stage5_6_Controller : MonoBehaviour
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
+        // FEAT-021: 암전 시 핸드폰 화면 빛에 의존하기 위해 자동으로 폰을 다시 꺼냄
+        if (PhoneController.Instance != null)
+        {
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
+        }
+
         if (fuseBox != null)
         {
-            fuseBox.enabled = true;
+            fuseBox.isInteractable = true;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = true;
         }
     }
@@ -103,7 +109,7 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (fuseBox != null)
         {
-            fuseBox.enabled = false;
+            fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
         }
         StartCoroutine(Stage6_HallucinationSequence());
@@ -128,12 +134,14 @@ public class Stage5_6_Controller : MonoBehaviour
         }
 
         yield return new WaitForSeconds(0.4f);
-
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
         if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
+
+        // 환각 종료 및 조명 복구 완료 시 폰을 다시 집어넣음
+        if (PhoneController.Instance != null) PhoneController.Instance.HidePhone();
 
         yield return new WaitForSeconds(2.0f);
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);

@@ -13,7 +13,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 1.0f; // [핫픽스 3] 상호작용 사거리 5.0m -> 1.5m로 대폭 축소
+    public float maxGazeDistance = 1.5f;
     public float gazeRadius = 0.3f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
@@ -220,7 +220,6 @@ public class PlayerController : MonoBehaviour
     {
         if (mainCamera == null || _cc == null || !_cc.enabled) return;
 
-        // [핫픽스 4] 엘리베이터 공간인 Stage 1, 3, 4에서 플레이어 이동 원천 금지
         if (GameFlowManager.Instance != null)
         {
             GameStage stage = GameFlowManager.Instance.currentStage;

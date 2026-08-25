@@ -5,11 +5,7 @@ using UnityEngine.UI;
 public class Stage12_13_Controller : MonoBehaviour
 {
     [Header("Interactable Objects")]
-    public InteractableItem crackedPhone;
     public InteractableItem endingGem;
-
-    [Header("Phone UI Reference")]
-    public PhoneUIController phoneUI;
 
     [Header("Item Audio Reference")]
     public AudioSource phoneAudioSource;
@@ -38,12 +34,10 @@ public class Stage12_13_Controller : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
         if (endingGem != null) endingGem.gameObject.SetActive(false);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(false);
-        foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
 
-        if (crackedPhone != null)
+        if (flashbackImages != null)
         {
-            crackedPhone.onInteractEvent.RemoveAllListeners();
-            crackedPhone.onInteractEvent.AddListener(OnPhoneAnswered);
+            foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
         }
 
         StartCoroutine(InitAndFadeInSequence());
@@ -51,25 +45,36 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator InitAndFadeInSequence()
     {
-        if (phoneUI != null)
-        {
-            phoneUI.SetCrackedScreen(true);
-            phoneUI.ShowPoliceReceive();
-        }
-
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(5));
+
+        yield return new WaitForSeconds(1.0f);
+
+        // 페이드 후 폰 꺼내기 및 수신 대기 상태 유지
+        if (PhoneController.Instance != null)
+        {
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null)
+            {
+                PhoneController.Instance.phoneUI.SetCrackedScreen(true);
+                PhoneController.Instance.phoneUI.ShowPoliceReceive();
+            }
+
+            var interactable = PhoneController.Instance.GetComponent<InteractableItem>();
+            if (interactable != null)
+            {
+                interactable.isInteractable = true;
+                if (interactable.GetComponent<Collider>() != null) interactable.GetComponent<Collider>().enabled = true;
+                interactable.onInteractEvent.RemoveAllListeners();
+                interactable.onInteractEvent.AddListener(OnPhoneAnswered);
+            }
+        }
 
         yield return new WaitForSeconds(3.0f);
 
         if (phoneAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(phoneRingClipName);
-            if (clip != null)
-            {
-                phoneAudioSource.clip = clip;
-                phoneAudioSource.loop = true;
-                phoneAudioSource.Play();
-            }
+            if (clip != null) { phoneAudioSource.clip = clip; phoneAudioSource.loop = true; phoneAudioSource.Play(); }
         }
     }
 
@@ -78,15 +83,21 @@ public class Stage12_13_Controller : MonoBehaviour
         if (isPhoneAnswered) return;
         isPhoneAnswered = true;
 
-        if (crackedPhone != null)
+        if (PhoneController.Instance != null)
         {
-            crackedPhone.enabled = false;
-            if (crackedPhone.GetComponent<Collider>() != null) crackedPhone.GetComponent<Collider>().enabled = false;
+            var interactable = PhoneController.Instance.GetComponent<InteractableItem>();
+            if (interactable != null)
+            {
+                interactable.isInteractable = false;
+                if (interactable.GetComponent<Collider>() != null) interactable.GetComponent<Collider>().enabled = false;
+            }
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.HideAllScreens();
+
+            // 통화 연결 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
         }
 
         if (phoneAudioSource != null) phoneAudioSource.Stop();
-        if (phoneUI != null) phoneUI.HideAllScreens();
-
         StartCoroutine(CallAndNewsSequence());
     }
 
@@ -117,6 +128,8 @@ public class Stage12_13_Controller : MonoBehaviour
         if (endingGem != null)
         {
             endingGem.gameObject.SetActive(true);
+            endingGem.isInteractable = true;
+            if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = true;
             endingGem.onInteractEvent.RemoveAllListeners();
             endingGem.onInteractEvent.AddListener(OnGemReached);
         }
@@ -126,7 +139,7 @@ public class Stage12_13_Controller : MonoBehaviour
     {
         if (endingGem != null)
         {
-            endingGem.enabled = false;
+            endingGem.isInteractable = false;
             if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = false;
         }
         StartCoroutine(FlashbackAndEndingSequence());
@@ -148,24 +161,31 @@ public class Stage12_13_Controller : MonoBehaviour
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            foreach (var img in flashbackImages)
+            if (flashbackImages != null)
             {
-                if (img != null)
+                foreach (var img in flashbackImages)
                 {
-                    bool isVisible = Random.value > 0.5f;
-                    img.gameObject.SetActive(isVisible);
-                    if (isVisible)
+                    if (img != null)
                     {
-                        Color c = img.color;
-                        c.a = Random.Range(0.2f, 0.8f);
-                        img.color = c;
+                        bool isVisible = Random.value > 0.5f;
+                        img.gameObject.SetActive(isVisible);
+                        if (isVisible)
+                        {
+                            Color c = img.color;
+                            c.a = Random.Range(0.2f, 0.8f);
+                            img.color = c;
+                        }
                     }
                 }
             }
             yield return new WaitForSeconds(Random.Range(0.05f, 0.15f));
         }
 
-        foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
+        if (flashbackImages != null)
+        {
+            foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
+        }
+
         if (AudioManager.Instance != null) AudioManager.Instance.StopStatusSound();
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
 

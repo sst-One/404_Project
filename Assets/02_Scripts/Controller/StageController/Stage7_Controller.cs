@@ -3,9 +3,6 @@ using UnityEngine;
 
 public class Stage7_Controller : MonoBehaviour
 {
-    [Header("Narrative Phone (UI 팝업용)")]
-    public PhoneUIController narrativePhone;
-
     [Header("References")]
     public InteractableItem gemItem;
     public GameObject suspiciousMan;
@@ -25,7 +22,7 @@ public class Stage7_Controller : MonoBehaviour
 
         if (gemItem != null)
         {
-            gemItem.enabled = false;
+            gemItem.isInteractable = false;
             if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = false;
             gemItem.onInteractEvent.RemoveAllListeners();
             gemItem.onInteractEvent.AddListener(OnGemReached);
@@ -40,14 +37,18 @@ public class Stage7_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
-        if (narrativePhone != null)
+        if (PhoneController.Instance != null)
         {
-            narrativePhone.gameObject.SetActive(true);
-            narrativePhone.ShowDay4Message();
+            PhoneController.Instance.ShowPhoneInHand();
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay4Message();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+
+            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
-            narrativePhone.gameObject.SetActive(false);
+
+            // 확인 완료 후 폰 집어넣음
+            PhoneController.Instance.HidePhone();
         }
 
         if (UIManager.Instance != null)
@@ -59,7 +60,7 @@ public class Stage7_Controller : MonoBehaviour
 
         if (gemItem != null)
         {
-            gemItem.enabled = true;
+            gemItem.isInteractable = true;
             if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = true;
         }
     }

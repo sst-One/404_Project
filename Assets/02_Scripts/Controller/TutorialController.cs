@@ -8,10 +8,10 @@ public class TutorialController : MonoBehaviour
 
     private enum TutorialStep
     {
-        Intro, Calibration, ESC, Rotation, Movement, Freeze, Interaction, HidingEnter, HidingExit, Complete
+        Calibration, Intro, ESC, Rotation, Movement, Freeze, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
     }
 
-    private TutorialStep currentStep = TutorialStep.Intro;
+    private TutorialStep currentStep = TutorialStep.Calibration;
 
     [Header("Tutorial Targets")]
     public Transform leanTargetPoint;
@@ -19,7 +19,7 @@ public class TutorialController : MonoBehaviour
     public HidingSpotAction testHidingSpot;
 
     [Header("Highlight Settings")]
-    public Color highlightColor = new Color(1f, 0f, 0f, 0.5f); // 붉은색 발광 유지
+    public Color highlightColor = new Color(1f, 0f, 0f, 0.5f);
     public float highlightPulseSpeed = 2.0f;
 
     private Coroutine _highlightCoroutine;
@@ -51,13 +51,11 @@ public class TutorialController : MonoBehaviour
             if (hideInteractable != null) hideInteractable.isInteractable = false;
         }
 
-        // 이동 지점의 렌더러와 콜라이더를 명시적으로 숨김 처리
         SetTargetVisibility(leanTargetPoint, false);
 
         StartCoroutine(TutorialSequence());
     }
 
-    // 오브젝트 비활성화 버그를 막기 위한 컴포넌트 개별 제어 함수
     private void SetTargetVisibility(Transform target, bool isVisible)
     {
         if (target == null) return;
@@ -77,13 +75,12 @@ public class TutorialController : MonoBehaviour
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
 
         // ==============================================
-        // 1. 튜토리얼 멘트 즉시 출력 및 캘리브레이션 동시 시작
+        // 1. 튜토리얼 첫 멘트 즉시 출력 및 캘리브레이션 동시 시작
         // ==============================================
         currentStep = TutorialStep.Intro;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("안전 수칙 교육을 시작합니다. 지시에 따라 행동하십시오.");
+            UIManager.Instance.ShowSubtitle("튜토리얼을 시작합니다. 지시에 따라 행동하십시오.");
 
-        // 멘트가 화면에 렌더링될 수 있도록 정확히 1프레임 대기
         yield return null;
 
         currentStep = TutorialStep.Calibration;
@@ -94,7 +91,6 @@ public class TutorialController : MonoBehaviour
         }
         else
         {
-            // 이미 캘리브레이션이 완료된 상태라도 멘트 유지 시간을 보장
             yield return new WaitForSeconds(3.0f);
         }
 
@@ -122,7 +118,7 @@ public class TutorialController : MonoBehaviour
         IsCameraLocked = false;
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("마우스를 움직여 주변 환경을 자유롭게 둘러보세요.");
+            UIManager.Instance.ShowSubtitle("고개를 움직여 주변 환경을 자유롭게 둘러보세요.");
         yield return new WaitForSeconds(3.0f);
         currentStep = TutorialStep.Movement;
 
@@ -132,9 +128,8 @@ public class TutorialController : MonoBehaviour
         if (PlayerController.Instance != null) PlayerController.Instance.SetMovementLock(false);
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("전방에 빛나는 지점을 바라보고 몸을 기울여(W) 이동하세요.");
+            UIManager.Instance.ShowSubtitle("전방에 빛나는 지점을 바라보고 몸을 기울여 이동하세요.");
 
-        // MovePoint 물리 및 렌더러 활성화 후 발광 시작
         SetTargetVisibility(leanTargetPoint, true);
         if (leanTargetPoint != null)
         {
@@ -152,12 +147,11 @@ public class TutorialController : MonoBehaviour
         }
         StopHighlight();
 
-        // 이동 완료 직후 MovePoint 물리 및 렌더러 영구 비활성화
         SetTargetVisibility(leanTargetPoint, false);
 
         currentStep = TutorialStep.Freeze;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 숨을 참으세요(Origin Freeze).");
+            UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 상체를 뒤로 젖혀 숨을 참으세요.");
 
         while (currentStep == TutorialStep.Freeze)
         {
@@ -172,7 +166,7 @@ public class TutorialController : MonoBehaviour
         // 4. 상호작용
         // ==============================================
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("빛나는 사물을 가만히 응시한 뒤, 손을 뻗어 조작하세요.");
+            UIManager.Instance.ShowSubtitle("빛나는 사물을 가만히 응시한 뒤, 손을 뻗어 상호작용하세요.");
 
         bool interactionDone = false;
         UnityAction interactCallback = () => { interactionDone = true; };
@@ -198,7 +192,7 @@ public class TutorialController : MonoBehaviour
         // 5. 숨기 (세탁기)
         // ==============================================
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 근처 옷장(세탁기) 안으로 피신하세요.");
+            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 발코니에 있는 세탁기 안으로 피신하세요.");
 
         bool hidingEntered = false;
         UnityAction hidingEnterCallback = () => { hidingEntered = true; };
@@ -221,22 +215,29 @@ public class TutorialController : MonoBehaviour
             yield return null;
         }
         StopHighlight();
-        currentStep = TutorialStep.HidingExit;
-
-        if (hideItem != null) hideItem.onInteractEvent.RemoveListener(hidingEnterCallback);
 
         // ==============================================
-        // 6. 나오기
+        // 6. [신규 내러티브] 은신처 종류 안내 대사 및 3초 대기
+        // ==============================================
+        currentStep = TutorialStep.HidingGuide;
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowSubtitle("이곳(세탁기, 옷장, 침대 밑, 서재 책상 아래 등)과 같은 장소에 숨을 수 있습니다.");
+
+        yield return new WaitForSeconds(3.0f);
+
+        // ==============================================
+        // 7. 위협 소멸 안내 및 나오기 준비
         // ==============================================
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("위협이 사라졌습니다. 다시 밖을 응시하고 손을 뻗어 밖으로 나오세요.");
 
+        currentStep = TutorialStep.HidingExit;
         bool hidingExited = false;
         UnityAction hidingExitCallback = () => { hidingExited = true; };
 
         if (hideItem != null)
         {
-            yield return new WaitForSeconds(1.5f);
+            yield return new WaitForSeconds(1.0f);
             hideItem.onInteractEvent.AddListener(hidingExitCallback);
         }
         else
@@ -253,7 +254,7 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.Complete;
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("모든 안전 수칙을 익히셨습니다. 본 게임을 시작합니다.");
+            UIManager.Instance.ShowSubtitle("튜토리얼이 종료되었습니다. 건투를 빕니다.");
 
         yield return new WaitForSeconds(3.0f);
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();

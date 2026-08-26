@@ -1,7 +1,6 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
 public class TitleController : MonoBehaviour
 {
@@ -9,14 +8,13 @@ public class TitleController : MonoBehaviour
 
     [Header("메인 메뉴 UI")]
     public GameObject titlePanel;
-    public GameObject[] titleUIContainers;
-    public GameObject explanationPanel;
+    public GameObject creditsPanel;
 
     [Header("버튼 할당 (인스펙터 필수)")]
     public Button btnStartGame;
-    public Button btnTutorial;
-    public Button btnExplanation;
-    public Button btnCloseExplanation;
+    public Button btnSettings;
+    public Button btnCredits;
+    public Button btnCloseCredits;
     public Button btnQuitGame;
 
     private void Awake()
@@ -29,21 +27,25 @@ public class TitleController : MonoBehaviour
             btnStartGame.onClick.RemoveAllListeners();
             btnStartGame.onClick.AddListener(OnClickStartGame);
         }
-        if (btnTutorial != null)
+
+        if (btnSettings != null)
         {
-            btnTutorial.onClick.RemoveAllListeners();
-            btnTutorial.onClick.AddListener(OnClickStartGame);
+            btnSettings.onClick.RemoveAllListeners();
+            btnSettings.onClick.AddListener(OnClickSettings);
         }
-        if (btnExplanation != null)
+
+        if (btnCredits != null)
         {
-            btnExplanation.onClick.RemoveAllListeners();
-            btnExplanation.onClick.AddListener(OnClickExplanation);
+            btnCredits.onClick.RemoveAllListeners();
+            btnCredits.onClick.AddListener(OnClickCredits);
         }
-        if (btnCloseExplanation != null)
+
+        if (btnCloseCredits != null)
         {
-            btnCloseExplanation.onClick.RemoveAllListeners();
-            btnCloseExplanation.onClick.AddListener(OnClickCloseExplanation);
+            btnCloseCredits.onClick.RemoveAllListeners();
+            btnCloseCredits.onClick.AddListener(OnClickCloseCredits);
         }
+
         if (btnQuitGame != null)
         {
             btnQuitGame.onClick.RemoveAllListeners();
@@ -51,7 +53,7 @@ public class TitleController : MonoBehaviour
         }
 
         if (titlePanel != null) titlePanel.SetActive(false);
-        if (explanationPanel != null) explanationPanel.SetActive(false);
+        if (creditsPanel != null) creditsPanel.SetActive(false);
     }
 
     private void Start()
@@ -60,7 +62,6 @@ public class TitleController : MonoBehaviour
         {
             ShowMainMenu();
 
-            // [핵심 추가] 게임이 처음 켜지고 타이틀에 진입했을 때, 검은 화면에서 서서히 밝아지도록 FadeIn 실행
             if (UIManager.Instance != null)
             {
                 StartCoroutine(UIManager.Instance.FadeInScreen());
@@ -70,17 +71,12 @@ public class TitleController : MonoBehaviour
 
     public void ShowMainMenu()
     {
-        if (titlePanel != null) titlePanel.SetActive(false);
+        if (titlePanel != null) titlePanel.SetActive(true);
 
-        foreach (var container in titleUIContainers)
-        {
-            if (container != null && container != titlePanel) container.SetActive(true);
-        }
-
-        if (explanationPanel != null) explanationPanel.SetActive(false);
+        // [핫픽스] 크레딧 창을 닫을 때만 꺼지도록 명확히 제어
+        if (creditsPanel != null) creditsPanel.SetActive(false);
 
         if (btnStartGame != null) btnStartGame.interactable = true;
-        if (btnTutorial != null) btnTutorial.interactable = true;
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -88,16 +84,12 @@ public class TitleController : MonoBehaviour
 
     public void HideMainMenu()
     {
-        foreach (var container in titleUIContainers)
-        {
-            if (container != null && container != this.gameObject) container.SetActive(false);
-        }
+        if (titlePanel != null) titlePanel.SetActive(false);
     }
 
     private void OnClickStartGame()
     {
         if (btnStartGame != null) btnStartGame.interactable = false;
-        if (btnTutorial != null) btnTutorial.interactable = false;
 
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = false;
@@ -107,33 +99,39 @@ public class TitleController : MonoBehaviour
 
     private IEnumerator StartGameTransitionRoutine()
     {
-        // 1. UIManager에게 화면을 완전히 어둡게 하라고 명령 (0.4초간 암전)
         if (UIManager.Instance != null)
         {
             yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
         }
 
-        // 2. 완전히 어두워진 상태에서 무조건 0.5초 대기 (엔진 렌더링 동기화 락)
         yield return new WaitForSecondsRealtime(0.5f);
 
         HideMainMenu();
 
-        // 3. 다음 씬(튜토리얼)으로 전환 요청
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
         }
     }
 
-    private void OnClickExplanation()
+    private void OnClickSettings()
     {
-        HideMainMenu();
-        if (explanationPanel != null) explanationPanel.SetActive(true);
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.TogglePause();
+        }
     }
 
-    private void OnClickCloseExplanation()
+    private void OnClickCredits()
     {
-        ShowMainMenu();
+        // [핫픽스] HideMainMenu() 삭제: 배경(MainMenu_Panel)이 그대로 켜져 있고 그 위에 크레딧이 덮어짐
+        if (creditsPanel != null) creditsPanel.SetActive(true);
+    }
+
+    private void OnClickCloseCredits()
+    {
+        // 배경은 어차피 켜져 있으므로 크레딧 창만 끄면 됨
+        if (creditsPanel != null) creditsPanel.SetActive(false);
     }
 
     private void OnClickQuitGame()

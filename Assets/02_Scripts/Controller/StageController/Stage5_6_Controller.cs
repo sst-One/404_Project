@@ -60,10 +60,8 @@ public class Stage5_6_Controller : MonoBehaviour
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
 
-            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
 
-            // 확인 완료 후 폰 집어넣음
             PhoneController.Instance.HidePhone();
         }
 
@@ -88,7 +86,6 @@ public class Stage5_6_Controller : MonoBehaviour
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
-        // FEAT-021: 암전 시 핸드폰 화면 빛에 의존하기 위해 자동으로 폰을 다시 꺼냄
         if (PhoneController.Instance != null)
         {
             PhoneController.Instance.ShowPhoneInHand();
@@ -122,7 +119,14 @@ public class Stage5_6_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(0.5f);
         if (hallucinationDecals != null) hallucinationDecals.SetActive(true);
-        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(hallucinationClipName, AudioManager.Instance.playerStatusMixerGroup);
+
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(hallucinationClipName, AudioManager.Instance.playerStatusMixerGroup);
+
+        if (PlayerController.Instance != null)
+        {
+            PlayerController.Instance.StartCameraShake(0.3f, 0.15f);
+        }
 
         yield return new WaitForSeconds(1.5f);
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
@@ -140,7 +144,6 @@ public class Stage5_6_Controller : MonoBehaviour
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
         if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
 
-        // 환각 종료 및 조명 복구 완료 시 폰을 다시 집어넣음
         if (PhoneController.Instance != null) PhoneController.Instance.HidePhone();
 
         yield return new WaitForSeconds(2.0f);

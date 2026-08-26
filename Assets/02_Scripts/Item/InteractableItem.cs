@@ -19,36 +19,23 @@ public class InteractableItem : MonoBehaviour, IInteractable
     public UnityEvent onInteractEvent;
 
     public bool IsFocused { get; private set; } = false;
-
-    private MeshRenderer _renderer;
-    private Color _originalColor;
     private bool _hasInteracted = false;
-
-    private void Awake()
-    {
-        _renderer = GetComponent<MeshRenderer>();
-        if (_renderer != null) _originalColor = _renderer.material.color;
-    }
 
     public void OnFocusEnter()
     {
         IsFocused = true;
-
-        if (!isInteractable) return;
-        if (_renderer != null) _renderer.material.color = Color.yellow;
+        // [핫픽스] 렌더러 색상 강제 변경(Color.yellow) 삭제
     }
 
     public void OnFocusExit()
     {
         IsFocused = false;
-
-        if (_renderer != null) _renderer.material.color = _originalColor;
+        // [핫픽스] 렌더러 원상 복구 로직 삭제
     }
 
     public void OnReadyStateReached()
     {
-        if (!isInteractable) return;
-        if (_renderer != null) _renderer.material.color = Color.green;
+        // [핫픽스] 렌더러 색상 강제 변경(Color.green) 삭제
     }
 
     public void OnInteract()
@@ -56,7 +43,6 @@ public class InteractableItem : MonoBehaviour, IInteractable
         if (!isInteractable) return;
         if (interactOnlyOnce && _hasInteracted) return;
 
-        // 핫픽스: 최상위 UIManager를 참조하여 자막, ESC 메뉴, 온보딩 시 상호작용 완벽 차단
         if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
         {
             return;
@@ -75,7 +61,6 @@ public class InteractableItem : MonoBehaviour, IInteractable
         if (interactOnlyOnce)
         {
             isInteractable = false;
-            if (_renderer != null) _renderer.material.color = _originalColor;
             Debug.Log($"[InteractableItem] '{itemName}' 1회 사용 완료. 상호작용 영구 잠금됨.");
         }
 

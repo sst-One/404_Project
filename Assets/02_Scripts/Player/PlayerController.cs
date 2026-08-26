@@ -11,9 +11,11 @@ public class PlayerController : MonoBehaviour
     public bool useWebcam = true;
     public bool forceFallbackMode = false;
 
+    public bool canMove = true;
+
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 1.5f;
+    public float maxGazeDistance = 1f;
     public float gazeRadius = 0.3f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
@@ -26,6 +28,11 @@ public class PlayerController : MonoBehaviour
     [Header("Audio Settings (3D Spatial)")]
     public AudioSource playerFootstepSource;
     public string footstepClipName = "SND-006_FootWalk_Oneshot_Loop";
+
+    public bool IsMovementLocked { get; private set; } = false;
+    public bool IsCameraLocked { get; private set; } = false;
+
+    public event System.Action<Transform> OnInteractTriggered;
 
     public Vector2 GazeScreenPosition { get; private set; }
     public bool IsGripTriggered { get; private set; }
@@ -45,8 +52,9 @@ public class PlayerController : MonoBehaviour
     private bool _isObjectReadyTriggered;
     private CharacterController _cc;
     private float _footstepTimer = 0f;
+
+    // [핫픽스] _hidingSpotLayer 변수는 더 이상 바닥(Floor) 판정에 사용하지 않으므로 제거합니다.
     private int _walkableLayer;
-    private int _hidingSpotLayer;
 
     private void Awake()
     {
@@ -56,7 +64,17 @@ public class PlayerController : MonoBehaviour
         if (mainCamera == null) mainCamera = Camera.main;
 
         _walkableLayer = LayerMask.NameToLayer("Walkable");
-        _hidingSpotLayer = LayerMask.NameToLayer("HidingSpot");
+    }
+
+    public void SetMovementLock(bool isLocked)
+    {
+        IsMovementLocked = isLocked;
+        if (isLocked) StopMovement();
+    }
+
+    public void SetCameraLock(bool isLocked)
+    {
+        IsCameraLocked = isLocked;
     }
 
     private void Update()
@@ -66,11 +84,7 @@ public class PlayerController : MonoBehaviour
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
-        bool isTutorialBlocking = TutorialCalibrationUI.Instance != null &&
-                                  TutorialCalibrationUI.Instance.gameObject.activeInHierarchy &&
-                                  !TutorialCalibrationUI.Instance.IsInCalibrationTestMode;
-
-        if ((UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()) || isTutorialBlocking)
+        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
         {
             IsFreezeActive = false;
             IsGripHeld = false;
@@ -84,7 +98,7 @@ public class PlayerController : MonoBehaviour
         ProcessInputs();
         ProcessGazeAndInteraction();
 
-        if (IsLeanHeld) MoveContinuously();
+        if (IsLeanHeld && !IsMovementLocked) MoveContinuously();
         else StopMovement();
     }
 
@@ -137,11 +151,14 @@ public class PlayerController : MonoBehaviour
                 return;
             }
 
-            if (hitLayer == _walkableLayer || hitLayer == _hidingSpotLayer)
+            // [핵심 핫픽스] HidingSpot 레이어를 바닥으로 취급하여 포커스를 강제로 끄던(ClearObjectFocus) 로직 삭제.
+            // 오직 'Walkable' 바닥만 Floor로 취급합니다.
+            if (hitLayer == _walkableLayer)
             {
                 IsFloorValid = true;
                 ClearObjectFocus();
             }
+            // HidingSpot 레이어가 에디터에서 targetMask에 포함되어 있다면 정상적으로 이 분기를 탑니다.
             else if ((targetMask & (1 << hitLayer)) != 0)
             {
                 ProcessTargetHover(hit.transform);
@@ -181,6 +198,8 @@ public class PlayerController : MonoBehaviour
 
                 if (IsGripTriggered)
                 {
+                    OnInteractTriggered?.Invoke(hitTransform);
+
                     _currentFocusedObject.OnInteract();
                     ClearObjectFocus();
                 }
@@ -258,5 +277,27 @@ public class PlayerController : MonoBehaviour
     {
         IsMoving = false;
         _footstepTimer = footstepInterval;
+    }
+
+    public void StartCameraShake(float duration, float magnitude)
+    {
+        StartCoroutine(CameraShakeRoutine(duration, magnitude));
+    }
+
+    private IEnumerator CameraShakeRoutine(float duration, float magnitude)
+    {
+        if (mainCamera == null) yield break;
+        Vector3 originalPos = mainCamera.transform.localPosition;
+        float elapsed = 0.0f;
+
+        while (elapsed < duration)
+        {
+            float x = Random.Range(-1f, 1f) * magnitude;
+            float y = Random.Range(-1f, 1f) * magnitude;
+            mainCamera.transform.localPosition = new Vector3(originalPos.x + x, originalPos.y + y, originalPos.z);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        mainCamera.transform.localPosition = originalPos;
     }
 }

@@ -1,83 +1,62 @@
 using System.Collections;
 using UnityEngine;
-using TMPro;
 
 public class EndingController : MonoBehaviour
 {
-    [Header("UI References")]
-    public CanvasGroup titleCanvasGroup;
-    public RectTransform creditsRectTransform;
-
-    [Header("Timing Settings")]
-    public float titleHoldTime = 2.0f;
-    public float titleFadeTime = 1.5f;
-    public float creditScrollSpeed = 50.0f;
-    public float endDelay = 3.0f;
-
-    [Tooltip("크레딧이 멈출 최종 Y좌표 수동 설정 (0이면 자동 계산)")]
-    public float overrideTargetY = 0f;
-
-    [Header("Audio Clip Name")]
-    public string endingBgmClipName = "SND-065_EndingTheme_Loop";
+    [Header("Ending Credits UI")]
+    public GameObject creditsPanel;
+    public float creditDuration = 25.0f; // 크레딧 대기 시간
 
     private void Start()
     {
-        if (titleCanvasGroup != null) titleCanvasGroup.alpha = 0f;
-
-        // [최적화] BGM 재생 로직을 전역 AudioManager.PlayBGM으로 완전히 위임
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(endingBgmClipName))
+        // 1. 엔딩 씬 진입 즉시 플레이어 이동 및 시점 완벽 차단
+        if (PlayerController.Instance != null)
         {
-            AudioManager.Instance.PlayBGM(endingBgmClipName);
+            PlayerController.Instance.SetMovementLock(true);
+            PlayerController.Instance.SetCameraLock(true);
         }
-
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-        if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = true;
 
         StartCoroutine(EndingSequenceRoutine());
     }
 
     private IEnumerator EndingSequenceRoutine()
     {
-        if (titleCanvasGroup != null)
+        // 크레딧 패널 켜기
+        if (creditsPanel != null) creditsPanel.SetActive(true);
+
+        // 페이드 인으로 씬 시작
+        if (UIManager.Instance != null)
         {
-            float timer = 0f;
-            while (timer < titleFadeTime)
-            {
-                timer += Time.deltaTime;
-                titleCanvasGroup.alpha = Mathf.Clamp01(timer / titleFadeTime);
-                yield return null;
-            }
-            titleCanvasGroup.alpha = 1f;
-
-            yield return new WaitForSeconds(titleHoldTime);
-
-            timer = 0f;
-            while (timer < titleFadeTime)
-            {
-                timer += Time.deltaTime;
-                titleCanvasGroup.alpha = 1f - Mathf.Clamp01(timer / titleFadeTime);
-                yield return null;
-            }
-            titleCanvasGroup.alpha = 0f;
+            yield return StartCoroutine(UIManager.Instance.FadeInScreen(2.0f));
         }
 
-        if (creditsRectTransform != null)
+        // 크레딧 진행 대기
+        yield return new WaitForSeconds(creditDuration);
+
+        // 크레딧 패널 끄기
+        if (creditsPanel != null) creditsPanel.SetActive(false);
+
+        // 2. 크레딧 종료 후 global_Fade 화면을 켜서 검은 배경 유지
+        if (UIManager.Instance != null && UIManager.Instance.globalFadeCanvasGroup != null)
         {
-            float targetY = overrideTargetY > 0f ? overrideTargetY : creditsRectTransform.rect.height + Screen.height;
-            while (creditsRectTransform.anchoredPosition.y < targetY)
-            {
-                creditsRectTransform.anchoredPosition += new Vector2(0f, creditScrollSpeed * Time.deltaTime);
-                yield return null;
-            }
+            UIManager.Instance.globalFadeCanvasGroup.gameObject.SetActive(true);
+            UIManager.Instance.globalFadeCanvasGroup.alpha = 1f;
+            UIManager.Instance.globalFadeCanvasGroup.blocksRaycasts = true;
         }
 
-        yield return new WaitForSeconds(endDelay);
+        // 마우스 커서 잠금 해제 (메인메뉴 조작을 위해)
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
 
-        if (AudioManager.Instance != null) AudioManager.Instance.StopBGM();
+        // 3. 메인 메뉴 패널 켜기 및 타이틀 씬 상태로 전환하여 다시하기/종료 선택 보장
+        if (TitleController.Instance != null && TitleController.Instance.titlePanel != null)
+        {
+            TitleController.Instance.titlePanel.SetActive(true);
+        }
 
-        if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = false;
-
-        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
+        if (GameFlowManager.Instance != null)
+        {
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
+        }
     }
 }

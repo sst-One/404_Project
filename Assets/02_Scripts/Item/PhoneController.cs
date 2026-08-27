@@ -44,7 +44,6 @@ public class PhoneController : InteractableItem
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // [근본 해결] 휴대폰은 태어날 때(영속성 싱글톤 생성 시점) 무조건 숨겨진 상태로 시작합니다.
         HidePhone();
     }
 
@@ -52,7 +51,6 @@ public class PhoneController : InteractableItem
     {
         interactOnlyOnce = false;
 
-        // 만약 게임이 시작됐는데 현재 상태가 Idle이 아니라면(비정상 유지 시점) 안전하게 정리
         if (currentState == PhoneState.Idle)
         {
             HidePhone();
@@ -76,7 +74,6 @@ public class PhoneController : InteractableItem
         return Camera.main;
     }
 
-    // [자율 통제] 필요할 때만 스스로 나타나서 손에 쥡니다.
     public void ShowPhoneInHand()
     {
         gameObject.SetActive(true);
@@ -85,6 +82,7 @@ public class PhoneController : InteractableItem
         Camera targetCam = GetItemCamera();
         if (targetCam != null)
         {
+            // [결함 2 픽스 관련] 기획자님 지시대로 SetParent(..., false) 등 스케일 보정 로직 모두 롤백
             transform.SetParent(targetCam.transform);
             gameObject.layer = LayerMask.NameToLayer("FP_Item");
             foreach (Transform child in GetComponentsInChildren<Transform>(true))
@@ -96,7 +94,6 @@ public class PhoneController : InteractableItem
         }
     }
 
-    // [자율 통제] 필요 없어지면 스스로 완전히 숨습니다.
     public void HidePhone()
     {
         StopAllCoroutines();
@@ -109,7 +106,6 @@ public class PhoneController : InteractableItem
         if (phoneUI != null)
         {
             phoneUI.HideAllScreens();
-            phoneUI.TurnOffScreen();
         }
         gameObject.SetActive(false);
     }
@@ -124,7 +120,7 @@ public class PhoneController : InteractableItem
     private IEnumerator DropRoutine(Transform targetFloorPoint)
     {
         currentState = PhoneState.Dropping;
-        if (phoneUI != null) phoneUI.TurnOffScreen();
+        if (phoneUI != null) phoneUI.HideAllScreens();
 
         if (sfxSource != null && AudioManager.Instance != null)
         {
@@ -215,12 +211,16 @@ public class PhoneController : InteractableItem
 
     private IEnumerator WaitToCallRoutine()
     {
-        if (phoneUI != null) phoneUI.ShowDial112();
+        if (phoneUI != null) phoneUI.ShowDial112Screen();
+
+        // [결함 3 픽스] 다이얼 화면이 스킵되지 않도록 플레이어에게 최소 2초의 시각적 대기 시간을 강제 보장함
+        yield return new WaitForSeconds(2.0f);
 
         while (currentState == PhoneState.Recovered)
         {
-            bool isHiding = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
-            bool isFreeze = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
+            // 단독 씬 테스트 시 HidingSpotManager가 없어도 무한 대기하지 않도록 예외(null 체크) 강화
+            bool isHiding = HidingSpotManager.Instance == null || HidingSpotManager.Instance.IsHiding;
+            bool isFreeze = PlayerController.Instance == null || PlayerController.Instance.IsFreezeActive;
             if (isHiding && isFreeze) yield return StartCoroutine(CallRoutine());
             yield return null;
         }
@@ -229,46 +229,56 @@ public class PhoneController : InteractableItem
     private IEnumerator CallRoutine()
     {
         currentState = PhoneState.Calling;
-        if (phoneUI != null) phoneUI.ShowCalling();
+        if (phoneUI != null) phoneUI.ShowCallingScreen();
 
-        if (sfxSource != null && AudioManager.Instance != null)
+            if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
             if (clip != null) { sfxSource.clip = clip; sfxSource.loop = true; sfxSource.Play(); }
         }
 
         float timer = 0f;
+        float failGraceTimer = 0f;
+
         while (timer < callDuration)
         {
             timer += Time.deltaTime;
 
-            if (PlayerController.Instance == null || !PlayerController.Instance.IsFreezeActive)
+            if (PlayerController.Instance != null && !PlayerController.Instance.IsFreezeActive)
             {
-                if (sfxSource != null)
+                failGraceTimer += Time.deltaTime;
+                if (failGraceTimer > 0.5f)
                 {
-                    sfxSource.Stop();
-                    sfxSource.loop = false;
-                    if (AudioManager.Instance != null)
+                    if (sfxSource != null)
                     {
-                        AudioClip failClip = AudioManager.Instance.GetClip(phoneFailClipName);
-                        if (failClip != null) sfxSource.PlayOneShot(failClip);
+                        sfxSource.Stop();
+                        sfxSource.loop = false;
+                        if (AudioManager.Instance != null)
+                        {
+                            AudioClip failClip = AudioManager.Instance.GetClip(phoneFailClipName);
+                            if (failClip != null) sfxSource.PlayOneShot(failClip);
+                        }
                     }
+
+                    currentState = PhoneState.Recovered;
+                    if (phoneUI != null) phoneUI.ShowDial112Screen();
+                    if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
+
+                    yield return new WaitForSeconds(1.0f);
+                    StartCoroutine(WaitToCallRoutine());
+                    yield break;
                 }
-
-                currentState = PhoneState.Recovered;
-                if (phoneUI != null) phoneUI.ShowDial112();
-                if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.4f, transform.position);
-
-                yield return new WaitForSeconds(1.0f);
-                StartCoroutine(WaitToCallRoutine());
-                yield break;
+            }
+            else
+            {
+                failGraceTimer = 0f;
             }
             yield return null;
         }
 
         currentState = PhoneState.Success;
-        if (phoneUI != null) phoneUI.ShowPoliceCall();
-        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
+        if (phoneUI != null) phoneUI.ShowPoliceCallScreen();
+            if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
         float voiceLength = 4.0f;
         if (voiceSource != null && AudioManager.Instance != null)
@@ -279,6 +289,6 @@ public class PhoneController : InteractableItem
 
         onCallSuccess?.Invoke();
         yield return new WaitForSeconds(voiceLength);
-        if (phoneUI != null) phoneUI.TurnOffScreen();
+        if (phoneUI != null) phoneUI.HideAllScreens();
     }
 }

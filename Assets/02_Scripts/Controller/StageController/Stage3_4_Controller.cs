@@ -40,6 +40,8 @@ public class Stage3_4_Controller : MonoBehaviour
             elevatorButton.onInteractAction += OnElevatorButtonPressed;
         }
 
+        PhoneController.Instance.gameObject.SetActive(true);
+
         StartCoroutine(Day2IntroSequence());
     }
 
@@ -53,14 +55,21 @@ public class Stage3_4_Controller : MonoBehaviour
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(2));
         yield return new WaitForSeconds(1.0f);
 
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay2Message();
+            // [결함 2 픽스] SetParent 수정안 파기. 대신 앞뒤로 SetActive를 명시하여 씬 전환 미노출을 억지로 방어
+            phone.gameObject.SetActive(true);
+            phone.ShowPhoneInHand();
+            phone.gameObject.SetActive(true);
+
+            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay2();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
             yield return new WaitForSeconds(5.0f);
-            PhoneController.Instance.HidePhone();
+            phone.HidePhone();
         }
 
         if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
@@ -73,8 +82,6 @@ public class Stage3_4_Controller : MonoBehaviour
         {
             elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
-
-            // [최적화] PulseLight 수동 소등 코드 삭제 완료 (InteractableItem이 자동 처리함)
         }
 
         if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
@@ -97,25 +104,19 @@ public class Stage3_4_Controller : MonoBehaviour
     {
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
 
-        // 1. 문 닫기 (닫히는 데 3초 소요)
         if (doorController != null) { doorController.animationDuration = 3f; doorController.CloseDoors(); }
 
-        // [핵심 핫픽스] 문이 완전히 닫힐 때까지 3초 + 텐션 조성 0.5초 대기 (총 3.5초)
         yield return new WaitForSeconds(3.5f);
 
-        // 2. 적 모델링을 켜되 아직 애니메이션은 실행하지 않음 (닫힌 문 뒤에 존재)
         if (suspiciousMan != null)
         {
             suspiciousMan.gameObject.SetActive(true);
         }
 
-        // 3. 문을 열기 시작함
         if (doorController != null) { doorController.animationDuration = 1.5f; doorController.OpenDoors(); }
 
-        // 문이 살짝(0.15초) 열릴 때까지 아주 짧게 대기
         yield return new WaitForSeconds(0.15f);
 
-        // 4. 문이 열리는 찰나에 적의 공격(잡기) 애니메이션 실행 및 사운드/셰이크 동시 발생
         if (suspiciousMan != null)
         {
             suspiciousMan.TriggerNarrativeAnimation("Attack");
@@ -128,7 +129,6 @@ public class Stage3_4_Controller : MonoBehaviour
             PlayerController.Instance.StartCameraShake(0.5f, 0.2f);
         }
 
-        // 5. 공격 애니메이션(잡기)가 끝난 후 자연스럽게 대기 상태로 전환
         yield return new WaitForSeconds(1.0f);
 
         if (suspiciousMan != null)

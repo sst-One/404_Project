@@ -46,7 +46,6 @@ public class UIManager : MonoBehaviour
 
     private FirstPersonCameraLook _cameraLook;
 
-    // [완전 최적화] 코루틴 대기 객체 캐싱 (Heap 할당 제로화)
     private WaitForSecondsRealtime _waitQuick;
     private WaitForSecondsRealtime _waitNormal;
     private WaitForSecondsRealtime _waitLong;
@@ -57,7 +56,6 @@ public class UIManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // [핵심 픽스] 캐싱 객체 실제 할당
         _waitQuick = new WaitForSecondsRealtime(0.1f);
         _waitNormal = new WaitForSecondsRealtime(0.5f);
         _waitLong = new WaitForSecondsRealtime(1.5f);
@@ -100,6 +98,19 @@ public class UIManager : MonoBehaviour
             }
             TogglePause();
         }
+
+        // [결함 1 픽스] 게임 진행 중일 때 유니티 에디터나 UI 포커스가 커서를 빼앗는 것을 원천 차단
+        if (!IsPaused && !IsDialogueActive)
+        {
+            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage != GameStage.Title)
+            {
+                if (Cursor.lockState != CursorLockMode.Locked)
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+            }
+        }
     }
 
     public bool IsAnyUIBlocking()
@@ -139,27 +150,14 @@ public class UIManager : MonoBehaviour
         SaveCalibrationSettings();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
-        StartCoroutine(ResumeRoutine());
-    }
-
-    private IEnumerator ResumeRoutine()
-    {
-        // [최적화 적용] new 키워드 제거
-        yield return _waitQuick;
 
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
 
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
+        if (UnityEngine.EventSystems.EventSystem.current != null)
         {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-        }
-        else
-        {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
         }
     }
 
@@ -325,7 +323,6 @@ public class UIManager : MonoBehaviour
         if (cg == null) cg = dayTransitionPanel.AddComponent<CanvasGroup>();
         cg.alpha = 1f;
 
-        // [최적화 적용] new 키워드 제거
         yield return _waitNormal;
 
         if (globalFadeCanvasGroup != null)
@@ -343,7 +340,6 @@ public class UIManager : MonoBehaviour
             globalFadeCanvasGroup.gameObject.SetActive(false);
         }
 
-        // [최적화 적용] new 키워드 제거
         yield return _waitLong;
 
         float hideTimer = 0f;

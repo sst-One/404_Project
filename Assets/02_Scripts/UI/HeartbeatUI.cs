@@ -38,13 +38,16 @@ public class HeartbeatUI : MonoBehaviour
                 SetAlpha(0f);
                 break;
             case HeartbeatLevel.Rise:
-                _blinkCoroutine = StartCoroutine(BlinkRoutine(0.3f, 1.0f));
+                // [수정된 부분] 투명도를 0.3에서 0.15로 연하게 낮춤
+                _blinkCoroutine = StartCoroutine(BlinkRoutine(0.15f, 1.0f));
                 break;
             case HeartbeatLevel.High:
-                _blinkCoroutine = StartCoroutine(BlinkRoutine(0.6f, 0.3f));
+                // [수정된 부분] 투명도를 0.6에서 0.3으로 연하게 낮춤
+                _blinkCoroutine = StartCoroutine(BlinkRoutine(0.3f, 0.3f));
                 break;
             case HeartbeatLevel.Overload:
-                SetAlpha(1f);
+                // [수정된 부분] 투명도를 1.0(완전 불투명)에서 0.5(반투명)로 연하게 낮춤
+                SetAlpha(0.5f);
                 break;
         }
     }

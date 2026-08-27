@@ -4,8 +4,8 @@ using UnityEngine;
 public class Stage1_Controller : MonoBehaviour
 {
     [Header("References")]
-    public ElevatorDoorController doorController; // 인스펙터 연결 필수
-    public InteractableItem elevatorButton;       // 인스펙터 연결 필수
+    public ElevatorDoorController doorController;
+    public InteractableItem elevatorButton;
 
     [Header("Item Audio Reference")]
     public AudioSource elevatorAudioSource;
@@ -42,7 +42,6 @@ public class Stage1_Controller : MonoBehaviour
     {
         if (elevatorButton != null)
         {
-            // [원리 적용] 스크립트를 강제로 끄는 enabled = false 대신 정규 플래그 사용
             elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
         }

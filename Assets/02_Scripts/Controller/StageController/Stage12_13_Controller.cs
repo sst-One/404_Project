@@ -20,9 +20,6 @@ public class Stage12_13_Controller : MonoBehaviour
     public Canvas tvCanvas;
     public VideoPlayer tvVideoPlayer;
 
-    [Header("Flashback Overlays")]
-    public Image[] flashbackImages;
-
     [Header("Audio Clip Names")]
     public string policeMessageAlertClip = "SND-058_PhoneRing_Loop";
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
@@ -32,6 +29,7 @@ public class Stage12_13_Controller : MonoBehaviour
     public string flashbackSnd2 = "SND-069_Flashback_Layer2";
     public string flashbackSnd3 = "SND-070_Flashback_Layer3";
 
+    private RawImage[] dynamicFlashbackImages = new RawImage[3];
     private bool isTvTurnedOn = false;
 
     private void Start()
@@ -41,11 +39,6 @@ public class Stage12_13_Controller : MonoBehaviour
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(false);
 
         if (sceneRingObject != null) sceneRingObject.SetActive(false);
-
-        if (flashbackImages != null)
-        {
-            foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
-        }
 
         if (tvRemote != null)
         {
@@ -66,20 +59,20 @@ public class Stage12_13_Controller : MonoBehaviour
 
     private IEnumerator MasterSequenceRoutine()
     {
-        // Day 5 전환 연출
+        // 1단계 : 휴대폰 화면 보여주기
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(5));
         yield return new WaitForSeconds(1.0f);
 
-        // ----------------------------------------------------
-        // [시퀀스 1] 경찰에게서 문자(메시지) 확인 (상호작용 없음)
-        // ----------------------------------------------------
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null)
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null)
             {
-                PhoneController.Instance.phoneUI.SetCrackedScreen(true);
-                PhoneController.Instance.phoneUI.ShowPoliceReceive();
+                phone.phoneUI.SetCrackedScreen(true);
+                phone.phoneUI.ShowPoliceReceiveScreen();
             }
         }
 
@@ -88,19 +81,15 @@ public class Stage12_13_Controller : MonoBehaviour
             AudioManager.Instance.PlayGlobal2D(policeMessageAlertClip, AudioManager.Instance.sfxMixerGroup);
         }
 
-        // 문자 확인 연출 3초 대기
         yield return new WaitForSeconds(3.0f);
 
-        if (PhoneController.Instance != null)
+        if (phone != null)
         {
-            PhoneController.Instance.HidePhone();
+            phone.HidePhone();
         }
 
-        // ----------------------------------------------------
-        // [시퀀스 2] 리모컨 상호작용 후 뉴스 시청
-        // ----------------------------------------------------
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_Police);
-        yield return new WaitForSeconds(2.0f);
+        yield return new WaitForSeconds(3.0f);
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
         isTvTurnedOn = false;
@@ -111,26 +100,31 @@ public class Stage12_13_Controller : MonoBehaviour
             yield return null;
         }
 
+        // 2단계 : 뉴스 시청
         if (tvCanvas != null) tvCanvas.gameObject.SetActive(true);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
         if (tvVideoPlayer != null) tvVideoPlayer.Play();
 
+        float newsDuration = 10.0f; // 기본 안전 대기 시간
         if (tvAudioSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(tvNewsClipName);
-            if (clip != null) { tvAudioSource.clip = clip; tvAudioSource.Play(); }
+            if (clip != null)
+            {
+                tvAudioSource.clip = clip;
+                tvAudioSource.Play();
+                newsDuration = clip.length; // 실제 오디오 클립 길이 적용
+            }
         }
 
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_TVNews);
         if (AudioManager.Instance != null) AudioManager.Instance.PlayStatusSound(tinnitusClipName);
-        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
-        yield return new WaitForSeconds(6.0f);
+        // [완벽한 해결] 복잡한 while문 대신 오디오 클립 길이에 기반한 안전한 대기로 교체하여 무한 대기 방지
+        yield return new WaitForSeconds(newsDuration);
+
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
-        // ----------------------------------------------------
-        // [시퀀스 3] 뉴스 이후 보석 등장
-        // ----------------------------------------------------
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(gemDropClipName, AudioManager.Instance.sfxMixerGroup);
 
         bool isGemInteracted = false;
@@ -139,7 +133,6 @@ public class Stage12_13_Controller : MonoBehaviour
             endingGem.gameObject.SetActive(true);
             endingGem.EnableInteractionWithLight();
 
-            // [컴파일 픽스] onInteractAction = null; 제거 완료. 표준 -= 및 += 연산 사용
             System.Action gemCallback = () => { isGemInteracted = true; };
             endingGem.onInteractAction -= gemCallback;
             endingGem.onInteractAction += gemCallback;
@@ -151,9 +144,6 @@ public class Stage12_13_Controller : MonoBehaviour
             endingGem.onInteractAction -= gemCallback;
         }
 
-        // ----------------------------------------------------
-        // [시퀀스 4] 보석 상호작용 -> Item_Camera 찾아 오른손 위치로 반지 장착 후 활성화
-        // ----------------------------------------------------
         if (sceneRingObject != null)
         {
             Camera itemCamera = null;
@@ -169,22 +159,17 @@ public class Stage12_13_Controller : MonoBehaviour
                 {
                     child.gameObject.layer = LayerMask.NameToLayer("FP_Item");
                 }
-                sceneRingObject.transform.localPosition = new Vector3(0.15f, -0.2f, 0.5f);
-                sceneRingObject.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+
+                sceneRingObject.transform.localPosition = new Vector3(0.3264f, -0.2058f, 0.4325f);
+                sceneRingObject.transform.localRotation = Quaternion.Euler(-38.699f, 60.659f, -185.19f);
             }
 
             sceneRingObject.SetActive(true);
         }
         OnGemReached();
 
-        // ----------------------------------------------------
-        // [시퀀스 5] 2초 대기 후 플래시백 작동
-        // ----------------------------------------------------
         yield return new WaitForSeconds(2.0f);
 
-        // ----------------------------------------------------
-        // [시퀀스 6] 플래시백 연출 및 엔딩 씬 이동
-        // ----------------------------------------------------
         yield return StartCoroutine(FlashbackAndEndingSequence());
     }
 
@@ -192,6 +177,11 @@ public class Stage12_13_Controller : MonoBehaviour
     {
         if (isTvTurnedOn) return;
         isTvTurnedOn = true;
+
+        if (AudioManager.Instance != null)
+        {
+            AudioManager.Instance.PlayGlobal2D("SND-013_ButtonClick_OneShot", AudioManager.Instance.sfxMixerGroup);
+        }
 
         if (tvRemote != null)
         {
@@ -208,52 +198,83 @@ public class Stage12_13_Controller : MonoBehaviour
             endingGem.isInteractable = false;
             if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = false;
         }
+
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
     }
 
     private IEnumerator FlashbackAndEndingSequence()
     {
-        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
+        if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
 
-        if (AudioManager.Instance != null)
+        Transform panelTransform = null;
+        if (UIManager.Instance != null)
         {
-            AudioManager.Instance.PlayGlobal2D(flashbackSnd1, AudioManager.Instance.playerStatusMixerGroup);
-            AudioManager.Instance.PlayGlobal2D(flashbackSnd2, AudioManager.Instance.playerStatusMixerGroup);
-            AudioManager.Instance.PlayGlobal2D(flashbackSnd3, AudioManager.Instance.playerStatusMixerGroup);
+            panelTransform = FindChildRecursive(UIManager.Instance.transform, "Flashback_Panel");
+        }
+        else
+        {
+            GameObject canvasObj = GameObject.Find("UI_Canvas");
+            if (canvasObj != null) panelTransform = FindChildRecursive(canvasObj.transform, "Flashback_Panel");
         }
 
-        float duration = 12.0f;
-        float elapsed = 0f;
-        while (elapsed < duration)
+        if (panelTransform != null)
         {
-            elapsed += Time.deltaTime;
-            if (flashbackImages != null)
+            panelTransform.gameObject.SetActive(true);
+
+            int imgCount = 0;
+            foreach (Transform child in panelTransform)
             {
-                foreach (var img in flashbackImages)
+                RawImage ri = child.GetComponent<RawImage>();
+                if (ri != null && imgCount < 3)
                 {
-                    if (img != null)
-                    {
-                        bool isVisible = Random.value > 0.5f;
-                        img.gameObject.SetActive(isVisible);
-                        if (isVisible)
-                        {
-                            Color c = img.color;
-                            c.a = Random.Range(0.2f, 0.8f);
-                            img.color = c;
-                        }
-                    }
+                    dynamicFlashbackImages[imgCount] = ri;
+                    ri.gameObject.SetActive(false);
+                    imgCount++;
                 }
             }
-            yield return new WaitForSeconds(Random.Range(0.05f, 0.15f));
         }
 
-        if (flashbackImages != null)
+        if (dynamicFlashbackImages[0] != null)
         {
-            foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd1, AudioManager.Instance.playerStatusMixerGroup);
+            dynamicFlashbackImages[0].gameObject.SetActive(true);
         }
+        yield return new WaitForSeconds(3.0f);
+
+        if (dynamicFlashbackImages[1] != null)
+        {
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd2, AudioManager.Instance.playerStatusMixerGroup);
+            dynamicFlashbackImages[1].gameObject.SetActive(true);
+        }
+        yield return new WaitForSeconds(3.0f);
+
+        if (dynamicFlashbackImages[2] != null)
+        {
+            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd3, AudioManager.Instance.playerStatusMixerGroup);
+            dynamicFlashbackImages[2].gameObject.SetActive(true);
+        }
+        yield return new WaitForSeconds(3.0f);
 
         if (AudioManager.Instance != null) AudioManager.Instance.StopStatusSound();
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
 
+        if (panelTransform != null)
+        {
+            panelTransform.gameObject.SetActive(false);
+        }
+
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage13_Ending);
+    }
+
+    private Transform FindChildRecursive(Transform parent, string name)
+    {
+        if (parent.name == name) return parent;
+
+        foreach (Transform child in parent)
+        {
+            Transform result = FindChildRecursive(child, name);
+            if (result != null) return result;
+        }
+        return null;
     }
 }

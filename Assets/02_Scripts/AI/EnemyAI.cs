@@ -54,15 +54,15 @@ public class EnemyAI : MonoBehaviour
     public string bigFootWalkClipName = "";
     public string enemyBreathCloseClipName = "";
 
-    // [완전 최적화] 오디오 클립 영구 캐싱 (매 프레임 탐색 제거)
     private AudioClip _smallFootClip;
     private AudioClip _bigFootClip;
     private AudioClip _breathClip;
 
-    private int _idleHash;
-    private int _walkHash;
-    private int _runHash;
-    private int _chaseHash;
+    // [완전 개조] Idle을 포함한 모든 이동 상태를 Bool 기반 루프로 제어
+    private int _isIdleHash;
+    private int _isWalkHash;
+    private int _isRunHash;
+    private int _isChaseHash;
     private int _attackHash;
     private string _currentAnimState = "";
 
@@ -78,10 +78,10 @@ public class EnemyAI : MonoBehaviour
 
         if (_agent != null) _agent.enabled = true;
 
-        _idleHash = Animator.StringToHash("Idle");
-        _walkHash = Animator.StringToHash("Walk");
-        _runHash = Animator.StringToHash("Run");
-        _chaseHash = Animator.StringToHash("Chase");
+        _isIdleHash = Animator.StringToHash("IsIdle");
+        _isWalkHash = Animator.StringToHash("IsWalk");
+        _isRunHash = Animator.StringToHash("IsRun");
+        _isChaseHash = Animator.StringToHash("IsChase");
         _attackHash = Animator.StringToHash("Attack");
 
         _fovWait = new WaitForSeconds(fovTickRate);
@@ -94,7 +94,6 @@ public class EnemyAI : MonoBehaviour
         if (PlayerController.Instance != null) _playerTransform = PlayerController.Instance.transform;
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
 
-        // 오디오 클립 캐싱
         if (AudioManager.Instance != null)
         {
             _smallFootClip = AudioManager.Instance.GetClip(smallFootWalkClipName);
@@ -129,21 +128,31 @@ public class EnemyAI : MonoBehaviour
 
     private void SetAnimationState(string stateName)
     {
-        if (_animator == null || _currentAnimState == stateName) return;
+        if (_animator == null) return;
 
-        _animator.ResetTrigger(_idleHash);
-        _animator.ResetTrigger(_walkHash);
-        _animator.ResetTrigger(_runHash);
-        _animator.ResetTrigger(_chaseHash);
-        _animator.ResetTrigger(_attackHash);
+        // 모든 루프형 애니메이션 Bool을 일단 차단 후 지정된 것만 활성화
+        _animator.SetBool(_isIdleHash, false);
+        _animator.SetBool(_isWalkHash, false);
+        _animator.SetBool(_isRunHash, false);
+        _animator.SetBool(_isChaseHash, false);
 
         switch (stateName)
         {
-            case "Idle": _animator.SetTrigger(_idleHash); break;
-            case "Walk": _animator.SetTrigger(_walkHash); break;
-            case "Run": _animator.SetTrigger(_runHash); break;
-            case "Chase": _animator.SetTrigger(_chaseHash); break;
-            case "Attack": _animator.SetTrigger(_attackHash); break;
+            case "Idle":
+                _animator.SetBool(_isIdleHash, true);
+                break;
+            case "Walk":
+                _animator.SetBool(_isWalkHash, true);
+                break;
+            case "Run":
+                _animator.SetBool(_isRunHash, true);
+                break;
+            case "Chase":
+                _animator.SetBool(_isChaseHash, true);
+                break;
+            case "Attack":
+                _animator.SetTrigger(_attackHash);
+                break;
         }
 
         _currentAnimState = stateName;
@@ -470,7 +479,6 @@ public class EnemyAI : MonoBehaviour
 
     private void UpdateAudioState(bool isChasing, bool isCloseToPlayer)
     {
-        // 캐싱된 클립을 사용하여 탐색 오버헤드 0 달성
         AudioClip targetFootstep = isChasing ? _bigFootClip : _smallFootClip;
 
         if (footstepSource != null && targetFootstep != null)

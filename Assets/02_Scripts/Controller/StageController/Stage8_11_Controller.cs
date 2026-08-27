@@ -4,7 +4,7 @@ using UnityEngine;
 public class Stage8_11_Controller : MonoBehaviour
 {
     [Header("Stage 8: Encounter References")]
-    public EnemyAI enemyAI; // 스크립트 직접 연결
+    public EnemyAI enemyAI;
     public Animator intruderAnimator;
     public Transform phoneDropTarget;
 
@@ -61,10 +61,13 @@ public class Stage8_11_Controller : MonoBehaviour
 
         yield return null;
 
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowDefaultScreen();
         }
     }
 
@@ -79,7 +82,7 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator EncounterSequence()
     {
-        if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
+        if (intruderAnimator != null) intruderAnimator.SetTrigger("Attack");
 
         yield return new WaitForSeconds(strikeDelay);
 

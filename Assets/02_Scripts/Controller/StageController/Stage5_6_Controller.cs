@@ -10,7 +10,7 @@ public class Stage5_6_Controller : MonoBehaviour
 
     [Header("References")]
     public InteractableItem fuseBox;
-    public InteractableItem clueItem; // 반지 단서 아이템
+    public InteractableItem clueItem;
     public GameObject hallucinationDecals;
 
     [Header("Item Audio Reference")]
@@ -62,14 +62,17 @@ public class Stage5_6_Controller : MonoBehaviour
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(3));
         yield return new WaitForSeconds(1.0f);
 
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay3Message();
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay3();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
             yield return new WaitForSeconds(5.0f);
-            PhoneController.Instance.HidePhone();
+            phone.HidePhone();
         }
 
         if (clueItem != null) clueItem.EnableInteractionWithLight();
@@ -80,7 +83,6 @@ public class Stage5_6_Controller : MonoBehaviour
         if (hasFoundClue || isBlackout) return;
         hasFoundClue = true;
 
-        // [간소화 반영] 전역 플래그 없이 순수하게 단서(반지) 오브젝트만 비활성화 처리
         if (clueItem != null)
         {
             clueItem.gameObject.SetActive(false);
@@ -108,10 +110,13 @@ public class Stage5_6_Controller : MonoBehaviour
         if (affectAmbientLight) RenderSettings.ambientLight = Color.black;
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowDefaultScreen();
         }
 
         StartCoroutine(DelayedEnableFuseBox());
@@ -175,7 +180,9 @@ public class Stage5_6_Controller : MonoBehaviour
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
         if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
 
-        if (PhoneController.Instance != null) PhoneController.Instance.HidePhone();
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+        if (phone != null) phone.HidePhone();
 
         yield return new WaitForSeconds(2.0f);
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);

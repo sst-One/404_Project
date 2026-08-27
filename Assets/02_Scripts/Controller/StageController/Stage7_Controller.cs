@@ -42,15 +42,18 @@ public class Stage7_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
-        if (PhoneController.Instance != null)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+
+        if (phone != null)
         {
-            PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay4Message();
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay4();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
 
             yield return new WaitForSeconds(5.0f);
-            PhoneController.Instance.HidePhone();
+            phone.HidePhone();
         }
 
         if (UIManager.Instance != null)

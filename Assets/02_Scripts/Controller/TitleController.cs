@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Video;
 
 public class TitleController : MonoBehaviour
 {
@@ -9,6 +10,10 @@ public class TitleController : MonoBehaviour
     [Header("메인 메뉴 UI")]
     public GameObject titlePanel;
     public GameObject creditsPanel;
+
+    [Header("도입 영상 세팅 (인스펙터 직접 연결)")]
+    public GameObject introVideoPanel;
+    public VideoPlayer introVideoPlayer;
 
     [Header("버튼 할당 (인스펙터 필수)")]
     public Button btnStartGame;
@@ -54,6 +59,10 @@ public class TitleController : MonoBehaviour
 
         if (titlePanel != null) titlePanel.SetActive(false);
         if (creditsPanel != null) creditsPanel.SetActive(false);
+
+        // [결함 1 코드 픽스] 초기화 시 영상 패널을 끄고, Video Player의 자동 재생을 강제로 정지시킴
+        if (introVideoPanel != null) introVideoPanel.SetActive(false);
+        if (introVideoPlayer != null) introVideoPlayer.Stop();
     }
 
     private void Start()
@@ -72,10 +81,7 @@ public class TitleController : MonoBehaviour
     public void ShowMainMenu()
     {
         if (titlePanel != null) titlePanel.SetActive(true);
-
-        // [핫픽스] 크레딧 창을 닫을 때만 꺼지도록 명확히 제어
         if (creditsPanel != null) creditsPanel.SetActive(false);
-
         if (btnStartGame != null) btnStartGame.interactable = true;
 
         Cursor.lockState = CursorLockMode.None;
@@ -94,20 +100,49 @@ public class TitleController : MonoBehaviour
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = false;
 
+        // [결함 2 픽스] 여기서 HideMainMenu()를 즉시 호출하던 것을 제거하여, 배경이 갑자기 사라지는 현상 방지
         StartCoroutine(StartGameTransitionRoutine());
     }
 
     private IEnumerator StartGameTransitionRoutine()
     {
+        // 1. 메인 메뉴가 켜져 있는 상태에서 페이드 아웃을 먼저 수행 (자연스러운 블랙 스크린 전환)
         if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
         }
 
-        yield return new WaitForSecondsRealtime(0.5f);
-
+        // 화면이 완전히 까매진 후 메인 메뉴를 숨김
         HideMainMenu();
 
+        // 2. 도입 영상 시퀀스
+        if (introVideoPanel != null && introVideoPlayer != null)
+        {
+            introVideoPanel.SetActive(true);
+            introVideoPlayer.Play();
+
+            // 버퍼링 방어 후 페이드 인 (영상 노출)
+            yield return new WaitForSeconds(0.2f);
+            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
+
+            // 영상 튕김 방지 및 온전한 재생 대기
+            yield return new WaitForSeconds(1.0f);
+            while (introVideoPlayer.isPlaying)
+            {
+                yield return null;
+            }
+
+            // 3. 영상 재생 완료 후 다시 페이드 아웃
+            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
+
+            introVideoPanel.SetActive(false);
+        }
+        else
+        {
+            yield return new WaitForSecondsRealtime(0.5f);
+        }
+
+        // 4. 완벽한 블랙 스크린 상태에서 튜토리얼 씬 로드
         if (GameFlowManager.Instance != null)
         {
             GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
@@ -124,13 +159,11 @@ public class TitleController : MonoBehaviour
 
     private void OnClickCredits()
     {
-        // [핫픽스] HideMainMenu() 삭제: 배경(MainMenu_Panel)이 그대로 켜져 있고 그 위에 크레딧이 덮어짐
         if (creditsPanel != null) creditsPanel.SetActive(true);
     }
 
     private void OnClickCloseCredits()
     {
-        // 배경은 어차피 켜져 있으므로 크레딧 창만 끄면 됨
         if (creditsPanel != null) creditsPanel.SetActive(false);
     }
 

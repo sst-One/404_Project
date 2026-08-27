@@ -10,7 +10,6 @@ public class PlayerController : MonoBehaviour
     [Header("Input Mode")]
     public bool useWebcam = true;
     public bool forceFallbackMode = false;
-
     public bool canMove = true;
 
     [Header("Gaze & Interaction Settings")]
@@ -45,25 +44,37 @@ public class PlayerController : MonoBehaviour
     public Transform CurrentHoverTarget { get; private set; }
     public bool IsTargetReady { get; private set; }
 
+    // 외부 컴포넌트 접근 최적화를 위한 퍼블릭 프로퍼티
+    public CharacterController CC { get; private set; }
+    public FirstPersonCameraLook CamLook { get; private set; }
+
     private bool _wasReachHeldLastFrame;
     private bool _wasLeanHeldLastFrame;
     private float _currentReadyTimer;
     private IInteractable _currentFocusedObject;
     private bool _isObjectReadyTriggered;
-    private CharacterController _cc;
     private float _footstepTimer = 0f;
-
-    // [핫픽스] _hidingSpotLayer 변수는 더 이상 바닥(Floor) 판정에 사용하지 않으므로 제거합니다.
     private int _walkableLayer;
+
+    // [최적화] 발소리 오디오 영구 캐싱
+    private AudioClip _cachedFootstepClip;
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        _cc = GetComponent<CharacterController>();
+
+        CC = GetComponent<CharacterController>();
         if (mainCamera == null) mainCamera = Camera.main;
+        if (mainCamera != null) CamLook = mainCamera.GetComponent<FirstPersonCameraLook>();
 
         _walkableLayer = LayerMask.NameToLayer("Walkable");
+    }
+
+    private void Start()
+    {
+        if (AudioManager.Instance != null)
+            _cachedFootstepClip = AudioManager.Instance.GetClip(footstepClipName);
     }
 
     public void SetMovementLock(bool isLocked)
@@ -84,6 +95,7 @@ public class PlayerController : MonoBehaviour
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
+        // UI 블로킹 시 중앙 통제 (SRP 완벽 준수)
         if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
         {
             IsFreezeActive = false;
@@ -94,7 +106,9 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
+        // [최적화] 화면 중앙 좌표는 해상도 변경 시에만 참조하면 됨
         GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+
         ProcessInputs();
         ProcessGazeAndInteraction();
 
@@ -139,7 +153,9 @@ public class PlayerController : MonoBehaviour
         if (mainCamera == null) return;
         IsFloorValid = false;
 
-        Ray ray = mainCamera.ScreenPointToRay(GazeScreenPosition);
+        // [최적화] ScreenPointToRay 수학 연산 폐기. 정중앙 기준 Ray 직접 생성
+        Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
+
         if (Physics.SphereCast(ray, gazeRadius, out RaycastHit hit, maxGazeDistance, targetMask | obstacleMask))
         {
             GameObject hitObj = hit.transform.gameObject;
@@ -151,14 +167,11 @@ public class PlayerController : MonoBehaviour
                 return;
             }
 
-            // [핵심 핫픽스] HidingSpot 레이어를 바닥으로 취급하여 포커스를 강제로 끄던(ClearObjectFocus) 로직 삭제.
-            // 오직 'Walkable' 바닥만 Floor로 취급합니다.
             if (hitLayer == _walkableLayer)
             {
                 IsFloorValid = true;
                 ClearObjectFocus();
             }
-            // HidingSpot 레이어가 에디터에서 targetMask에 포함되어 있다면 정상적으로 이 분기를 탑니다.
             else if ((targetMask & (1 << hitLayer)) != 0)
             {
                 ProcessTargetHover(hit.transform);
@@ -199,7 +212,6 @@ public class PlayerController : MonoBehaviour
                 if (IsGripTriggered)
                 {
                     OnInteractTriggered?.Invoke(hitTransform);
-
                     _currentFocusedObject.OnInteract();
                     ClearObjectFocus();
                 }
@@ -237,7 +249,7 @@ public class PlayerController : MonoBehaviour
 
     private void MoveContinuously()
     {
-        if (mainCamera == null || _cc == null || !_cc.enabled) return;
+        if (mainCamera == null || CC == null || !CC.enabled) return;
 
         if (GameFlowManager.Instance != null)
         {
@@ -256,17 +268,15 @@ public class PlayerController : MonoBehaviour
         if (forwardDir.sqrMagnitude > 0.01f)
         {
             IsMoving = true;
-            _cc.Move(forwardDir * moveSpeed * Time.deltaTime);
+            CC.Move(forwardDir * moveSpeed * Time.deltaTime);
 
             _footstepTimer += Time.deltaTime;
             if (_footstepTimer >= footstepInterval)
             {
                 _footstepTimer = 0f;
-                if (playerFootstepSource != null && AudioManager.Instance != null)
-                {
-                    AudioClip clip = AudioManager.Instance.GetClip(footstepClipName);
-                    if (clip != null) playerFootstepSource.PlayOneShot(clip);
-                }
+                // [최적화] 캐싱된 발소리 직접 사용
+                if (playerFootstepSource != null && _cachedFootstepClip != null)
+                    playerFootstepSource.PlayOneShot(_cachedFootstepClip);
             }
 
             if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.05f * Time.deltaTime);

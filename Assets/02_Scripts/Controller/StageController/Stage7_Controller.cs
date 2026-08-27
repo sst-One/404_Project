@@ -24,11 +24,16 @@ public class Stage7_Controller : MonoBehaviour
         {
             gemItem.isInteractable = false;
             if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = false;
-            gemItem.onInteractEvent.RemoveAllListeners();
-            gemItem.onInteractEvent.AddListener(OnGemReached);
+            gemItem.onInteractAction -= OnGemReached;
+            gemItem.onInteractAction += OnGemReached;
         }
 
         StartCoroutine(Day4IntroSequence());
+    }
+
+    private void OnDestroy()
+    {
+        if (gemItem != null) gemItem.onInteractAction -= OnGemReached;
     }
 
     private IEnumerator Day4IntroSequence()
@@ -44,10 +49,7 @@ public class Stage7_Controller : MonoBehaviour
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
 
-            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
-
-            // 확인 완료 후 폰 집어넣음
             PhoneController.Instance.HidePhone();
         }
 
@@ -58,11 +60,7 @@ public class Stage7_Controller : MonoBehaviour
             yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_3));
         }
 
-        if (gemItem != null)
-        {
-            gemItem.isInteractable = true;
-            if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = true;
-        }
+        if (gemItem != null) gemItem.EnableInteractionWithLight();
     }
 
     private void OnGemReached()

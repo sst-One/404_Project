@@ -1,8 +1,7 @@
 using System.Collections;
 using UnityEngine;
 
-[RequireComponent(typeof(InteractableItem))]
-public class HidingSpotAction : MonoBehaviour
+public class HidingSpotAction : InteractableItem
 {
     [Header("Hiding Spot Transforms")]
     public Transform insidePoint;
@@ -13,25 +12,12 @@ public class HidingSpotAction : MonoBehaviour
     public float transitionDuration = 1.0f;
     public string enterClipName = "SND-020_HideEnter_OneShot";
 
-    private InteractableItem _interactable;
-    private CharacterController _playerCC;
     private bool _isOccupied = false;
     private bool _isTransitioning = false;
 
     private void Start()
     {
-        _interactable = GetComponent<InteractableItem>();
-        if (_interactable != null)
-        {
-            _interactable.interactOnlyOnce = false;
-            _interactable.onInteractEvent.AddListener(OnInteract);
-        }
-
-        if (PlayerController.Instance != null)
-        {
-            _playerCC = PlayerController.Instance.GetComponent<CharacterController>();
-        }
-
+        interactOnlyOnce = false;
         if (HidingSpotManager.Instance != null)
         {
             HidingSpotManager.Instance.onForceEject += ForceEject;
@@ -46,8 +32,11 @@ public class HidingSpotAction : MonoBehaviour
         }
     }
 
-    private void OnInteract()
+    public override void OnInteract()
     {
+        // [핵심 롤백] 무조건 부모(InteractableItem)의 상태 관리를 먼저 통과시킵니다!
+        base.OnInteract();
+
         if (_isTransitioning) return;
 
         if (_isOccupied) StartCoroutine(ExitRoutine());
@@ -63,16 +52,16 @@ public class HidingSpotAction : MonoBehaviour
     {
         _isTransitioning = true;
         _isOccupied = true;
-        if (_interactable != null) _interactable.isInteractable = false;
+        isInteractable = false;
 
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(enterClipName))
             AudioManager.Instance.PlayGlobal2D(enterClipName, AudioManager.Instance.sfxMixerGroup);
 
         Transform playerRig = PlayerController.Instance.transform;
-        if (_playerCC != null) _playerCC.enabled = false;
 
-        // [핫픽스 2] 은신처 진입 시 엉뚱한 곳을 보는 카메라 축 틀어짐 방지
-        FirstPersonCameraLook camLook = playerRig.GetComponentInChildren<FirstPersonCameraLook>();
+        if (PlayerController.Instance.CC != null) PlayerController.Instance.CC.enabled = false;
+
+        FirstPersonCameraLook camLook = PlayerController.Instance.CamLook;
         Transform playerBody = null;
         if (camLook != null)
         {
@@ -104,7 +93,6 @@ public class HidingSpotAction : MonoBehaviour
             playerRig.position = Vector3.Lerp(startPos, targetPos, t);
             playerRig.rotation = Quaternion.Slerp(startRigRot, targetRigRot, t);
 
-            // 진입하면서 마우스로 돌아갔던 카메라 각도를 0점으로 부드럽게 복구
             if (playerBody != null) playerBody.localRotation = Quaternion.Slerp(startBodyRot, Quaternion.identity, t);
             if (camLook != null) camLook.transform.localRotation = Quaternion.Slerp(startCamRot, Quaternion.identity, t);
 
@@ -116,14 +104,13 @@ public class HidingSpotAction : MonoBehaviour
         if (playerBody != null) playerBody.localRotation = Quaternion.identity;
         if (camLook != null) camLook.transform.localRotation = Quaternion.identity;
 
-        // 정렬이 완료되면 CameraLook 스크립트에 내부 각도가 0이 되었음을 알림
         if (camLook != null)
         {
             camLook.SyncToCurrentLocalRotation();
             camLook.enabled = true;
         }
 
-        if (_interactable != null) _interactable.isInteractable = true;
+        isInteractable = true;
         _isTransitioning = false;
 
         if (HidingSpotManager.Instance != null) HidingSpotManager.Instance.StartHiding();
@@ -132,13 +119,12 @@ public class HidingSpotAction : MonoBehaviour
     private IEnumerator ExitRoutine()
     {
         _isTransitioning = true;
-        if (_interactable != null) _interactable.isInteractable = false;
+        isInteractable = false;
 
         if (HidingSpotManager.Instance != null) HidingSpotManager.Instance.StopHiding();
 
         Transform playerRig = PlayerController.Instance.transform;
-
-        FirstPersonCameraLook camLook = playerRig.GetComponentInChildren<FirstPersonCameraLook>();
+        FirstPersonCameraLook camLook = PlayerController.Instance.CamLook;
         Transform playerBody = null;
         if (camLook != null)
         {
@@ -166,8 +152,8 @@ public class HidingSpotAction : MonoBehaviour
             camLook.enabled = true;
         }
 
-        if (_playerCC != null) _playerCC.enabled = true;
-        if (_interactable != null) _interactable.isInteractable = true;
+        if (PlayerController.Instance.CC != null) PlayerController.Instance.CC.enabled = true;
+        isInteractable = true;
 
         _isOccupied = false;
         _isTransitioning = false;

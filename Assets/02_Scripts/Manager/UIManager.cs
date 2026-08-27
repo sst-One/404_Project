@@ -46,11 +46,21 @@ public class UIManager : MonoBehaviour
 
     private FirstPersonCameraLook _cameraLook;
 
+    // [완전 최적화] 코루틴 대기 객체 캐싱 (Heap 할당 제로화)
+    private WaitForSecondsRealtime _waitQuick;
+    private WaitForSecondsRealtime _waitNormal;
+    private WaitForSecondsRealtime _waitLong;
+
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        // [핵심 픽스] 캐싱 객체 실제 할당
+        _waitQuick = new WaitForSecondsRealtime(0.1f);
+        _waitNormal = new WaitForSecondsRealtime(0.5f);
+        _waitLong = new WaitForSecondsRealtime(1.5f);
 
         if (globalFadeCanvasGroup != null)
         {
@@ -80,11 +90,8 @@ public class UIManager : MonoBehaviour
     {
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
-            // 타이틀 씬에서는 ESC 키로 메뉴를 띄우고 닫는 것을 제한 (오직 버튼으로만)
-            if (GameFlowManager.Instance != null &&
-               (GameFlowManager.Instance.currentStage == GameStage.Title))
+            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
             {
-                // [핫픽스] 타이틀에서 ESC를 눌렀을 때 이미 환경설정(systemMenuPanel)이 켜져 있다면 닫도록 예외 처리
                 if (systemMenuPanel != null && systemMenuPanel.activeInHierarchy)
                 {
                     ResumeGame();
@@ -137,12 +144,13 @@ public class UIManager : MonoBehaviour
 
     private IEnumerator ResumeRoutine()
     {
-        yield return new WaitForSecondsRealtime(0.1f);
+        // [최적화 적용] new 키워드 제거
+        yield return _waitQuick;
+
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
 
-        // [핫픽스] 씬이 타이틀(01_Title)인 경우에는 커서를 숨기지 않음
         if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
         {
             Cursor.lockState = CursorLockMode.None;
@@ -317,7 +325,8 @@ public class UIManager : MonoBehaviour
         if (cg == null) cg = dayTransitionPanel.AddComponent<CanvasGroup>();
         cg.alpha = 1f;
 
-        yield return new WaitForSecondsRealtime(0.5f);
+        // [최적화 적용] new 키워드 제거
+        yield return _waitNormal;
 
         if (globalFadeCanvasGroup != null)
         {
@@ -334,7 +343,8 @@ public class UIManager : MonoBehaviour
             globalFadeCanvasGroup.gameObject.SetActive(false);
         }
 
-        yield return new WaitForSecondsRealtime(1.5f);
+        // [최적화 적용] new 키워드 제거
+        yield return _waitLong;
 
         float hideTimer = 0f;
         while (hideTimer < 1.0f) { hideTimer += Time.unscaledDeltaTime; cg.alpha = 1f - hideTimer; yield return null; }

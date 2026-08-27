@@ -2,7 +2,6 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
 
-// [핵심 핫픽스] 기획 제안 수용: Idle 상태 명시적 추가
 public enum EnemyState { Idle, Patrol, Suspect, Investigate, Chase, Attack }
 
 [RequireComponent(typeof(NavMeshAgent))]
@@ -10,8 +9,6 @@ public class EnemyAI : MonoBehaviour
 {
     [Header("Narrative Settings")]
     public bool isNarrativeMode = false;
-
-    // 시작 시에는 서 있는 상태로 시작
     public EnemyState currentState = EnemyState.Idle;
     public Transform[] patrolPoints;
 
@@ -24,9 +21,9 @@ public class EnemyAI : MonoBehaviour
     public float fovTickRate = 0.2f;
 
     [Header("Speed Settings (Manual Control)")]
-    public float patrolSpeed = 0.8f;       // Walk
-    public float investigateSpeed = 1.5f;  // Run
-    public float chaseSpeed = 3.0f;        // Chase
+    public float patrolSpeed = 0.8f;
+    public float investigateSpeed = 1.5f;
+    public float chaseSpeed = 3.0f;
 
     [Header("Detection Settings (SYS-005)")]
     public float criticalDetectionDistance = 1.0f;
@@ -57,12 +54,16 @@ public class EnemyAI : MonoBehaviour
     public string bigFootWalkClipName = "";
     public string enemyBreathCloseClipName = "";
 
+    // [완전 최적화] 오디오 클립 영구 캐싱 (매 프레임 탐색 제거)
+    private AudioClip _smallFootClip;
+    private AudioClip _bigFootClip;
+    private AudioClip _breathClip;
+
     private int _idleHash;
     private int _walkHash;
     private int _runHash;
     private int _chaseHash;
     private int _attackHash;
-
     private string _currentAnimState = "";
 
     private WaitForSeconds _fovWait;
@@ -93,6 +94,14 @@ public class EnemyAI : MonoBehaviour
         if (PlayerController.Instance != null) _playerTransform = PlayerController.Instance.transform;
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
 
+        // 오디오 클립 캐싱
+        if (AudioManager.Instance != null)
+        {
+            _smallFootClip = AudioManager.Instance.GetClip(smallFootWalkClipName);
+            _bigFootClip = AudioManager.Instance.GetClip(bigFootWalkClipName);
+            _breathClip = AudioManager.Instance.GetClip(enemyBreathCloseClipName);
+        }
+
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
         if (isNarrativeMode) return;
@@ -102,7 +111,6 @@ public class EnemyAI : MonoBehaviour
             _agent.Warp(hit.position);
         }
 
-        // 초기 시작 시 곧바로 순찰 상태로 진입
         ChangeState(EnemyState.Patrol);
         MoveToNextPatrolPoint();
 
@@ -114,10 +122,14 @@ public class EnemyAI : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged -= HandleNoiseLevel;
     }
 
+    public void TriggerNarrativeAnimation(string stateName)
+    {
+        SetAnimationState(stateName);
+    }
+
     private void SetAnimationState(string stateName)
     {
-        if (_animator == null) return;
-        if (_currentAnimState == stateName) return;
+        if (_animator == null || _currentAnimState == stateName) return;
 
         _animator.ResetTrigger(_idleHash);
         _animator.ResetTrigger(_walkHash);
@@ -139,7 +151,6 @@ public class EnemyAI : MonoBehaviour
 
     private void Update()
     {
-        // 컷신 모드 또는 UI 블로킹, 공격 중일 때는 AI 판단 완전 정지 및 무조건 Idle
         if (currentState == EnemyState.Attack || isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
             if (_agent != null && _agent.isOnNavMesh && !_agent.isStopped)
@@ -154,10 +165,8 @@ public class EnemyAI : MonoBehaviour
             return;
         }
 
-        // 상태 기반 업데이트 로직
         if (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate)
         {
-            // 목적지에 도착했을 때
             if (_agent.isOnNavMesh && !_agent.pathPending && _agent.remainingDistance < 0.5f)
             {
                 if (currentState == EnemyState.Investigate)
@@ -166,7 +175,6 @@ public class EnemyAI : MonoBehaviour
                     ChangeState(EnemyState.Patrol);
                 }
 
-                // 순찰 지점에 도착하면 대기 코루틴 실행
                 if (_patrolWaitCoroutine == null && currentState == EnemyState.Patrol)
                 {
                     _patrolWaitCoroutine = StartCoroutine(WaitAtPatrolPointRoutine());
@@ -259,7 +267,6 @@ public class EnemyAI : MonoBehaviour
         }
     }
 
-    // [핵심 핫픽스] 대기 시 명시적으로 Idle 상태 부여
     private IEnumerator WaitAtPatrolPointRoutine()
     {
         ChangeState(EnemyState.Idle);
@@ -274,7 +281,6 @@ public class EnemyAI : MonoBehaviour
         _patrolWaitCoroutine = null;
     }
 
-    // [핵심 핫픽스] 상태 변환 시 애니메이션, 에이전트 속도를 1:1로 매칭 통제
     private void ChangeState(EnemyState newState)
     {
         if (currentState == newState) return;
@@ -464,14 +470,11 @@ public class EnemyAI : MonoBehaviour
 
     private void UpdateAudioState(bool isChasing, bool isCloseToPlayer)
     {
-        if (AudioManager.Instance == null) return;
-
-        string targetClipName = isChasing ? bigFootWalkClipName : smallFootWalkClipName;
-        AudioClip targetFootstep = string.IsNullOrEmpty(targetClipName) ? null : AudioManager.Instance.GetClip(targetClipName);
+        // 캐싱된 클립을 사용하여 탐색 오버헤드 0 달성
+        AudioClip targetFootstep = isChasing ? _bigFootClip : _smallFootClip;
 
         if (footstepSource != null && targetFootstep != null)
         {
-            // 발소리는 걷거나 뛰는 상태일 때만 재생 (정지 상태 배제)
             if (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate || currentState == EnemyState.Chase)
             {
                 if (footstepSource.clip != targetFootstep)
@@ -487,12 +490,11 @@ public class EnemyAI : MonoBehaviour
             }
         }
 
-        AudioClip targetBreath = string.IsNullOrEmpty(enemyBreathCloseClipName) ? null : AudioManager.Instance.GetClip(enemyBreathCloseClipName);
-        if (breathSource != null && targetBreath != null)
+        if (breathSource != null && _breathClip != null)
         {
             if (isCloseToPlayer)
             {
-                if (breathSource.clip != targetBreath) breathSource.clip = targetBreath;
+                if (breathSource.clip != _breathClip) breathSource.clip = _breathClip;
                 if (!breathSource.isPlaying) breathSource.Play();
             }
             else

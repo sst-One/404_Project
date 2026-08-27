@@ -1,27 +1,30 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Video;
 
 public class Stage12_13_Controller : MonoBehaviour
 {
     [Header("Interactable Objects")]
     public InteractableItem endingGem;
+    public InteractableItem tvRemote;
+
+    [Header("Ring Visual Reference (Scene Object)")]
+    public GameObject sceneRingObject;
 
     [Header("Item Audio Reference")]
-    public AudioSource phoneAudioSource;
     public AudioSource tvAudioSource;
 
     [Header("TV Video Reference")]
     public GameObject tvScreenDisplay;
-    // [핫픽스] 캔버스가 꺼져 있어서 영상이 안 나오는 문제를 잡기 위한 부모 캔버스 참조 변수
     public Canvas tvCanvas;
-    public UnityEngine.Video.VideoPlayer tvVideoPlayer;
+    public VideoPlayer tvVideoPlayer;
 
     [Header("Flashback Overlays")]
     public Image[] flashbackImages;
 
     [Header("Audio Clip Names")]
-    public string phoneRingClipName = "SND-058_PhoneRing_Loop";
+    public string policeMessageAlertClip = "SND-058_PhoneRing_Loop";
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
     public string tinnitusClipName = "SND-061_TinnitusRing_Loop_Timed";
     public string gemDropClipName = "SND-062_GemDrop_OneShot";
@@ -29,7 +32,7 @@ public class Stage12_13_Controller : MonoBehaviour
     public string flashbackSnd2 = "SND-069_Flashback_Layer2";
     public string flashbackSnd3 = "SND-070_Flashback_Layer3";
 
-    private bool isPhoneAnswered = false;
+    private bool isTvTurnedOn = false;
 
     private void Start()
     {
@@ -37,19 +40,39 @@ public class Stage12_13_Controller : MonoBehaviour
         if (endingGem != null) endingGem.gameObject.SetActive(false);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(false);
 
+        if (sceneRingObject != null) sceneRingObject.SetActive(false);
+
         if (flashbackImages != null)
         {
             foreach (var img in flashbackImages) { if (img != null) img.gameObject.SetActive(false); }
         }
 
-        StartCoroutine(InitAndFadeInSequence());
+        if (tvRemote != null)
+        {
+            tvRemote.isInteractable = false;
+            if (tvRemote.GetComponent<Collider>() != null) tvRemote.GetComponent<Collider>().enabled = false;
+            tvRemote.onInteractAction -= OnTvRemoteClicked;
+            tvRemote.onInteractAction += OnTvRemoteClicked;
+        }
+
+        StartCoroutine(MasterSequenceRoutine());
     }
 
-    private IEnumerator InitAndFadeInSequence()
+    private void OnDestroy()
     {
+        if (tvRemote != null) tvRemote.onInteractAction -= OnTvRemoteClicked;
+        if (endingGem != null) endingGem.onInteractAction -= OnGemReached;
+    }
+
+    private IEnumerator MasterSequenceRoutine()
+    {
+        // Day 5 전환 연출
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(5));
         yield return new WaitForSeconds(1.0f);
 
+        // ----------------------------------------------------
+        // [시퀀스 1] 경찰에게서 문자(메시지) 확인 (상호작용 없음)
+        // ----------------------------------------------------
         if (PhoneController.Instance != null)
         {
             PhoneController.Instance.ShowPhoneInHand();
@@ -58,54 +81,36 @@ public class Stage12_13_Controller : MonoBehaviour
                 PhoneController.Instance.phoneUI.SetCrackedScreen(true);
                 PhoneController.Instance.phoneUI.ShowPoliceReceive();
             }
-
-            var interactable = PhoneController.Instance.GetComponent<InteractableItem>();
-            if (interactable != null)
-            {
-                interactable.isInteractable = true;
-                if (interactable.GetComponent<Collider>() != null) interactable.GetComponent<Collider>().enabled = true;
-                interactable.onInteractEvent.RemoveAllListeners();
-                interactable.onInteractEvent.AddListener(OnPhoneAnswered);
-            }
         }
 
-        yield return new WaitForSeconds(3.0f);
-
-        if (phoneAudioSource != null && AudioManager.Instance != null)
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(policeMessageAlertClip))
         {
-            AudioClip clip = AudioManager.Instance.GetClip(phoneRingClipName);
-            if (clip != null) { phoneAudioSource.clip = clip; phoneAudioSource.loop = true; phoneAudioSource.Play(); }
+            AudioManager.Instance.PlayGlobal2D(policeMessageAlertClip, AudioManager.Instance.sfxMixerGroup);
         }
-    }
 
-    private void OnPhoneAnswered()
-    {
-        if (isPhoneAnswered) return;
-        isPhoneAnswered = true;
+        // 문자 확인 연출 3초 대기
+        yield return new WaitForSeconds(3.0f);
 
         if (PhoneController.Instance != null)
         {
-            var interactable = PhoneController.Instance.GetComponent<InteractableItem>();
-            if (interactable != null)
-            {
-                interactable.isInteractable = false;
-                if (interactable.GetComponent<Collider>() != null) interactable.GetComponent<Collider>().enabled = false;
-            }
-            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.HideAllScreens();
             PhoneController.Instance.HidePhone();
         }
 
-        if (phoneAudioSource != null) phoneAudioSource.Stop();
-        StartCoroutine(CallAndNewsSequence());
-    }
-
-    private IEnumerator CallAndNewsSequence()
-    {
+        // ----------------------------------------------------
+        // [시퀀스 2] 리모컨 상호작용 후 뉴스 시청
+        // ----------------------------------------------------
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_Police);
-        yield return new WaitForSeconds(4.0f);
+        yield return new WaitForSeconds(2.0f);
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
-        // [핵심 핫픽스] 영상 플레이 전 캔버스 전체를 강제 활성화합니다.
+        isTvTurnedOn = false;
+        if (tvRemote != null) tvRemote.EnableInteractionWithLight();
+
+        while (!isTvTurnedOn)
+        {
+            yield return null;
+        }
+
         if (tvCanvas != null) tvCanvas.gameObject.SetActive(true);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
         if (tvVideoPlayer != null) tvVideoPlayer.Play();
@@ -121,17 +126,78 @@ public class Stage12_13_Controller : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
         yield return new WaitForSeconds(6.0f);
-
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
+
+        // ----------------------------------------------------
+        // [시퀀스 3] 뉴스 이후 보석 등장
+        // ----------------------------------------------------
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(gemDropClipName, AudioManager.Instance.sfxMixerGroup);
 
+        bool isGemInteracted = false;
         if (endingGem != null)
         {
             endingGem.gameObject.SetActive(true);
-            endingGem.isInteractable = true;
-            if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = true;
-            endingGem.onInteractEvent.RemoveAllListeners();
-            endingGem.onInteractEvent.AddListener(OnGemReached);
+            endingGem.EnableInteractionWithLight();
+
+            // [컴파일 픽스] onInteractAction = null; 제거 완료. 표준 -= 및 += 연산 사용
+            System.Action gemCallback = () => { isGemInteracted = true; };
+            endingGem.onInteractAction -= gemCallback;
+            endingGem.onInteractAction += gemCallback;
+
+            while (!isGemInteracted)
+            {
+                yield return null;
+            }
+            endingGem.onInteractAction -= gemCallback;
+        }
+
+        // ----------------------------------------------------
+        // [시퀀스 4] 보석 상호작용 -> Item_Camera 찾아 오른손 위치로 반지 장착 후 활성화
+        // ----------------------------------------------------
+        if (sceneRingObject != null)
+        {
+            Camera itemCamera = null;
+            GameObject itemCamObj = GameObject.Find("Item_Camera");
+            if (itemCamObj != null) itemCamera = itemCamObj.GetComponent<Camera>();
+            if (itemCamera == null && PlayerController.Instance != null) itemCamera = PlayerController.Instance.mainCamera;
+
+            if (itemCamera != null)
+            {
+                sceneRingObject.transform.SetParent(itemCamera.transform);
+                sceneRingObject.layer = LayerMask.NameToLayer("FP_Item");
+                foreach (Transform child in sceneRingObject.GetComponentsInChildren<Transform>(true))
+                {
+                    child.gameObject.layer = LayerMask.NameToLayer("FP_Item");
+                }
+                sceneRingObject.transform.localPosition = new Vector3(0.15f, -0.2f, 0.5f);
+                sceneRingObject.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+            }
+
+            sceneRingObject.SetActive(true);
+        }
+        OnGemReached();
+
+        // ----------------------------------------------------
+        // [시퀀스 5] 2초 대기 후 플래시백 작동
+        // ----------------------------------------------------
+        yield return new WaitForSeconds(2.0f);
+
+        // ----------------------------------------------------
+        // [시퀀스 6] 플래시백 연출 및 엔딩 씬 이동
+        // ----------------------------------------------------
+        yield return StartCoroutine(FlashbackAndEndingSequence());
+    }
+
+    private void OnTvRemoteClicked()
+    {
+        if (isTvTurnedOn) return;
+        isTvTurnedOn = true;
+
+        if (tvRemote != null)
+        {
+            tvRemote.isInteractable = false;
+            if (tvRemote.GetComponent<Collider>() != null) tvRemote.GetComponent<Collider>().enabled = false;
+            tvRemote.onInteractAction -= OnTvRemoteClicked;
         }
     }
 
@@ -142,7 +208,6 @@ public class Stage12_13_Controller : MonoBehaviour
             endingGem.isInteractable = false;
             if (endingGem.GetComponent<Collider>() != null) endingGem.GetComponent<Collider>().enabled = false;
         }
-        StartCoroutine(FlashbackAndEndingSequence());
     }
 
     private IEnumerator FlashbackAndEndingSequence()

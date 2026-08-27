@@ -1,11 +1,10 @@
 using System.Collections;
 using UnityEngine;
 
-[RequireComponent(typeof(InteractableItem))]
-public class DoorController : MonoBehaviour
+// InteractableItem 상속
+public class DoorController : InteractableItem
 {
     [Header("Door Settings")]
-    [Tooltip("에디터에서 나란히 배치한 빈 오브젝트(Hinge)를 할당하세요. 런타임에 자동으로 부모로 병합됩니다.")]
     public Transform doorTargetTransform;
     public float moveDuration = 0.5f;
 
@@ -17,22 +16,14 @@ public class DoorController : MonoBehaviour
     public string openClipName = "SND-018_DoorOpen_OneShot";
     public string closeClipName = "SND-019_DoorClose_OneShot";
 
-    private InteractableItem _interactableItem;
     private Collider[] _doorColliders;
     private bool _isOpen = false;
     private Coroutine _moveCoroutine;
 
     private void Start()
     {
-        _interactableItem = GetComponent<InteractableItem>();
+        interactOnlyOnce = false;
         _doorColliders = GetComponents<Collider>();
-
-        if (_interactableItem != null)
-        {
-            _interactableItem.interactOnlyOnce = false;
-            _interactableItem.onInteractEvent.RemoveAllListeners();
-            _interactableItem.onInteractEvent.AddListener(OnDoorInteracted);
-        }
 
         if (doorTargetTransform != null && doorTargetTransform != transform)
         {
@@ -44,8 +35,9 @@ public class DoorController : MonoBehaviour
         }
     }
 
-    private void OnDoorInteracted()
+    public override void OnInteract()
     {
+        base.OnInteract();
         if (_isOpen) CloseDoor();
         else OpenDoor();
     }
@@ -76,7 +68,7 @@ public class DoorController : MonoBehaviour
             }
         }
 
-        if (_interactableItem != null) _interactableItem.isInteractable = false;
+        isInteractable = false;
 
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(clipName))
         {
@@ -106,22 +98,16 @@ public class DoorController : MonoBehaviour
             }
         }
 
-        if (_interactableItem != null) _interactableItem.isInteractable = true;
+        isInteractable = true;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Enemy"))
-        {
-            OpenDoor();
-        }
+        if (other.CompareTag("Enemy")) OpenDoor();
     }
 
     private void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Enemy"))
-        {
-            CloseDoor();
-        }
+        if (other.CompareTag("Enemy")) CloseDoor();
     }
 }

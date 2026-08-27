@@ -1,6 +1,5 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Events;
 
 public class TutorialController : MonoBehaviour
 {
@@ -24,20 +23,16 @@ public class TutorialController : MonoBehaviour
 
     private Coroutine _highlightCoroutine;
     public bool IsCameraLocked { get; private set; } = true;
+    private Renderer[] _activeHighlightRenderers;
 
-    private void Awake()
-    {
-        Instance = this;
-    }
+    private void Awake() { Instance = this; }
 
     private void Start()
     {
         IsCameraLocked = true;
 
         if (PlayerController.Instance != null)
-        {
             PlayerController.Instance.SetMovementLock(true);
-        }
 
         if (testObject != null)
         {
@@ -45,27 +40,17 @@ public class TutorialController : MonoBehaviour
             testObject.interactOnlyOnce = false;
         }
 
-        if (testHidingSpot != null)
-        {
-            InteractableItem hideInteractable = testHidingSpot.GetComponent<InteractableItem>();
-            if (hideInteractable != null) hideInteractable.isInteractable = false;
-        }
+        if (testHidingSpot != null) testHidingSpot.isInteractable = false;
 
         SetTargetVisibility(leanTargetPoint, false);
-
         StartCoroutine(TutorialSequence());
     }
 
     private void SetTargetVisibility(Transform target, bool isVisible)
     {
         if (target == null) return;
-
         Renderer[] renderers = target.GetComponentsInChildren<Renderer>();
-        foreach (Renderer r in renderers)
-        {
-            r.enabled = isVisible;
-        }
-
+        foreach (Renderer r in renderers) r.enabled = isVisible;
         Collider col = target.GetComponent<Collider>();
         if (col != null) col.enabled = isVisible;
     }
@@ -75,9 +60,7 @@ public class TutorialController : MonoBehaviour
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
 
         currentStep = TutorialStep.Intro;
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("튜토리얼을 시작합니다. 지시에 따라 행동하십시오.");
-
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("튜토리얼을 시작합니다. 지시에 따라 행동하십시오.");
         yield return null;
 
         currentStep = TutorialStep.Calibration;
@@ -86,17 +69,13 @@ public class TutorialController : MonoBehaviour
             VisionTrackingManager.Instance.StartCalibration();
             yield return new WaitUntil(() => VisionTrackingManager.Instance.IsCalibrated);
         }
-        else
-        {
-            yield return new WaitForSeconds(3.0f);
-        }
+        else yield return new WaitForSeconds(3.0f);
 
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
         yield return new WaitForSeconds(0.5f);
 
         currentStep = TutorialStep.ESC;
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("[ESC] 키를 눌러 시스템 메뉴를 열고, 감도를 조절한 뒤 다시 닫으세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("[ESC] 키를 눌러 시스템 메뉴를 열고, 감도를 조절한 뒤 다시 닫으세요.");
 
         bool hasOpenedMenu = false;
         while (currentStep == TutorialStep.ESC)
@@ -110,22 +89,18 @@ public class TutorialController : MonoBehaviour
         }
 
         IsCameraLocked = false;
-
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("고개를 움직여 주변 환경을 자유롭게 둘러보세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("고개를 움직여 주변 환경을 자유롭게 둘러보세요.");
         yield return new WaitForSeconds(3.0f);
-        currentStep = TutorialStep.Movement;
 
+        currentStep = TutorialStep.Movement;
         if (PlayerController.Instance != null) PlayerController.Instance.SetMovementLock(false);
 
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("전방에 빛나는 지점을 바라보고 몸을 기울여 이동하세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("전방에 빛나는 지점을 바라보고 몸을 기울여 이동하세요.");
 
         SetTargetVisibility(leanTargetPoint, true);
-        if (leanTargetPoint != null)
-        {
-            _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(leanTargetPoint));
-        }
+
+        // [복구] 이동 지점 하이라이트 코루틴 실행
+        if (leanTargetPoint != null) _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(leanTargetPoint));
 
         while (currentStep == TutorialStep.Movement)
         {
@@ -137,127 +112,111 @@ public class TutorialController : MonoBehaviour
             yield return null;
         }
         StopHighlight();
-
         SetTargetVisibility(leanTargetPoint, false);
 
         currentStep = TutorialStep.Freeze;
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 상체를 뒤로 젖혀 숨을 참으세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 3초간 상체를 뒤로 젖혀 숨을 참으세요.");
 
+        // [유지] 3초 타이머 로직
+        float freezeTimer = 0f;
         while (currentStep == TutorialStep.Freeze)
         {
             if (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive)
             {
-                currentStep = TutorialStep.Interaction;
+                freezeTimer += Time.deltaTime;
+                if (freezeTimer >= 3.0f)
+                {
+                    currentStep = TutorialStep.Interaction;
+                }
+            }
+            else
+            {
+                freezeTimer = 0f;
             }
             yield return null;
         }
 
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("빛나는 사물을 가만히 응시한 뒤, 손을 뻗어 상호작용하세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("빛나는 사물을 가만히 응시한 뒤, 손을 뻗어 상호작용하세요.");
 
         bool interactionDone = false;
-        UnityAction interactCallback = () => { interactionDone = true; };
+        System.Action interactCallback = () => { interactionDone = true; };
 
         if (testObject != null)
         {
-            testObject.onInteractEvent.RemoveListener(interactCallback);
-            testObject.onInteractEvent.AddListener(interactCallback);
-            testObject.isInteractable = true;
+            testObject.onInteractAction -= interactCallback;
+            testObject.onInteractAction += interactCallback;
+
+            // [병합] 락(Lock)을 푸는 것은 유틸리티로, 빨갛게 빛나는 것은 전용 코루틴으로
+            testObject.EnableInteractionWithLight();
             _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testObject.transform));
         }
 
-        while (!interactionDone)
-        {
-            yield return null;
-        }
+        while (!interactionDone) yield return null;
         StopHighlight();
+
+        if (testObject != null) testObject.onInteractAction -= interactCallback;
         currentStep = TutorialStep.HidingEnter;
 
-        if (testObject != null) testObject.onInteractEvent.RemoveListener(interactCallback);
-
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 발코니에 있는 세탁기 안으로 피신하세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 발코니에 있는 세탁기 안으로 피신하세요.");
 
         bool hidingEntered = false;
-        UnityAction hidingEnterCallback = () => { hidingEntered = true; };
-        InteractableItem hideItem = null;
+        System.Action hidingEnterCallback = () => { hidingEntered = true; };
 
         if (testHidingSpot != null)
         {
-            hideItem = testHidingSpot.GetComponent<InteractableItem>();
-            if (hideItem != null)
-            {
-                hideItem.onInteractEvent.RemoveListener(hidingEnterCallback);
-                hideItem.onInteractEvent.AddListener(hidingEnterCallback);
-                hideItem.isInteractable = true;
-            }
+            testHidingSpot.onInteractAction -= hidingEnterCallback;
+            testHidingSpot.onInteractAction += hidingEnterCallback;
+
+            // [병합] 세탁기 락 해제 및 하이라이트 코루틴 동시 실행
+            testHidingSpot.EnableInteractionWithLight();
             _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testHidingSpot.transform));
         }
 
-        while (!hidingEntered)
-        {
-            yield return null;
-        }
+        while (!hidingEntered) yield return null;
         StopHighlight();
 
-        // 핫픽스: 대사가 나오는 동안 다시 나가는 것을 방지하기 위해 상호작용 잠금
-        if (hideItem != null) hideItem.isInteractable = false;
+        if (testHidingSpot != null) testHidingSpot.isInteractable = false;
 
         currentStep = TutorialStep.HidingGuide;
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("이곳(세탁기, 옷장, 침대 밑, 서재 책상 아래 등)과 같은 장소에 숨을 수 있습니다.");
-
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("이곳(세탁기, 옷장, 침대 밑, 서재 책상 아래 등)과 같은 장소에 숨을 수 있습니다.");
         yield return new WaitForSeconds(3.0f);
 
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("위협이 사라졌습니다. 다시 밖을 응시하고 손을 뻗어 밖으로 나오세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("위협이 사라졌습니다. 다시 밖을 응시하고 손을 뻗어 밖으로 나오세요.");
 
         currentStep = TutorialStep.HidingExit;
         bool hidingExited = false;
-        UnityAction hidingExitCallback = () => { hidingExited = true; };
+        System.Action hidingExitCallback = () => { hidingExited = true; };
 
-        if (hideItem != null)
+        if (testHidingSpot != null)
         {
-            // 핫픽스: 안내 대사가 끝났으므로 다시 상호작용을 활성화하여 나갈 수 있도록 허용
-            hideItem.isInteractable = true;
-            yield return new WaitForSeconds(1.0f);
-            hideItem.onInteractEvent.AddListener(hidingExitCallback);
+            testHidingSpot.isInteractable = true;
+            testHidingSpot.onInteractAction += hidingExitCallback;
         }
-        else
-        {
-            hidingExited = true;
-        }
+        else hidingExited = true;
 
-        while (!hidingExited)
-        {
-            yield return null;
-        }
-        if (hideItem != null) hideItem.onInteractEvent.RemoveListener(hidingExitCallback);
+        while (!hidingExited) yield return null;
+        if (testHidingSpot != null) testHidingSpot.onInteractAction -= hidingExitCallback;
 
         currentStep = TutorialStep.Complete;
-
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("튜토리얼이 종료되었습니다. 건투를 빕니다.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("튜토리얼이 종료되었습니다. 건투를 빕니다.");
 
         yield return new WaitForSeconds(3.0f);
-        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
-        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+        if (UIManager.Instance != null) { UIManager.Instance.HideSubtitle(); yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f)); }
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);
     }
 
+    // [복구] Emission 재질을 건드리는 튜토리얼 전용 빨간 점멸 코루틴
     private IEnumerator PulseHighlightRoutine(Transform targetTransform)
     {
         if (targetTransform == null) yield break;
-
-        Renderer[] renderers = targetTransform.GetComponentsInChildren<Renderer>();
-        if (renderers.Length == 0) yield break;
+        _activeHighlightRenderers = targetTransform.GetComponentsInChildren<Renderer>();
+        if (_activeHighlightRenderers.Length == 0) yield break;
 
         MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
         int emissionColorID = Shader.PropertyToID("_EmissionColor");
 
-        foreach (Renderer r in renderers)
+        foreach (Renderer r in _activeHighlightRenderers)
         {
             if (r != null && r.sharedMaterial != null && !r.sharedMaterial.IsKeywordEnabled("_EMISSION"))
             {
@@ -270,7 +229,7 @@ public class TutorialController : MonoBehaviour
             float lerp = Mathf.PingPong(Time.time * highlightPulseSpeed, 1f);
             Color finalColor = Color.Lerp(Color.black, highlightColor, lerp);
 
-            foreach (Renderer r in renderers)
+            foreach (Renderer r in _activeHighlightRenderers)
             {
                 if (r != null)
                 {
@@ -291,11 +250,12 @@ public class TutorialController : MonoBehaviour
             _highlightCoroutine = null;
         }
 
+        if (_activeHighlightRenderers == null) return;
+
         MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
         int emissionColorID = Shader.PropertyToID("_EmissionColor");
 
-        Renderer[] allRenderers = FindObjectsOfType<Renderer>();
-        foreach (Renderer r in allRenderers)
+        foreach (Renderer r in _activeHighlightRenderers)
         {
             if (r != null)
             {
@@ -304,5 +264,6 @@ public class TutorialController : MonoBehaviour
                 r.SetPropertyBlock(propBlock);
             }
         }
+        _activeHighlightRenderers = null;
     }
 }

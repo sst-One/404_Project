@@ -4,6 +4,7 @@ using UnityEngine;
 public class Stage8_11_Controller : MonoBehaviour
 {
     [Header("Stage 8: Encounter References")]
+    public EnemyAI enemyAI; // 스크립트 직접 연결
     public Animator intruderAnimator;
     public Transform phoneDropTarget;
 
@@ -22,26 +23,23 @@ public class Stage8_11_Controller : MonoBehaviour
     public string doorKnockClipName = "SND-057_DoorKnock_OneShot";
 
     private bool hasEncounterTriggered = false;
-    private EnemyAI _enemyAI;
 
     private void Start()
     {
-        _enemyAI = FindObjectOfType<EnemyAI>(true);
-        if (_enemyAI != null)
+        if (enemyAI != null)
         {
             bool isChaseStage = (GameFlowManager.Instance != null &&
                                  GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
                                  GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
-            _enemyAI.gameObject.SetActive(isChaseStage);
-            _enemyAI.isNarrativeMode = false;
-
-            _enemyAI.OnPlayerCaught += HandlePlayerCaught;
+            enemyAI.gameObject.SetActive(isChaseStage);
+            enemyAI.isNarrativeMode = false;
+            enemyAI.OnPlayerCaught += HandlePlayerCaught;
         }
 
         if (PhoneController.Instance != null)
         {
-            PhoneController.Instance.onCallSuccess.RemoveAllListeners();
-            PhoneController.Instance.onCallSuccess.AddListener(OnStage11Completed);
+            PhoneController.Instance.onCallSuccess -= OnStage11Completed;
+            PhoneController.Instance.onCallSuccess += OnStage11Completed;
             PhoneController.Instance.currentState = PhoneState.Idle;
         }
 
@@ -50,7 +48,8 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (_enemyAI != null) _enemyAI.OnPlayerCaught -= HandlePlayerCaught;
+        if (enemyAI != null) enemyAI.OnPlayerCaught -= HandlePlayerCaught;
+        if (PhoneController.Instance != null) PhoneController.Instance.onCallSuccess -= OnStage11Completed;
     }
 
     private IEnumerator InitStageSequence()
@@ -80,7 +79,6 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator EncounterSequence()
     {
-        // 최초 조우 시 칼부림 연출
         if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
 
         yield return new WaitForSeconds(strikeDelay);
@@ -92,7 +90,6 @@ public class Stage8_11_Controller : MonoBehaviour
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
-        // 최초 조우 시에만 핸드폰을 바닥에 떨어뜨림
         if (PhoneController.Instance != null && phoneDropTarget != null)
         {
             PhoneController.Instance.transform.SetParent(null);
@@ -110,7 +107,6 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator CaughtSequence(Transform enemyTransform)
     {
-        // 1. 조작 잠금 및 사운드 점프스케어
         if (PlayerController.Instance != null)
         {
             PlayerController.Instance.SetMovementLock(true);
@@ -122,7 +118,6 @@ public class Stage8_11_Controller : MonoBehaviour
             AudioManager.Instance.PlayGlobal2D(deathJumpscareClip, AudioManager.Instance.sfxMixerGroup);
         }
 
-        // 2. 시야 강제 고정
         Camera cam = Camera.main;
         if (cam != null && enemyTransform != null)
         {
@@ -141,31 +136,21 @@ public class Stage8_11_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.0f);
 
-        // 3. 화면 암전
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
         else yield return new WaitForSeconds(1.5f);
 
-        // ==========================================
-        // 4. 상태 및 위치 초기화 (기획 원안 RULE-018: 폰은 회수된 상태면 유지)
-        // ==========================================
-
         if (playerSpawnPoint != null && PlayerController.Instance != null)
         {
-            CharacterController cc = PlayerController.Instance.GetComponent<CharacterController>();
-            if (cc != null) cc.enabled = false;
-
+            if (PlayerController.Instance.CC != null) PlayerController.Instance.CC.enabled = false;
             PlayerController.Instance.transform.position = playerSpawnPoint.position;
             PlayerController.Instance.transform.rotation = playerSpawnPoint.rotation;
             if (cam != null) cam.transform.localRotation = Quaternion.identity;
-
-            if (cc != null) cc.enabled = true;
+            if (PlayerController.Instance.CC != null) PlayerController.Instance.CC.enabled = true;
         }
 
-        if (_enemyAI != null) _enemyAI.ResetEnemy();
-
+        if (enemyAI != null) enemyAI.ResetEnemy();
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
 
-        // 5. 화면 밝아짐 및 조작 복구
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.5f));
 
         if (PlayerController.Instance != null)

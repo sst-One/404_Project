@@ -1,11 +1,10 @@
+using System;
 using System.Collections;
 using UnityEngine;
-using UnityEngine.Events;
 
 public enum PhoneState { Idle, Dropping, Dropped, Recovered, Calling, Success }
 
-[RequireComponent(typeof(InteractableItem))]
-public class PhoneController : MonoBehaviour
+public class PhoneController : InteractableItem
 {
     public static PhoneController Instance { get; private set; }
 
@@ -24,7 +23,7 @@ public class PhoneController : MonoBehaviour
     public Vector3 leftHandPosition = new Vector3(-1.75f, -0.7f, 2.3f);
     public Vector3 leftHandRotation = new Vector3(15f, 30f, 0f);
 
-    [Header("최적화된 오디오 설정 (단 2개)")]
+    [Header("오디오 설정")]
     public AudioSource sfxSource;
     public AudioSource voiceSource;
 
@@ -36,42 +35,36 @@ public class PhoneController : MonoBehaviour
     public string phonePickupClipName = "SND-051_PhonePickup_OneShot";
     public string phoneFailClipName = "SND-052_PhoneFailBeep_OneShot";
 
-    [Header("성공 이벤트")]
-    public UnityEvent onCallSuccess;
-
+    public event Action onCallSuccess;
     private bool _isInteracting = false;
-    private InteractableItem _interactable;
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+        DontDestroyOnLoad(gameObject);
+
+        // [근본 해결] 휴대폰은 태어날 때(영속성 싱글톤 생성 시점) 무조건 숨겨진 상태로 시작합니다.
+        HidePhone();
     }
 
     private void Start()
     {
-        _interactable = GetComponent<InteractableItem>();
+        interactOnlyOnce = false;
 
-        if (_interactable != null)
-        {
-            _interactable.interactOnlyOnce = false;
-            _interactable.isInteractable = (currentState == PhoneState.Dropped);
-            _interactable.onInteractEvent.RemoveAllListeners();
-            _interactable.onInteractEvent.AddListener(OnPhoneReached);
-        }
-
-        if (currentState == PhoneState.Dropped)
-        {
-            StartVibration();
-            if (phoneUI != null) phoneUI.ShowDefaultScreen();
-        }
-        else
+        // 만약 게임이 시작됐는데 현재 상태가 Idle이 아니라면(비정상 유지 시점) 안전하게 정리
+        if (currentState == PhoneState.Idle)
         {
             HidePhone();
         }
     }
 
-    // [핫픽스] 1인칭 오버레이 카메라(Item_Camera)를 직접 탐색
+    public override void OnInteract()
+    {
+        base.OnInteract();
+        OnPhoneReached();
+    }
+
     private Camera GetItemCamera()
     {
         GameObject itemCamObj = GameObject.Find("Item_Camera");
@@ -80,34 +73,44 @@ public class PhoneController : MonoBehaviour
             Camera cam = itemCamObj.GetComponent<Camera>();
             if (cam != null) return cam;
         }
-        return Camera.main; // 최후의 보루: 못 찾으면 메인 카메라 반환
+        return Camera.main;
     }
 
+    // [자율 통제] 필요할 때만 스스로 나타나서 손에 쥡니다.
     public void ShowPhoneInHand()
     {
         gameObject.SetActive(true);
-        if (_interactable != null) _interactable.isInteractable = false;
+        isInteractable = false;
 
         Camera targetCam = GetItemCamera();
         if (targetCam != null)
         {
-            // 직접 1인칭 카메라의 자식으로 들어감
             transform.SetParent(targetCam.transform);
-
             gameObject.layer = LayerMask.NameToLayer("FP_Item");
             foreach (Transform child in GetComponentsInChildren<Transform>(true))
             {
                 child.gameObject.layer = LayerMask.NameToLayer("FP_Item");
             }
-
-            // 인스펙터에 지정된 고유 로컬 좌표/회전값으로 렌더링 위치 복원
             transform.localPosition = leftHandPosition;
             transform.localRotation = Quaternion.Euler(leftHandRotation);
         }
     }
 
+    // [자율 통제] 필요 없어지면 스스로 완전히 숨습니다.
     public void HidePhone()
     {
+        StopAllCoroutines();
+        if (sfxSource != null)
+        {
+            sfxSource.Stop();
+            sfxSource.loop = false;
+            sfxSource.clip = null;
+        }
+        if (phoneUI != null)
+        {
+            phoneUI.HideAllScreens();
+            phoneUI.TurnOffScreen();
+        }
         gameObject.SetActive(false);
     }
 
@@ -132,8 +135,8 @@ public class PhoneController : MonoBehaviour
         Vector3 startPos = transform.position;
         Quaternion startRot = transform.rotation;
         Quaternion endRot = Quaternion.Euler(dropRotation);
-
         float timer = 0f;
+
         while (timer < dropDuration)
         {
             timer += Time.deltaTime;
@@ -145,7 +148,6 @@ public class PhoneController : MonoBehaviour
 
         transform.position = targetFloorPoint.position;
         transform.rotation = endRot;
-
         currentState = PhoneState.Dropped;
 
         gameObject.layer = LayerMask.NameToLayer("Interactable");
@@ -154,8 +156,7 @@ public class PhoneController : MonoBehaviour
             child.gameObject.layer = LayerMask.NameToLayer("Interactable");
         }
 
-        if (_interactable != null) _interactable.isInteractable = true;
-
+        isInteractable = true;
         StartVibration();
         if (phoneUI != null) phoneUI.ShowDefaultScreen();
     }
@@ -174,7 +175,7 @@ public class PhoneController : MonoBehaviour
         }
     }
 
-    public void OnPhoneReached()
+    private void OnPhoneReached()
     {
         if (GameFlowManager.Instance != null)
         {
@@ -189,7 +190,7 @@ public class PhoneController : MonoBehaviour
     private IEnumerator RecoverRoutine()
     {
         _isInteracting = true;
-        if (_interactable != null) _interactable.isInteractable = false;
+        isInteractable = false;
 
         if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.2f, transform.position);
         yield return new WaitForSeconds(0.1f);
@@ -220,7 +221,6 @@ public class PhoneController : MonoBehaviour
         {
             bool isHiding = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
             bool isFreeze = PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive;
-
             if (isHiding && isFreeze) yield return StartCoroutine(CallRoutine());
             yield return null;
         }

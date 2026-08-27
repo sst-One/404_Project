@@ -6,7 +6,7 @@ public class Stage3_4_Controller : MonoBehaviour
     [Header("References")]
     public InteractableItem elevatorButton;
     public ElevatorDoorController doorController;
-    public GameObject suspiciousMan;
+    public EnemyAI suspiciousMan;
 
     [Header("Item Audio Reference")]
     public AudioSource elevatorAudioSource;
@@ -23,11 +23,11 @@ public class Stage3_4_Controller : MonoBehaviour
     private void Start()
     {
         if (doorController != null) doorController.SetDoorsOpenImmediately();
+
         if (suspiciousMan != null)
         {
-            suspiciousMan.SetActive(false);
-            EnemyAI ai = suspiciousMan.GetComponent<EnemyAI>();
-            if (ai != null) ai.isNarrativeMode = true;
+            suspiciousMan.gameObject.SetActive(false);
+            suspiciousMan.isNarrativeMode = true;
         }
 
         if (elevatorButton != null)
@@ -35,11 +35,17 @@ public class Stage3_4_Controller : MonoBehaviour
             elevatorButton.interactOnlyOnce = false;
             elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
-            elevatorButton.onInteractEvent.RemoveAllListeners();
-            elevatorButton.onInteractEvent.AddListener(OnElevatorButtonPressed);
+
+            elevatorButton.onInteractAction -= OnElevatorButtonPressed;
+            elevatorButton.onInteractAction += OnElevatorButtonPressed;
         }
 
         StartCoroutine(Day2IntroSequence());
+    }
+
+    private void OnDestroy()
+    {
+        if (elevatorButton != null) elevatorButton.onInteractAction -= OnElevatorButtonPressed;
     }
 
     private IEnumerator Day2IntroSequence()
@@ -57,11 +63,7 @@ public class Stage3_4_Controller : MonoBehaviour
             PhoneController.Instance.HidePhone();
         }
 
-        if (elevatorButton != null)
-        {
-            elevatorButton.isInteractable = true;
-            if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = true;
-        }
+        if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
     }
 
     private void OnElevatorButtonPressed()
@@ -72,12 +74,7 @@ public class Stage3_4_Controller : MonoBehaviour
             elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
 
-            // 핫픽스: 버튼을 2번 눌러 이벤트가 완전히 끝났을 때 PulseLight 강제 종료
-            if (buttonPressCount == 2)
-            {
-                PulseLight pulse = elevatorButton.GetComponentInChildren<PulseLight>(true);
-                if (pulse != null) pulse.StopPulse();
-            }
+            // [최적화] PulseLight 수동 소등 코드 삭제 완료 (InteractableItem이 자동 처리함)
         }
 
         if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
@@ -93,46 +90,50 @@ public class Stage3_4_Controller : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
         yield return new WaitForSeconds(3.5f);
 
-        if (elevatorButton != null)
-        {
-            elevatorButton.isInteractable = true;
-            if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = true;
-        }
+        if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
     }
 
     private IEnumerator Stage4_EncounterSequence()
     {
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
 
-        // 타이밍 조절 안내 1: 아래 animationDuration 2.5f 를 줄이면 문이 더 빠르게 닫힙니다.
+        // 1. 문 닫기 (닫히는 데 3초 소요)
         if (doorController != null) { doorController.animationDuration = 3f; doorController.CloseDoors(); }
 
-        // 타이밍 조절 안내 2: 문 닫힘 명령 후 남자가 등장하기 전까지의 대기 시간입니다. (현재 2.0초)
-        yield return new WaitForSeconds(2.0f);
+        // [핵심 핫픽스] 문이 완전히 닫힐 때까지 3초 + 텐션 조성 0.5초 대기 (총 3.5초)
+        yield return new WaitForSeconds(3.5f);
 
+        // 2. 적 모델링을 켜되 아직 애니메이션은 실행하지 않음 (닫힌 문 뒤에 존재)
         if (suspiciousMan != null)
         {
-            suspiciousMan.SetActive(true);
-            Animator enemyAnim = suspiciousMan.GetComponentInChildren<Animator>();
-            if (enemyAnim != null) enemyAnim.SetTrigger("Attack");
+            suspiciousMan.gameObject.SetActive(true);
+        }
+
+        // 3. 문을 열기 시작함
+        if (doorController != null) { doorController.animationDuration = 1.5f; doorController.OpenDoors(); }
+
+        // 문이 살짝(0.15초) 열릴 때까지 아주 짧게 대기
+        yield return new WaitForSeconds(0.15f);
+
+        // 4. 문이 열리는 찰나에 적의 공격(잡기) 애니메이션 실행 및 사운드/셰이크 동시 발생
+        if (suspiciousMan != null)
+        {
+            suspiciousMan.TriggerNarrativeAnimation("Attack");
         }
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(doorGrabClipName, AudioManager.Instance.sfxMixerGroup);
-
-        yield return new WaitForSeconds(0.1f);
-
-        // 타이밍 조절 안내 3: 아래 animationDuration 1.5f 를 줄이면 문이 더 빠르게 열립니다.
-        if (doorController != null) { doorController.animationDuration = 1.5f; doorController.OpenDoors(); }
 
         if (PlayerController.Instance != null)
         {
             PlayerController.Instance.StartCameraShake(0.5f, 0.2f);
         }
 
+        // 5. 공격 애니메이션(잡기)가 끝난 후 자연스럽게 대기 상태로 전환
+        yield return new WaitForSeconds(1.0f);
+
         if (suspiciousMan != null)
         {
-            Animator enemyAnim = suspiciousMan.GetComponentInChildren<Animator>();
-            if (enemyAnim != null) enemyAnim.SetTrigger("Idle");
+            suspiciousMan.TriggerNarrativeAnimation("Idle");
         }
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(suspectVoiceClipName, AudioManager.Instance.voiceMixerGroup);

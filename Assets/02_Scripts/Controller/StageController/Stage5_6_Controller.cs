@@ -10,7 +10,7 @@ public class Stage5_6_Controller : MonoBehaviour
 
     [Header("References")]
     public InteractableItem fuseBox;
-    public InteractableItem clueItem;
+    public InteractableItem clueItem; // 반지 단서 아이템
     public GameObject hallucinationDecals;
 
     [Header("Item Audio Reference")]
@@ -38,17 +38,23 @@ public class Stage5_6_Controller : MonoBehaviour
         {
             fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
-            fuseBox.onInteractEvent.RemoveAllListeners();
-            fuseBox.onInteractEvent.AddListener(OnFuseBoxReached);
+            fuseBox.onInteractAction -= OnFuseBoxReached;
+            fuseBox.onInteractAction += OnFuseBoxReached;
         }
 
         if (clueItem != null)
         {
-            clueItem.onInteractEvent.RemoveAllListeners();
-            clueItem.onInteractEvent.AddListener(OnClueFound);
+            clueItem.onInteractAction -= OnClueFound;
+            clueItem.onInteractAction += OnClueFound;
         }
 
         StartCoroutine(Day3IntroSequence());
+    }
+
+    private void OnDestroy()
+    {
+        if (fuseBox != null) fuseBox.onInteractAction -= OnFuseBoxReached;
+        if (clueItem != null) clueItem.onInteractAction -= OnClueFound;
     }
 
     private IEnumerator Day3IntroSequence()
@@ -65,12 +71,21 @@ public class Stage5_6_Controller : MonoBehaviour
             yield return new WaitForSeconds(5.0f);
             PhoneController.Instance.HidePhone();
         }
+
+        if (clueItem != null) clueItem.EnableInteractionWithLight();
     }
 
     private void OnClueFound()
     {
         if (hasFoundClue || isBlackout) return;
         hasFoundClue = true;
+
+        // [간소화 반영] 전역 플래그 없이 순수하게 단서(반지) 오브젝트만 비활성화 처리
+        if (clueItem != null)
+        {
+            clueItem.gameObject.SetActive(false);
+        }
+
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(clueMonologueClip, AudioManager.Instance.voiceMixerGroup);
         TriggerBlackout();
     }
@@ -82,7 +97,14 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage6_Blackout);
 
+        if (fuseBox != null)
+        {
+            fuseBox.transform.SetParent(null);
+            fuseBox.gameObject.SetActive(true);
+        }
+
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
+
         if (affectAmbientLight) RenderSettings.ambientLight = Color.black;
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
@@ -92,14 +114,13 @@ public class Stage5_6_Controller : MonoBehaviour
             if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
         }
 
-        if (fuseBox != null)
-        {
-            fuseBox.isInteractable = true;
-            if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = true;
+        StartCoroutine(DelayedEnableFuseBox());
+    }
 
-            PulseLight pulse = fuseBox.GetComponentInChildren<PulseLight>(true);
-            if (pulse != null) pulse.StartPulse();
-        }
+    private IEnumerator DelayedEnableFuseBox()
+    {
+        yield return new WaitForSeconds(0.1f);
+        if (fuseBox != null) fuseBox.EnableInteractionWithLight();
     }
 
     private void OnFuseBoxReached()
@@ -111,10 +132,6 @@ public class Stage5_6_Controller : MonoBehaviour
         {
             fuseBox.isInteractable = false;
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
-
-            // 핫픽스: 두꺼비집 상호작용 성공 시 즉시 PulseLight 강제 종료
-            PulseLight pulse = fuseBox.GetComponentInChildren<PulseLight>(true);
-            if (pulse != null) pulse.StopPulse();
         }
 
         StartCoroutine(Stage6_HallucinationSequence());

@@ -74,9 +74,6 @@ public class TutorialController : MonoBehaviour
     {
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
 
-        // ==============================================
-        // 1. 튜토리얼 첫 멘트 즉시 출력 및 캘리브레이션 동시 시작
-        // ==============================================
         currentStep = TutorialStep.Intro;
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("튜토리얼을 시작합니다. 지시에 따라 행동하십시오.");
@@ -97,9 +94,6 @@ public class TutorialController : MonoBehaviour
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
         yield return new WaitForSeconds(0.5f);
 
-        // ==============================================
-        // 2. ESC 안내
-        // ==============================================
         currentStep = TutorialStep.ESC;
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("[ESC] 키를 눌러 시스템 메뉴를 열고, 감도를 조절한 뒤 다시 닫으세요.");
@@ -122,9 +116,6 @@ public class TutorialController : MonoBehaviour
         yield return new WaitForSeconds(3.0f);
         currentStep = TutorialStep.Movement;
 
-        // ==============================================
-        // 3. 이동 튜토리얼
-        // ==============================================
         if (PlayerController.Instance != null) PlayerController.Instance.SetMovementLock(false);
 
         if (UIManager.Instance != null)
@@ -162,9 +153,6 @@ public class TutorialController : MonoBehaviour
             yield return null;
         }
 
-        // ==============================================
-        // 4. 상호작용
-        // ==============================================
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("빛나는 사물을 가만히 응시한 뒤, 손을 뻗어 상호작용하세요.");
 
@@ -188,9 +176,6 @@ public class TutorialController : MonoBehaviour
 
         if (testObject != null) testObject.onInteractEvent.RemoveListener(interactCallback);
 
-        // ==============================================
-        // 5. 숨기 (세탁기)
-        // ==============================================
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 발코니에 있는 세탁기 안으로 피신하세요.");
 
@@ -216,18 +201,15 @@ public class TutorialController : MonoBehaviour
         }
         StopHighlight();
 
-        // ==============================================
-        // 6. [신규 내러티브] 은신처 종류 안내 대사 및 3초 대기
-        // ==============================================
+        // 핫픽스: 대사가 나오는 동안 다시 나가는 것을 방지하기 위해 상호작용 잠금
+        if (hideItem != null) hideItem.isInteractable = false;
+
         currentStep = TutorialStep.HidingGuide;
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("이곳(세탁기, 옷장, 침대 밑, 서재 책상 아래 등)과 같은 장소에 숨을 수 있습니다.");
 
         yield return new WaitForSeconds(3.0f);
 
-        // ==============================================
-        // 7. 위협 소멸 안내 및 나오기 준비
-        // ==============================================
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("위협이 사라졌습니다. 다시 밖을 응시하고 손을 뻗어 밖으로 나오세요.");
 
@@ -237,6 +219,8 @@ public class TutorialController : MonoBehaviour
 
         if (hideItem != null)
         {
+            // 핫픽스: 안내 대사가 끝났으므로 다시 상호작용을 활성화하여 나갈 수 있도록 허용
+            hideItem.isInteractable = true;
             yield return new WaitForSeconds(1.0f);
             hideItem.onInteractEvent.AddListener(hidingExitCallback);
         }

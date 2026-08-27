@@ -13,6 +13,8 @@ public class Stage12_13_Controller : MonoBehaviour
 
     [Header("TV Video Reference")]
     public GameObject tvScreenDisplay;
+    // [핫픽스] 캔버스가 꺼져 있어서 영상이 안 나오는 문제를 잡기 위한 부모 캔버스 참조 변수
+    public Canvas tvCanvas;
     public UnityEngine.Video.VideoPlayer tvVideoPlayer;
 
     [Header("Flashback Overlays")]
@@ -46,10 +48,8 @@ public class Stage12_13_Controller : MonoBehaviour
     private IEnumerator InitAndFadeInSequence()
     {
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(5));
-
         yield return new WaitForSeconds(1.0f);
 
-        // 페이드 후 폰 꺼내기 및 수신 대기 상태 유지
         if (PhoneController.Instance != null)
         {
             PhoneController.Instance.ShowPhoneInHand();
@@ -92,8 +92,6 @@ public class Stage12_13_Controller : MonoBehaviour
                 if (interactable.GetComponent<Collider>() != null) interactable.GetComponent<Collider>().enabled = false;
             }
             if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.HideAllScreens();
-
-            // 통화 연결 완료 후 폰 집어넣음
             PhoneController.Instance.HidePhone();
         }
 
@@ -107,6 +105,8 @@ public class Stage12_13_Controller : MonoBehaviour
         yield return new WaitForSeconds(4.0f);
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
+        // [핵심 핫픽스] 영상 플레이 전 캔버스 전체를 강제 활성화합니다.
+        if (tvCanvas != null) tvCanvas.gameObject.SetActive(true);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
         if (tvVideoPlayer != null) tvVideoPlayer.Play();
 

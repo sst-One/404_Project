@@ -45,7 +45,6 @@ public class Stage3_4_Controller : MonoBehaviour
     private IEnumerator Day2IntroSequence()
     {
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(2));
-
         yield return new WaitForSeconds(1.0f);
 
         if (PhoneController.Instance != null)
@@ -54,11 +53,7 @@ public class Stage3_4_Controller : MonoBehaviour
             if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDay2Message();
 
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
-
-            // 5초간 텍스트 확인 대기
             yield return new WaitForSeconds(5.0f);
-
-            // 확인 완료 후 폰 집어넣음
             PhoneController.Instance.HidePhone();
         }
 
@@ -76,6 +71,13 @@ public class Stage3_4_Controller : MonoBehaviour
         {
             elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
+
+            // 핫픽스: 버튼을 2번 눌러 이벤트가 완전히 끝났을 때 PulseLight 강제 종료
+            if (buttonPressCount == 2)
+            {
+                PulseLight pulse = elevatorButton.GetComponentInChildren<PulseLight>(true);
+                if (pulse != null) pulse.StopPulse();
+            }
         }
 
         if (buttonPressCount == 1) StartCoroutine(Stage3_AnomalySequence());
@@ -101,16 +103,38 @@ public class Stage3_4_Controller : MonoBehaviour
     private IEnumerator Stage4_EncounterSequence()
     {
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage4_Man);
-        if (doorController != null) { doorController.animationDuration = 2.5f; doorController.CloseDoors(); }
 
-        yield return new WaitForSeconds(2f);
+        // 타이밍 조절 안내 1: 아래 animationDuration 2.5f 를 줄이면 문이 더 빠르게 닫힙니다.
+        if (doorController != null) { doorController.animationDuration = 3f; doorController.CloseDoors(); }
+
+        // 타이밍 조절 안내 2: 문 닫힘 명령 후 남자가 등장하기 전까지의 대기 시간입니다. (현재 2.0초)
+        yield return new WaitForSeconds(2.0f);
+
+        if (suspiciousMan != null)
+        {
+            suspiciousMan.SetActive(true);
+            Animator enemyAnim = suspiciousMan.GetComponentInChildren<Animator>();
+            if (enemyAnim != null) enemyAnim.SetTrigger("Attack");
+        }
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(doorGrabClipName, AudioManager.Instance.sfxMixerGroup);
-        if (suspiciousMan != null) suspiciousMan.SetActive(true);
 
-        yield return new WaitForSeconds(0.5f);
+        yield return new WaitForSeconds(0.1f);
 
+        // 타이밍 조절 안내 3: 아래 animationDuration 1.5f 를 줄이면 문이 더 빠르게 열립니다.
         if (doorController != null) { doorController.animationDuration = 1.5f; doorController.OpenDoors(); }
+
+        if (PlayerController.Instance != null)
+        {
+            PlayerController.Instance.StartCameraShake(0.5f, 0.2f);
+        }
+
+        if (suspiciousMan != null)
+        {
+            Animator enemyAnim = suspiciousMan.GetComponentInChildren<Animator>();
+            if (enemyAnim != null) enemyAnim.SetTrigger("Idle");
+        }
+
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(suspectVoiceClipName, AudioManager.Instance.voiceMixerGroup);
 
         if (UIManager.Instance != null)

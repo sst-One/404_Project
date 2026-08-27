@@ -5,11 +5,11 @@ public class Stage8_11_Controller : MonoBehaviour
 {
     [Header("Stage 8: Encounter References")]
     public Animator intruderAnimator;
-
-    // [핫픽스] public PhoneController phoneController; 변수 삭제 (인스펙터 종속성 해제)
-
-    [Tooltip("폰이 미끄러져 멈출 바닥의 목표 위치")]
     public Transform phoneDropTarget;
+
+    [Header("Respawn Settings")]
+    public Transform playerSpawnPoint;
+    public string deathJumpscareClip = "SND-011_Hallucination_OneShot";
 
     [Header("Stage 8: Encounter Settings")]
     public float strikeDelay = 0.5f;
@@ -22,20 +22,22 @@ public class Stage8_11_Controller : MonoBehaviour
     public string doorKnockClipName = "SND-057_DoorKnock_OneShot";
 
     private bool hasEncounterTriggered = false;
+    private EnemyAI _enemyAI;
 
     private void Start()
     {
-        EnemyAI enemy = FindObjectOfType<EnemyAI>(true);
-        if (enemy != null)
+        _enemyAI = FindObjectOfType<EnemyAI>(true);
+        if (_enemyAI != null)
         {
             bool isChaseStage = (GameFlowManager.Instance != null &&
                                  GameFlowManager.Instance.currentStage >= GameStage.Stage8_Intruder &&
                                  GameFlowManager.Instance.currentStage <= GameStage.Stage11_Call);
-            enemy.gameObject.SetActive(isChaseStage);
-            enemy.isNarrativeMode = false;
+            _enemyAI.gameObject.SetActive(isChaseStage);
+            _enemyAI.isNarrativeMode = false;
+
+            _enemyAI.OnPlayerCaught += HandlePlayerCaught;
         }
 
-        // [핫픽스] 인스펙터 변수 대신 싱글톤 인스턴스에 다이렉트 이벤트 리스너 부착
         if (PhoneController.Instance != null)
         {
             PhoneController.Instance.onCallSuccess.RemoveAllListeners();
@@ -46,29 +48,27 @@ public class Stage8_11_Controller : MonoBehaviour
         StartCoroutine(InitStageSequence());
     }
 
+    private void OnDestroy()
+    {
+        if (_enemyAI != null) _enemyAI.OnPlayerCaught -= HandlePlayerCaught;
+    }
+
     private IEnumerator InitStageSequence()
     {
-        // 씬 시작 시 조용한 앰비언스 재생
         if (AudioManager.Instance != null && !string.IsNullOrEmpty(silentAmbienceClip))
         {
             AudioManager.Instance.PlayGlobal2D(silentAmbienceClip, AudioManager.Instance.sfxMixerGroup);
         }
 
-        // PhoneController의 Start()가 먼저 실행되어 HidePhone()이 작동할 수 있도록 한 프레임 대기
         yield return null;
 
-        // [핫픽스] 플레이어가 아무 영문도 모른 채 기본 폰 화면을 들고 걷도록 강제 세팅
         if (PhoneController.Instance != null)
         {
             PhoneController.Instance.ShowPhoneInHand();
-            if (PhoneController.Instance.phoneUI != null)
-            {
-                PhoneController.Instance.phoneUI.ShowDefaultScreen();
-            }
+            if (PhoneController.Instance.phoneUI != null) PhoneController.Instance.phoneUI.ShowDefaultScreen();
         }
     }
 
-    // 인스펙터 Event Trigger 충돌 시 호출되는 함수
     public void StartEncounterEvent()
     {
         if (!hasEncounterTriggered)
@@ -80,6 +80,7 @@ public class Stage8_11_Controller : MonoBehaviour
 
     private IEnumerator EncounterSequence()
     {
+        // 최초 조우 시 칼부림 연출
         if (intruderAnimator != null) intruderAnimator.SetTrigger("Strike");
 
         yield return new WaitForSeconds(strikeDelay);
@@ -91,7 +92,7 @@ public class Stage8_11_Controller : MonoBehaviour
 
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(3);
 
-        // [핫픽스] 싱글톤을 직접 추적하여 부모 종속을 끊고 바닥으로 던짐
+        // 최초 조우 시에만 핸드폰을 바닥에 떨어뜨림
         if (PhoneController.Instance != null && phoneDropTarget != null)
         {
             PhoneController.Instance.transform.SetParent(null);
@@ -100,6 +101,78 @@ public class Stage8_11_Controller : MonoBehaviour
         }
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage9_Hide);
+    }
+
+    private void HandlePlayerCaught(Transform enemyTransform)
+    {
+        StartCoroutine(CaughtSequence(enemyTransform));
+    }
+
+    private IEnumerator CaughtSequence(Transform enemyTransform)
+    {
+        // 1. 조작 잠금 및 사운드 점프스케어
+        if (PlayerController.Instance != null)
+        {
+            PlayerController.Instance.SetMovementLock(true);
+            PlayerController.Instance.SetCameraLock(true);
+        }
+
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(deathJumpscareClip))
+        {
+            AudioManager.Instance.PlayGlobal2D(deathJumpscareClip, AudioManager.Instance.sfxMixerGroup);
+        }
+
+        // 2. 시야 강제 고정
+        Camera cam = Camera.main;
+        if (cam != null && enemyTransform != null)
+        {
+            Vector3 targetDir = (enemyTransform.position + Vector3.up * 1.5f) - cam.transform.position;
+            Quaternion startRot = cam.transform.rotation;
+            Quaternion targetRot = Quaternion.LookRotation(targetDir);
+
+            float t = 0;
+            while (t < 0.4f)
+            {
+                t += Time.deltaTime;
+                cam.transform.rotation = Quaternion.Slerp(startRot, targetRot, t / 0.4f);
+                yield return null;
+            }
+        }
+
+        yield return new WaitForSeconds(1.0f);
+
+        // 3. 화면 암전
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
+        else yield return new WaitForSeconds(1.5f);
+
+        // ==========================================
+        // 4. 상태 및 위치 초기화 (기획 원안 RULE-018: 폰은 회수된 상태면 유지)
+        // ==========================================
+
+        if (playerSpawnPoint != null && PlayerController.Instance != null)
+        {
+            CharacterController cc = PlayerController.Instance.GetComponent<CharacterController>();
+            if (cc != null) cc.enabled = false;
+
+            PlayerController.Instance.transform.position = playerSpawnPoint.position;
+            PlayerController.Instance.transform.rotation = playerSpawnPoint.rotation;
+            if (cam != null) cam.transform.localRotation = Quaternion.identity;
+
+            if (cc != null) cc.enabled = true;
+        }
+
+        if (_enemyAI != null) _enemyAI.ResetEnemy();
+
+        if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
+
+        // 5. 화면 밝아짐 및 조작 복구
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.5f));
+
+        if (PlayerController.Instance != null)
+        {
+            PlayerController.Instance.SetMovementLock(false);
+            PlayerController.Instance.SetCameraLock(false);
+        }
     }
 
     private void OnStage11Completed()

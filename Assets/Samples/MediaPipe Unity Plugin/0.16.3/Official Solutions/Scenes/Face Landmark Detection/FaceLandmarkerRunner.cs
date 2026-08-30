@@ -27,12 +27,9 @@ namespace Mediapipe.Unity.Sample.FaceLandmarkDetection
             var options = config.GetFaceLandmarkerOptions(config.RunningMode == Tasks.Vision.Core.RunningMode.LIVE_STREAM ? OnFaceLandmarkDetectionOutput : null);
             taskApi = FaceLandmarker.CreateFromOptions(options, GpuManager.GpuResources);
 
+            // [핵심 변경점] ImageSource가 들어올 때까지 에러를 뱉지 않고 얌전히 대기
+            yield return new WaitUntil(() => ImageSourceProvider.ImageSource != null);
             var imageSource = ImageSourceProvider.ImageSource;
-            if (imageSource == null)
-            {
-                Debug.LogError("[FaceLandmarkerRunner] ImageSource가 비어있습니다. WebCamBootstrapper 작동을 확인하세요.");
-                yield break;
-            }
 
             yield return imageSource.Play();
 
@@ -44,7 +41,6 @@ namespace Mediapipe.Unity.Sample.FaceLandmarkDetection
 
             _textureFramePool = new Experimental.TextureFramePool(imageSource.textureWidth, imageSource.textureHeight, TextureFormat.RGBA32, 10);
 
-            // [TPM 핫픽스: UI 객체가 Null일 때의 예외 방어]
             if (screen != null) screen.Initialize(imageSource);
             if (_faceLandmarkerResultAnnotationController != null) SetupAnnotationController(_faceLandmarkerResultAnnotationController, imageSource);
 

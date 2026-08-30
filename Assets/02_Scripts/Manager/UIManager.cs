@@ -1,7 +1,9 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using UnityEngine.Video;
 using TMPro;
 
 public class UIManager : MonoBehaviour
@@ -23,9 +25,13 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI dayTransitionText;
     public Texture[] dayTextures;
 
+    [Header("ESC Menu: Camera Setup (통합)")]
+    public TMP_Dropdown cameraDropdown;
+
     [Header("ESC Menu: Buttons")]
     public Button btnResume;
     public Button btnQuit;
+    public Button btnRecalibrate; // [추가] 시야 중앙(영점) 재정렬 버튼
 
     [Header("ESC Menu: Sliders & Toggles")]
     public Slider rotationSpeedSlider;
@@ -45,6 +51,7 @@ public class UIManager : MonoBehaviour
     public bool isDayTransitioning { get; private set; } = false;
 
     private FirstPersonCameraLook _cameraLook;
+    private List<VideoPlayer> _pausedVideos = new List<VideoPlayer>();
 
     private WaitForSecondsRealtime _waitQuick;
     private WaitForSecondsRealtime _waitNormal;
@@ -99,7 +106,6 @@ public class UIManager : MonoBehaviour
             TogglePause();
         }
 
-        // [결함 1 픽스] 게임 진행 중일 때 유니티 에디터나 UI 포커스가 커서를 빼앗는 것을 원천 차단
         if (!IsPaused && !IsDialogueActive)
         {
             if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage != GameStage.Title)
@@ -136,16 +142,37 @@ public class UIManager : MonoBehaviour
 
         if (_cameraLook == null) _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
         SyncSlidersToCurrentValues();
+        PopulateCameraDropdown();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        _pausedVideos.Clear();
+        VideoPlayer[] allVideos = FindObjectsOfType<VideoPlayer>();
+        foreach (VideoPlayer vp in allVideos)
+        {
+            if (vp.isPlaying && vp.gameObject.name != "IntroVideo_Player")
+            {
+                vp.Pause();
+                _pausedVideos.Add(vp);
+            }
+        }
     }
 
     public void ResumeGame()
     {
         if (!IsPaused) return;
+
+        if (cameraDropdown != null && cameraDropdown.options.Count > 0)
+        {
+            string selectedName = cameraDropdown.options[cameraDropdown.value].text;
+            if (VisionTrackingManager.Instance != null)
+            {
+                VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
+            }
+        }
 
         SaveCalibrationSettings();
 
@@ -154,6 +181,12 @@ public class UIManager : MonoBehaviour
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
+
+        foreach (VideoPlayer vp in _pausedVideos)
+        {
+            if (vp != null) vp.Play();
+        }
+        _pausedVideos.Clear();
 
         if (UnityEngine.EventSystems.EventSystem.current != null)
         {
@@ -171,10 +204,49 @@ public class UIManager : MonoBehaviour
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
     }
 
+    // [핵심] 시스템 메뉴에서 '중앙 정렬(영점 재설정)' 버튼 클릭 시 동작
+    public void OnClickRecalibrate()
+    {
+        if (VisionTrackingManager.Instance != null)
+        {
+            VisionTrackingManager.Instance.RecalibrateOrigin();
+        }
+
+        ResumeGame(); // 재설정 직후 메뉴를 닫고 게임으로 돌아가 효과 체감
+    }
+
+    private void PopulateCameraDropdown()
+    {
+        if (cameraDropdown == null) return;
+
+        WebCamDevice[] devices = WebCamTexture.devices;
+        cameraDropdown.ClearOptions();
+        List<string> options = new List<string>();
+        int defaultIndex = 0;
+
+        for (int i = 0; i < devices.Length; i++)
+        {
+            options.Add(devices[i].name);
+
+            if (!devices[i].name.Contains("OBS") && !devices[i].name.Contains("Virtual") && defaultIndex == 0)
+            {
+                defaultIndex = i;
+            }
+        }
+
+        if (options.Count > 0)
+        {
+            cameraDropdown.AddOptions(options);
+            cameraDropdown.value = defaultIndex;
+            cameraDropdown.RefreshShownValue();
+        }
+    }
+
     private void InitCalibrationUI()
     {
         if (btnResume != null) { btnResume.onClick.RemoveAllListeners(); btnResume.onClick.AddListener(ResumeGame); }
         if (btnQuit != null) { btnQuit.onClick.RemoveAllListeners(); btnQuit.onClick.AddListener(OnClickQuit); }
+        if (btnRecalibrate != null) { btnRecalibrate.onClick.RemoveAllListeners(); btnRecalibrate.onClick.AddListener(OnClickRecalibrate); }
 
         if (rotationSpeedSlider != null) { rotationSpeedSlider.minValue = 1f; rotationSpeedSlider.maxValue = 20f; }
 

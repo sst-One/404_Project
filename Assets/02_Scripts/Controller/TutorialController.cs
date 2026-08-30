@@ -7,10 +7,10 @@ public class TutorialController : MonoBehaviour
 
     private enum TutorialStep
     {
-        Calibration, Intro, ESC, Rotation, Movement, Freeze, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
+        Intro, ESC, Calibration, Rotation, Movement, Freeze, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
     }
 
-    private TutorialStep currentStep = TutorialStep.Calibration;
+    private TutorialStep currentStep = TutorialStep.Intro;
 
     [Header("Tutorial Targets")]
     public Transform leanTargetPoint;
@@ -61,9 +61,33 @@ public class TutorialController : MonoBehaviour
 
         currentStep = TutorialStep.Intro;
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("튜토리얼을 시작합니다. 지시에 따라 행동하십시오.");
-        yield return null;
+        yield return new WaitForSeconds(3.0f);
+
+        currentStep = TutorialStep.ESC;
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("[ESC] 키를 눌러 시스템 메뉴를 열고, 카메라 선택 및 감도를 조절한 뒤 다시 닫으세요.");
+
+        // [핵심 픽스] 이제부터 카메라 하드웨어 구동을 공식 허용함 (이전에 선택했더라도 여기서 구동됨)
+        if (VisionTrackingManager.Instance != null)
+        {
+            VisionTrackingManager.Instance.allowCameraActivation = true;
+        }
+
+        bool hasOpenedMenu = false;
+        while (currentStep == TutorialStep.ESC)
+        {
+            if (UIManager.Instance != null && UIManager.Instance.systemMenuPanel != null)
+            {
+                if (UIManager.Instance.systemMenuPanel.activeInHierarchy) hasOpenedMenu = true;
+                else if (hasOpenedMenu && !UIManager.Instance.systemMenuPanel.activeInHierarchy) currentStep = TutorialStep.Calibration;
+            }
+            yield return null;
+        }
+
+        yield return new WaitUntil(() => VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.IsCameraReady);
 
         currentStep = TutorialStep.Calibration;
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("정면을 바라보고 바른 자세로 3초간 대기하여 시야 영점을 맞춥니다.");
+
         if (VisionTrackingManager.Instance != null && !VisionTrackingManager.Instance.IsCalibrated)
         {
             VisionTrackingManager.Instance.StartCalibration();
@@ -73,20 +97,6 @@ public class TutorialController : MonoBehaviour
 
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
         yield return new WaitForSeconds(0.5f);
-
-        currentStep = TutorialStep.ESC;
-        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("[ESC] 키를 눌러 시스템 메뉴를 열고, 감도를 조절한 뒤 다시 닫으세요.");
-
-        bool hasOpenedMenu = false;
-        while (currentStep == TutorialStep.ESC)
-        {
-            if (UIManager.Instance != null && UIManager.Instance.systemMenuPanel != null)
-            {
-                if (UIManager.Instance.systemMenuPanel.activeInHierarchy) hasOpenedMenu = true;
-                else if (hasOpenedMenu && !UIManager.Instance.systemMenuPanel.activeInHierarchy) currentStep = TutorialStep.Rotation;
-            }
-            yield return null;
-        }
 
         IsCameraLocked = false;
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("고개를 움직여 주변 환경을 자유롭게 둘러보세요.");
@@ -99,7 +109,6 @@ public class TutorialController : MonoBehaviour
 
         SetTargetVisibility(leanTargetPoint, true);
 
-        // [복구] 이동 지점 하이라이트 코루틴 실행
         if (leanTargetPoint != null) _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(leanTargetPoint));
 
         while (currentStep == TutorialStep.Movement)
@@ -117,7 +126,6 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.Freeze;
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 3초간 상체를 뒤로 젖혀 숨을 참으세요.");
 
-        // [유지] 3초 타이머 로직
         float freezeTimer = 0f;
         while (currentStep == TutorialStep.Freeze)
         {
@@ -146,7 +154,6 @@ public class TutorialController : MonoBehaviour
             testObject.onInteractAction -= interactCallback;
             testObject.onInteractAction += interactCallback;
 
-            // [병합] 락(Lock)을 푸는 것은 유틸리티로, 빨갛게 빛나는 것은 전용 코루틴으로
             testObject.EnableInteractionWithLight();
             _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testObject.transform));
         }
@@ -167,7 +174,6 @@ public class TutorialController : MonoBehaviour
             testHidingSpot.onInteractAction -= hidingEnterCallback;
             testHidingSpot.onInteractAction += hidingEnterCallback;
 
-            // [병합] 세탁기 락 해제 및 하이라이트 코루틴 동시 실행
             testHidingSpot.EnableInteractionWithLight();
             _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testHidingSpot.transform));
         }
@@ -206,7 +212,6 @@ public class TutorialController : MonoBehaviour
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);
     }
 
-    // [복구] Emission 재질을 건드리는 튜토리얼 전용 빨간 점멸 코루틴
     private IEnumerator PulseHighlightRoutine(Transform targetTransform)
     {
         if (targetTransform == null) yield break;

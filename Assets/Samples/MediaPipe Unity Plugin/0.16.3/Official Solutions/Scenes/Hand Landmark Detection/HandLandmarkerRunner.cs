@@ -26,12 +26,9 @@ namespace Mediapipe.Unity.Sample.HandLandmarkDetection
             var options = config.GetHandLandmarkerOptions(config.RunningMode == Tasks.Vision.Core.RunningMode.LIVE_STREAM ? OnHandLandmarkDetectionOutput : null);
             taskApi = HandLandmarker.CreateFromOptions(options, GpuManager.GpuResources);
 
+            // [핵심 변경점] ImageSource가 들어올 때까지 대기
+            yield return new WaitUntil(() => ImageSourceProvider.ImageSource != null);
             var imageSource = ImageSourceProvider.ImageSource;
-            if (imageSource == null)
-            {
-                Debug.LogError("[HandLandmarkerRunner] ImageSource가 비어있습니다. WebCamBootstrapper가 실행되었는지 확인하세요.");
-                yield break;
-            }
 
             yield return imageSource.Play();
 
@@ -43,7 +40,6 @@ namespace Mediapipe.Unity.Sample.HandLandmarkDetection
 
             _textureFramePool = new Experimental.TextureFramePool(imageSource.textureWidth, imageSource.textureHeight, TextureFormat.RGBA32, 10);
 
-            // [TPM 핫픽스: Screen 및 UI가 None일 때의 Null 예외 완벽 방어]
             if (screen != null) screen.Initialize(imageSource);
             if (_handLandmarkerResultAnnotationController != null) SetupAnnotationController(_handLandmarkerResultAnnotationController, imageSource);
 

@@ -25,13 +25,13 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI dayTransitionText;
     public Texture[] dayTextures;
 
-    [Header("ESC Menu: Camera Setup (통합)")]
+    [Header("ESC Menu: Camera Setup")]
     public TMP_Dropdown cameraDropdown;
 
     [Header("ESC Menu: Buttons")]
     public Button btnResume;
     public Button btnQuit;
-    public Button btnRecalibrate; // [추가] 시야 중앙(영점) 재정렬 버튼
+    public Button btnRecalibrate;
 
     [Header("ESC Menu: Sliders & Toggles")]
     public Slider rotationSpeedSlider;
@@ -142,6 +142,7 @@ public class UIManager : MonoBehaviour
 
         if (_cameraLook == null) _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
         SyncSlidersToCurrentValues();
+
         PopulateCameraDropdown();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
@@ -204,15 +205,13 @@ public class UIManager : MonoBehaviour
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
     }
 
-    // [핵심] 시스템 메뉴에서 '중앙 정렬(영점 재설정)' 버튼 클릭 시 동작
     public void OnClickRecalibrate()
     {
         if (VisionTrackingManager.Instance != null)
         {
             VisionTrackingManager.Instance.RecalibrateOrigin();
         }
-
-        ResumeGame(); // 재설정 직후 메뉴를 닫고 게임으로 돌아가 효과 체감
+        ResumeGame();
     }
 
     private void PopulateCameraDropdown()
@@ -223,10 +222,22 @@ public class UIManager : MonoBehaviour
         cameraDropdown.ClearOptions();
         List<string> options = new List<string>();
         int defaultIndex = 0;
+        int activeIndex = -1;
+
+        string currentSelected = "";
+        if (VisionTrackingManager.Instance != null && !string.IsNullOrEmpty(VisionTrackingManager.Instance.SelectedDeviceName))
+        {
+            currentSelected = VisionTrackingManager.Instance.SelectedDeviceName;
+        }
 
         for (int i = 0; i < devices.Length; i++)
         {
             options.Add(devices[i].name);
+
+            if (devices[i].name == currentSelected)
+            {
+                activeIndex = i;
+            }
 
             if (!devices[i].name.Contains("OBS") && !devices[i].name.Contains("Virtual") && defaultIndex == 0)
             {
@@ -237,7 +248,16 @@ public class UIManager : MonoBehaviour
         if (options.Count > 0)
         {
             cameraDropdown.AddOptions(options);
-            cameraDropdown.value = defaultIndex;
+
+            if (activeIndex != -1)
+            {
+                cameraDropdown.value = activeIndex;
+            }
+            else
+            {
+                cameraDropdown.value = defaultIndex;
+            }
+
             cameraDropdown.RefreshShownValue();
         }
     }

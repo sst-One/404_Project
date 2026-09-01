@@ -1,7 +1,9 @@
-using UnityEngine;
-using UnityEngine.InputSystem;
+using Mediapipe.Unity;
+using Mediapipe.Unity.Sample;
 using System;
 using System.Collections;
+using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class VisionTrackingManager : MonoBehaviour
 {
@@ -69,6 +71,36 @@ public class VisionTrackingManager : MonoBehaviour
     public void ReceiveCameraSelection(string deviceName)
     {
         SelectedDeviceName = deviceName;
+        Debug.Log("[VisionTrackingManager] 카메라 변경 요청 수신: " + deviceName);
+
+        var imageSource = ImageSourceProvider.ImageSource;
+        if (imageSource is WebCamSource webCamSource)
+        {
+            // 최신 플러그인 규격에 맞추어 리플렉션 혹은 패키지 내부 프로퍼티 구조 대응
+            // 만약 직접 할당이 불가능한 구조라면 DataSource 설정을 변경하거나 SelectDevice를 호출합니다.
+            try
+            {
+                var field = webCamSource.GetType().GetField("m_DeviceName", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (field != null)
+                {
+                    field.SetValue(webCamSource, SelectedDeviceName);
+                }
+                else
+                {
+                    // 프로퍼티 시도
+                    var prop = webCamSource.GetType().GetProperty("deviceName");
+                    if (prop != null && prop.CanWrite)
+                    {
+                        prop.SetValue(webCamSource, SelectedDeviceName);
+                    }
+                }
+                Debug.Log("[VisionTrackingManager] WebCamSource 디바이스 이름 강제 갱신 완료: " + SelectedDeviceName);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning("[VisionTrackingManager] WebCamSource 디바이스 갱신 중 예외 발생: " + ex.Message);
+            }
+        }
 
         if (!allowCameraActivation)
         {
@@ -153,7 +185,6 @@ public class VisionTrackingManager : MonoBehaviour
                 {
                     currentHandPosition = _rawHandPos;
 
-                    // [결함 픽스] 상호작용 복구 로직: 손이 화면에 처음 들어온 순간을 영점으로 자동 할당
                     if (baselineHandPosition == Vector3.zero && currentHandPosition != Vector3.zero)
                     {
                         baselineHandPosition = currentHandPosition;
@@ -167,7 +198,7 @@ public class VisionTrackingManager : MonoBehaviour
         {
             isTracking = false;
             IsInFallbackMode = true;
-            baselineHandPosition = Vector3.zero; // 손 추적이 끊기면 기준점 리셋 (다시 손을 들 때 새 기준점 확보)
+            baselineHandPosition = Vector3.zero;
         }
     }
 
@@ -189,7 +220,6 @@ public class VisionTrackingManager : MonoBehaviour
         baselineHeadPosition = _rawHeadPos;
         baselineHeadRotation = _rawHeadRot;
 
-        // [결함 픽스] 캘리브레이션 시 손 영점을 0으로 초기화하여, 이후 손을 뻗을 때 정상적으로 새 기준점을 잡도록 유도
         baselineHandPosition = Vector3.zero;
         if (_rawHandPos != Vector3.zero) baselineHandPosition = _rawHandPos;
 
@@ -213,7 +243,7 @@ public class VisionTrackingManager : MonoBehaviour
 
     public bool GetOriginFreezeState()
     {
-        if (!isTracking || !IsCalibrated || baselineHeadPosition == Vector3.zero) return false;
+        if (!isTracking || !IsCalibrated || baselineHandPosition == Vector3.zero) return false;
         return (currentHeadPosition.z - baselineHeadPosition.z) < backwardLeanThreshold;
     }
 }

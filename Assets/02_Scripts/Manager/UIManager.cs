@@ -280,6 +280,21 @@ public class UIManager : MonoBehaviour
         if (reachThresholdSlider != null) reachThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.reachDepthThreshold = v; UpdateSliderTexts(); });
         if (rotationSpeedSlider != null) rotationSpeedSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.headRotationSpeed = v; UpdateSliderTexts(); });
         if (deadzoneSlider != null) deadzoneSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.deadzoneRadius = v; UpdateSliderTexts(); });
+
+        if (cameraDropdown != null)
+        {
+            cameraDropdown.onValueChanged.RemoveAllListeners();
+            cameraDropdown.onValueChanged.AddListener(index => {
+                if (cameraDropdown.options.Count > index)
+                {
+                    string selectedName = cameraDropdown.options[index].text;
+                    if (VisionTrackingManager.Instance != null)
+                    {
+                        VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
+                    }
+                }
+            });
+        }
     }
 
     private void SyncSlidersToCurrentValues()

@@ -19,10 +19,15 @@ public class AudioManager : MonoBehaviour
 
     [Header("글로벌 2D 오디오 소스 (인스펙터 할당 필수)")]
     public AudioSource bgmSource;
-    public AudioSource statusSource; // 심장소리, 이명 등
-    public AudioSource breathSource; // [추가] 플레이어 숨소리 전담
+    public AudioSource statusSource;
+    public AudioSource breathSource;
 
-    private Dictionary<string, AudioClip> clipDictionary = new Dictionary<string, AudioClip>();
+    private Dictionary<string, AudioClip> _clipDictionary = new Dictionary<string, AudioClip>();
+
+    // [완전 최적화] SFX 오디오 소스 오브젝트 풀링 (Instantiate/Destroy 폐기)
+    private Queue<AudioSource> _sfxPool = new Queue<AudioSource>();
+    private List<AudioSource> _activeSfxSources = new List<AudioSource>();
+    private GameObject _poolRoot;
 
     private void Awake()
     {
@@ -36,39 +41,69 @@ public class AudioManager : MonoBehaviour
 
         foreach (AudioClip clip in allAudioClips)
         {
-            if (clip != null && !clipDictionary.ContainsKey(clip.name))
+            if (clip != null && !_clipDictionary.ContainsKey(clip.name))
             {
-                clipDictionary.Add(clip.name, clip);
+                _clipDictionary.Add(clip.name, clip);
             }
         }
-        Debug.Log($"[AudioManager] 총 {clipDictionary.Count}개의 사운드 에셋 인덱싱 완료.");
+
+        // 초기 오브젝트 풀 생성 (15개)
+        _poolRoot = new GameObject("SFX_ObjectPool");
+        _poolRoot.transform.SetParent(this.transform);
+        for (int i = 0; i < 15; i++)
+        {
+            AudioSource src = _poolRoot.AddComponent<AudioSource>();
+            src.playOnAwake = false;
+            src.spatialBlend = 0f;
+            _sfxPool.Enqueue(src);
+        }
+
+        Debug.Log($"[AudioManager] 총 {_clipDictionary.Count}개의 사운드 인덱싱 및 15개의 오브젝트 풀 생성 완료.");
+    }
+
+    private void Update()
+    {
+        // [제로 가비지] 재생이 끝난 소스를 감지하여 풀에 자동 반환
+        for (int i = _activeSfxSources.Count - 1; i >= 0; i--)
+        {
+            if (!_activeSfxSources[i].isPlaying)
+            {
+                _activeSfxSources[i].clip = null;
+                _sfxPool.Enqueue(_activeSfxSources[i]);
+                _activeSfxSources.RemoveAt(i);
+            }
+        }
     }
 
     public AudioClip GetClip(string clipName)
     {
         if (string.IsNullOrEmpty(clipName)) return null;
-        if (clipDictionary.TryGetValue(clipName, out AudioClip clip)) return clip;
+        if (_clipDictionary.TryGetValue(clipName, out AudioClip clip)) return clip;
 
         Debug.LogWarning($"[AudioManager] 사운드 파일을 찾을 수 없습니다: {clipName}");
         return null;
     }
 
-    // 일회성 2D 환경음 생성 후 자동 파괴
     public void PlayGlobal2D(string clipName, AudioMixerGroup mixerGroup = null, float volume = 1f)
     {
         AudioClip clip = GetClip(clipName);
         if (clip == null) return;
 
-        GameObject tempObj = new GameObject("GlobalAudio_" + clipName);
-        AudioSource source = tempObj.AddComponent<AudioSource>();
+        AudioSource source;
+        if (_sfxPool.Count > 0) source = _sfxPool.Dequeue();
+        else
+        {
+            source = _poolRoot.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.spatialBlend = 0f;
+        }
 
         source.clip = clip;
-        source.spatialBlend = 0f;
         source.volume = volume;
         source.outputAudioMixerGroup = mixerGroup ?? sfxMixerGroup;
         source.Play();
 
-        Destroy(tempObj, clip.length + 0.1f);
+        _activeSfxSources.Add(source);
     }
 
     public void PlayBGM(string clipName)
@@ -105,7 +140,6 @@ public class AudioManager : MonoBehaviour
         if (statusSource != null && statusSource.isPlaying) statusSource.Stop();
     }
 
-    // [추가] 플레이어 숨소리 전용 통제
     public void PlayBreathSound(string clipName)
     {
         if (breathSource == null) return;

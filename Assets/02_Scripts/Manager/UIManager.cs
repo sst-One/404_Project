@@ -1,14 +1,16 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using TMPro;
 using UnityEngine.UI;
+using UnityEngine.Video;
+using TMPro;
 
 public class UIManager : MonoBehaviour
 {
     public static UIManager Instance { get; private set; }
 
-    [Header("UI Reference")]
+    [Header("Core UI Panels")]
     public GameObject systemMenuPanel;
     public GameObject subtitlePanel;
     public TextMeshProUGUI subtitleText;
@@ -23,18 +25,47 @@ public class UIManager : MonoBehaviour
     public TextMeshProUGUI dayTransitionText;
     public Texture[] dayTextures;
 
-    public UnityEngine.UI.Button btnResume;
-    public UnityEngine.UI.Button btnQuit;
+    [Header("ESC Menu: Camera Setup")]
+    public TMP_Dropdown cameraDropdown;
+
+    [Header("ESC Menu: Buttons")]
+    public Button btnResume;
+    public Button btnQuit;
+    public Button btnRecalibrate;
+
+    [Header("ESC Menu: Sliders & Toggles")]
+    public Slider rotationSpeedSlider;
+    public Slider leanThresholdSlider;
+    public Slider reachThresholdSlider;
+    public Slider deadzoneSlider;
+    public Toggle invertYawToggle;
+
+    [Header("ESC Menu: Value Texts")]
+    public TextMeshProUGUI rotationValueText;
+    public TextMeshProUGUI leanValueText;
+    public TextMeshProUGUI reachValueText;
+    public TextMeshProUGUI deadzoneValueText;
 
     public bool IsPaused { get; private set; } = false;
     public bool IsDialogueActive { get; set; } = false;
     public bool isDayTransitioning { get; private set; } = false;
+
+    private FirstPersonCameraLook _cameraLook;
+    private List<VideoPlayer> _pausedVideos = new List<VideoPlayer>();
+
+    private WaitForSecondsRealtime _waitQuick;
+    private WaitForSecondsRealtime _waitNormal;
+    private WaitForSecondsRealtime _waitLong;
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        _waitQuick = new WaitForSecondsRealtime(0.1f);
+        _waitNormal = new WaitForSecondsRealtime(0.5f);
+        _waitLong = new WaitForSecondsRealtime(1.5f);
 
         if (globalFadeCanvasGroup != null)
         {
@@ -48,6 +79,8 @@ public class UIManager : MonoBehaviour
 
     private void Start()
     {
+        _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
+
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         if (subtitlePanel != null) subtitlePanel.SetActive(false);
 
@@ -55,28 +88,34 @@ public class UIManager : MonoBehaviour
         AudioListener.pause = false;
         IsPaused = false;
 
-        if (btnResume != null)
-        {
-            btnResume.onClick.RemoveAllListeners();
-            btnResume.onClick.AddListener(TogglePause);
-        }
-        if (btnQuit != null)
-        {
-            btnQuit.onClick.RemoveAllListeners();
-            btnQuit.onClick.AddListener(OnClickQuit);
-        }
+        InitCalibrationUI();
     }
 
     private void Update()
     {
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
-            if (GameFlowManager.Instance != null &&
-               (GameFlowManager.Instance.currentStage == GameStage.Title || GameFlowManager.Instance.currentStage == GameStage.Tutorial))
+            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
             {
+                if (systemMenuPanel != null && systemMenuPanel.activeInHierarchy)
+                {
+                    ResumeGame();
+                }
                 return;
             }
             TogglePause();
+        }
+
+        if (!IsPaused && !IsDialogueActive)
+        {
+            if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage != GameStage.Title)
+            {
+                if (Cursor.lockState != CursorLockMode.Locked)
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+            }
         }
     }
 
@@ -85,7 +124,6 @@ public class UIManager : MonoBehaviour
         bool isMainMenuActive = TitleController.Instance != null &&
                                 TitleController.Instance.titlePanel != null &&
                                 TitleController.Instance.titlePanel.activeInHierarchy;
-
         return IsPaused || isMainMenuActive;
     }
 
@@ -102,38 +140,200 @@ public class UIManager : MonoBehaviour
         Time.timeScale = 0f;
         AudioListener.pause = true;
 
+        if (_cameraLook == null) _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
+        SyncSlidersToCurrentValues();
+
+        PopulateCameraDropdown();
+
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        _pausedVideos.Clear();
+        VideoPlayer[] allVideos = FindObjectsOfType<VideoPlayer>();
+        foreach (VideoPlayer vp in allVideos)
+        {
+            if (vp.isPlaying && vp.gameObject.name != "IntroVideo_Player")
+            {
+                vp.Pause();
+                _pausedVideos.Add(vp);
+            }
+        }
     }
 
     public void ResumeGame()
     {
         if (!IsPaused) return;
-        if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
-        StartCoroutine(ResumeRoutine());
-    }
 
-    private IEnumerator ResumeRoutine()
-    {
-        yield return new WaitForSecondsRealtime(0.1f);
+        if (cameraDropdown != null && cameraDropdown.options.Count > 0)
+        {
+            string selectedName = cameraDropdown.options[cameraDropdown.value].text;
+            if (VisionTrackingManager.Instance != null)
+            {
+                VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
+            }
+        }
+
+        SaveCalibrationSettings();
+
+        if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
+
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        foreach (VideoPlayer vp in _pausedVideos)
+        {
+            if (vp != null) vp.Play();
+        }
+        _pausedVideos.Clear();
+
+        if (UnityEngine.EventSystems.EventSystem.current != null)
+        {
+            UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(null);
+        }
     }
 
-    public void OnClickResume() { ResumeGame(); }
     public void OnClickQuit()
     {
+        SaveCalibrationSettings();
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         Time.timeScale = 1f;
         AudioListener.pause = false;
         IsPaused = false;
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
+    }
+
+    public void OnClickRecalibrate()
+    {
+        if (VisionTrackingManager.Instance != null)
+        {
+            VisionTrackingManager.Instance.RecalibrateOrigin();
+        }
+        ResumeGame();
+    }
+
+    private void PopulateCameraDropdown()
+    {
+        if (cameraDropdown == null) return;
+
+        WebCamDevice[] devices = WebCamTexture.devices;
+        cameraDropdown.ClearOptions();
+        List<string> options = new List<string>();
+        int defaultIndex = 0;
+        int activeIndex = -1;
+
+        string currentSelected = "";
+        if (VisionTrackingManager.Instance != null && !string.IsNullOrEmpty(VisionTrackingManager.Instance.SelectedDeviceName))
+        {
+            currentSelected = VisionTrackingManager.Instance.SelectedDeviceName;
+        }
+
+        for (int i = 0; i < devices.Length; i++)
+        {
+            options.Add(devices[i].name);
+
+            if (devices[i].name == currentSelected)
+            {
+                activeIndex = i;
+            }
+
+            if (!devices[i].name.Contains("OBS") && !devices[i].name.Contains("Virtual") && defaultIndex == 0)
+            {
+                defaultIndex = i;
+            }
+        }
+
+        if (options.Count > 0)
+        {
+            cameraDropdown.AddOptions(options);
+
+            if (activeIndex != -1)
+            {
+                cameraDropdown.value = activeIndex;
+            }
+            else
+            {
+                cameraDropdown.value = defaultIndex;
+            }
+
+            cameraDropdown.RefreshShownValue();
+        }
+    }
+
+    private void InitCalibrationUI()
+    {
+        if (btnResume != null) { btnResume.onClick.RemoveAllListeners(); btnResume.onClick.AddListener(ResumeGame); }
+        if (btnQuit != null) { btnQuit.onClick.RemoveAllListeners(); btnQuit.onClick.AddListener(OnClickQuit); }
+        if (btnRecalibrate != null) { btnRecalibrate.onClick.RemoveAllListeners(); btnRecalibrate.onClick.AddListener(OnClickRecalibrate); }
+
+        if (rotationSpeedSlider != null) { rotationSpeedSlider.minValue = 1f; rotationSpeedSlider.maxValue = 20f; }
+
+        if (invertYawToggle != null)
+        {
+            invertYawToggle.isOn = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
+            invertYawToggle.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetInvertYaw(v); });
+        }
+
+        if (leanThresholdSlider != null) leanThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.leanDepthThreshold = v; UpdateSliderTexts(); });
+        if (reachThresholdSlider != null) reachThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.reachDepthThreshold = v; UpdateSliderTexts(); });
+        if (rotationSpeedSlider != null) rotationSpeedSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.headRotationSpeed = v; UpdateSliderTexts(); });
+        if (deadzoneSlider != null) deadzoneSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.deadzoneRadius = v; UpdateSliderTexts(); });
+
+        if (cameraDropdown != null)
+        {
+            cameraDropdown.onValueChanged.RemoveAllListeners();
+            cameraDropdown.onValueChanged.AddListener(index => {
+                if (cameraDropdown.options.Count > index)
+                {
+                    string selectedName = cameraDropdown.options[index].text;
+                    if (VisionTrackingManager.Instance != null)
+                    {
+                        VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
+                    }
+                }
+            });
+        }
+    }
+
+    private void SyncSlidersToCurrentValues()
+    {
+        if (VisionTrackingManager.Instance != null)
+        {
+            if (leanThresholdSlider != null) leanThresholdSlider.value = VisionTrackingManager.Instance.leanDepthThreshold;
+            if (reachThresholdSlider != null) reachThresholdSlider.value = VisionTrackingManager.Instance.reachDepthThreshold;
+        }
+        if (_cameraLook != null)
+        {
+            if (rotationSpeedSlider != null) rotationSpeedSlider.value = _cameraLook.headRotationSpeed;
+            if (deadzoneSlider != null) deadzoneSlider.value = _cameraLook.deadzoneRadius;
+        }
+        UpdateSliderTexts();
+    }
+
+    private void UpdateSliderTexts()
+    {
+        if (leanThresholdSlider != null && leanValueText != null) leanValueText.text = string.Format("이동(기울임) 민감도: {0:F2}", leanThresholdSlider.value);
+        if (reachThresholdSlider != null && reachValueText != null) reachValueText.text = string.Format("조작(손뻗기) 민감도: {0:F2}", reachThresholdSlider.value);
+        if (rotationSpeedSlider != null && rotationValueText != null) rotationValueText.text = string.Format("화면 회전 감도: {0:F0}", rotationSpeedSlider.value);
+        if (deadzoneSlider != null && deadzoneValueText != null) deadzoneValueText.text = string.Format("미세 떨림 무시(데드존): {0:F3}", deadzoneSlider.value);
+    }
+
+    private void SaveCalibrationSettings()
+    {
+        if (VisionTrackingManager.Instance != null)
+        {
+            PlayerPrefs.SetFloat("LeanThreshold", VisionTrackingManager.Instance.leanDepthThreshold);
+            PlayerPrefs.SetFloat("ReachThreshold", VisionTrackingManager.Instance.reachDepthThreshold);
+        }
+        if (_cameraLook != null)
+        {
+            PlayerPrefs.SetFloat("RotationSpeed", _cameraLook.headRotationSpeed);
+            PlayerPrefs.SetFloat("DeadzoneRadius", _cameraLook.deadzoneRadius);
+        }
+        PlayerPrefs.SetInt("IsCalibrated", 1);
+        PlayerPrefs.Save();
     }
 
     public IEnumerator ShowInteractiveSubtitle(string message)
@@ -193,7 +393,6 @@ public class UIManager : MonoBehaviour
 
     public IEnumerator FadeInScreen(float customDuration = -1f)
     {
-        // [핫픽스 3] Day 전환 중일 때는 강제 페이드(밝아짐)를 무시하고 락을 검
         if (isDayTransitioning) yield break;
 
         if (globalFadeCanvasGroup == null) yield break;
@@ -212,17 +411,11 @@ public class UIManager : MonoBehaviour
         globalFadeCanvasGroup.gameObject.SetActive(false);
     }
 
-    // [요구사항 100% 동기화 시퀀스]
     public IEnumerator ShowDayTransition(int day)
     {
         isDayTransitioning = true;
-        if (dayTransitionPanel == null)
-        {
-            isDayTransitioning = false;
-            yield break;
-        }
+        if (dayTransitionPanel == null) { isDayTransitioning = false; yield break; }
 
-        // Day 패널 세팅 및 100% 불투명 처리 (현재 글로벌 블랙 화면에 가려져 보이지 않음)
         dayTransitionPanel.SetActive(true);
         if (dayTransitionText != null) dayTransitionText.text = "Day " + day;
 
@@ -232,19 +425,16 @@ public class UIManager : MonoBehaviour
             dayTransitionImage.gameObject.SetActive(true);
             dayTransitionImage.texture = dayTextures[index];
         }
-        else if (dayTransitionImage != null) dayTransitionImage.gameObject.SetActive(false);
 
         CanvasGroup cg = dayTransitionPanel.GetComponent<CanvasGroup>();
         if (cg == null) cg = dayTransitionPanel.AddComponent<CanvasGroup>();
         cg.alpha = 1f;
 
-        // 1. 이전 씬 종료 후 계속 어두운 상태로 0.5초 대기
-        yield return new WaitForSecondsRealtime(0.5f);
+        yield return _waitNormal;
 
-        // 2. 0.5초 뒤 밝아지면서 (글로벌 페이드 해제) Day 이미지가 보임
         if (globalFadeCanvasGroup != null)
         {
-            float fadeTime = defaultFadeDuration; // 보통 0.4~0.8초
+            float fadeTime = defaultFadeDuration;
             float timer = 0f;
             while (timer < fadeTime)
             {
@@ -257,15 +447,13 @@ public class UIManager : MonoBehaviour
             globalFadeCanvasGroup.gameObject.SetActive(false);
         }
 
-        // 3. 밝아진 상태로 Day 이미지를 약 1.5초 유지하며 감상
-        yield return new WaitForSecondsRealtime(1.5f);
+        yield return _waitLong;
 
-        // 4. 서서히 사라지며 정상 게임 화면으로 복귀
         float hideTimer = 0f;
         while (hideTimer < 1.0f) { hideTimer += Time.unscaledDeltaTime; cg.alpha = 1f - hideTimer; yield return null; }
         cg.alpha = 0f;
 
         dayTransitionPanel.SetActive(false);
-        isDayTransitioning = false; // 락 해제
+        isDayTransitioning = false;
     }
 }

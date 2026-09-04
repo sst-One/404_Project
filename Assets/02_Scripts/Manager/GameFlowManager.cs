@@ -77,7 +77,7 @@ public class GameFlowManager : MonoBehaviour
 
         if (playerRig != null)
         {
-            if (sceneName == "03_Stage2" || sceneName == "05_Stage5_6" ||
+            if (sceneName == "01_Tutorial" || sceneName == "03_Stage2" || sceneName == "05_Stage5_6" ||
                 sceneName == "07_Stage8_11" || sceneName == "08_Stage12_13")
             {
                 playerRig.localScale = new Vector3(0.5f, 0.5f, 0.5f);

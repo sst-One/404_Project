@@ -22,9 +22,11 @@ public class Stage2_Controller : MonoBehaviour
 
         if (tvRemote != null)
         {
-            tvRemote.onInteractEvent.RemoveAllListeners();
-            tvRemote.onInteractEvent.AddListener(OnTvReachAction);
+            tvRemote.onInteractAction -= OnTvReachAction;
+            tvRemote.onInteractAction += OnTvReachAction;
         }
+
+        tvRemote.EnableInteractionWithLight();
     }
 
     public void OnTvReachAction()
@@ -34,7 +36,8 @@ public class Stage2_Controller : MonoBehaviour
 
         if (tvRemote != null)
         {
-            tvRemote.enabled = false;
+            // [원리 적용] 스크립트를 강제로 끄는 enabled = false 대신 정규 플래그 사용
+            tvRemote.isInteractable = false;
             if (tvRemote.GetComponent<Collider>() != null)
                 tvRemote.GetComponent<Collider>().enabled = false;
         }
@@ -61,14 +64,14 @@ public class Stage2_Controller : MonoBehaviour
             playDuration = tvNewsSource.clip.length;
         }
 
-        MonoBehaviour cameraLookScript = null;
-        if (PlayerController.Instance != null && PlayerController.Instance.mainCamera != null)
+        FirstPersonCameraLook cameraLookScript = null;
+        if (PlayerController.Instance != null && PlayerController.Instance.CamLook != null)
         {
-            Camera cam = PlayerController.Instance.mainCamera;
-            cameraLookScript = cam.GetComponent("FirstPersonCameraLook") as MonoBehaviour;
-            if (cameraLookScript != null) cameraLookScript.enabled = false;
+            cameraLookScript = PlayerController.Instance.CamLook;
+            cameraLookScript.enabled = false;
 
-            if (tvLookTarget != null)
+            Camera cam = PlayerController.Instance.mainCamera;
+            if (cam != null && tvLookTarget != null)
             {
                 float t = 0f;
                 Quaternion startRot = cam.transform.rotation;
@@ -84,7 +87,6 @@ public class Stage2_Controller : MonoBehaviour
             }
         }
 
-        // [핫픽스 1] 클릭 대기를 없애고 순수 자막 표시 후 타이머 경과 시 삭제
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day1_TVNews);
 
         yield return new WaitForSeconds(Mathf.Max(0f, playDuration - 1.0f));
@@ -96,16 +98,10 @@ public class Stage2_Controller : MonoBehaviour
 
         yield return new WaitForSeconds(1.5f);
 
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(fadeDuration));
-        }
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(fadeDuration));
 
         if (cameraLookScript != null) cameraLookScript.enabled = true;
 
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
-        }
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
     }
 }

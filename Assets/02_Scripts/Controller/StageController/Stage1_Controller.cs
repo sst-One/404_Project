@@ -3,8 +3,9 @@ using UnityEngine;
 
 public class Stage1_Controller : MonoBehaviour
 {
-    private InteractableItem elevatorButton;
-    private ElevatorDoorController doorController;
+    [Header("References")]
+    public ElevatorDoorController doorController;
+    public InteractableItem elevatorButton;
 
     [Header("Item Audio Reference")]
     public AudioSource elevatorAudioSource;
@@ -16,18 +17,12 @@ public class Stage1_Controller : MonoBehaviour
 
     private void Start()
     {
-        doorController = FindObjectOfType<ElevatorDoorController>();
         if (doorController != null) doorController.SetDoorsOpenImmediately();
 
-        GameObject btnObj = GameObject.Find("Item_ElevatorButton");
-        if (btnObj != null)
+        if (elevatorButton != null)
         {
-            elevatorButton = btnObj.GetComponent<InteractableItem>();
-            if (elevatorButton != null)
-            {
-                elevatorButton.onInteractEvent.RemoveAllListeners();
-                elevatorButton.onInteractEvent.AddListener(OnButtonReached);
-            }
+            elevatorButton.onInteractAction -= OnButtonReached;
+            elevatorButton.onInteractAction += OnButtonReached;
         }
 
         StartCoroutine(InitDay1Routine());
@@ -37,20 +32,23 @@ public class Stage1_Controller : MonoBehaviour
     {
         if (UIManager.Instance != null)
         {
-            yield return StartCoroutine(UIManager.Instance.ShowDayTransition(1)); // 인자 단순화
+            yield return StartCoroutine(UIManager.Instance.ShowDayTransition(1));
         }
+
+        if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
     }
 
     private void OnButtonReached()
     {
         if (elevatorButton != null)
         {
-            elevatorButton.enabled = false;
+            elevatorButton.isInteractable = false;
             if (elevatorButton.GetComponent<Collider>() != null) elevatorButton.GetComponent<Collider>().enabled = false;
         }
 
         if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.1f);
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(buttonClickClipName)) AudioManager.Instance.PlayGlobal2D(buttonClickClipName, AudioManager.Instance.sfxMixerGroup);
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(buttonClickClipName))
+            AudioManager.Instance.PlayGlobal2D(buttonClickClipName, AudioManager.Instance.sfxMixerGroup);
 
         StartCoroutine(ElevatorTravelSequence());
     }
@@ -69,7 +67,8 @@ public class Stage1_Controller : MonoBehaviour
         yield return new WaitForSeconds(4.0f);
         if (elevatorAudioSource != null && elevatorAudioSource.isPlaying) elevatorAudioSource.Stop();
 
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(elevatorArriveClipName)) AudioManager.Instance.PlayGlobal2D(elevatorArriveClipName, AudioManager.Instance.sfxMixerGroup);
+        if (AudioManager.Instance != null && !string.IsNullOrEmpty(elevatorArriveClipName))
+            AudioManager.Instance.PlayGlobal2D(elevatorArriveClipName, AudioManager.Instance.sfxMixerGroup);
 
         if (doorController != null) { doorController.animationDuration = 2.5f; doorController.OpenDoors(); }
         yield return new WaitForSeconds(2.5f);

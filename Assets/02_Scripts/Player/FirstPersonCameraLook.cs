@@ -40,7 +40,6 @@ public class FirstPersonCameraLook : MonoBehaviour
         invertYaw = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
     }
 
-    // [핫픽스 2] 외부 요인(은신처)에 의해 카메라 로컬 각도가 강제로 초기화될 때 내부 변수를 동기화하는 기능
     public void SyncToCurrentLocalRotation()
     {
         _baseYaw = playerBody != null ? playerBody.localEulerAngles.y : 0f;
@@ -76,13 +75,10 @@ public class FirstPersonCameraLook : MonoBehaviour
         bool isPaused = UIManager.Instance != null && UIManager.Instance.IsPaused;
         bool isUIBlocking = UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking();
 
-        bool isTutorialBlocking = false;
-        if (TutorialCalibrationUI.Instance != null && TutorialCalibrationUI.Instance.gameObject.activeInHierarchy)
-        {
-            isTutorialBlocking = !TutorialCalibrationUI.Instance.IsInCalibrationTestMode;
-        }
+        if (isPaused || isUIBlocking) return;
 
-        if (isPaused || isUIBlocking || isTutorialBlocking) return;
+        // 중앙 통제소인 PlayerController의 락 상태만 확인하도록 구조 개선
+        if (PlayerController.Instance != null && PlayerController.Instance.IsCameraLocked) return;
 
         float speedMultiplier = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive) ? 0.2f : 1f;
 

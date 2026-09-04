@@ -2,15 +2,14 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
 
-public enum EnemyState { Patrol, Suspect, Investigate, Chase }
+public enum EnemyState { Idle, Patrol, Suspect, Investigate, Chase, Attack }
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyAI : MonoBehaviour
 {
     [Header("Narrative Settings")]
     public bool isNarrativeMode = false;
-
-    public EnemyState currentState = EnemyState.Patrol;
+    public EnemyState currentState = EnemyState.Idle;
     public Transform[] patrolPoints;
 
     [Header("FOV Settings")]
@@ -21,16 +20,17 @@ public class EnemyAI : MonoBehaviour
     public LayerMask obstacleMask;
     public float fovTickRate = 0.2f;
 
-    [Header("Speed Settings (Animation Sync)")]
+    [Header("Speed Settings (Manual Control)")]
     public float patrolSpeed = 0.8f;
     public float investigateSpeed = 1.5f;
-    public float chaseSpeed = 2.5f;
-
-    [Header("Patrol Settings")]
-    public float patrolWaitTime = 2.0f;
+    public float chaseSpeed = 3.0f;
 
     [Header("Detection Settings (SYS-005)")]
     public float criticalDetectionDistance = 1.0f;
+    public float patrolWaitTime = 2.0f;
+    public float catchDistance = 1.2f;
+
+    public event System.Action<Transform> OnPlayerCaught;
 
     private int _currentPatrolIndex;
     private NavMeshAgent _agent;
@@ -54,7 +54,18 @@ public class EnemyAI : MonoBehaviour
     public string bigFootWalkClipName = "";
     public string enemyBreathCloseClipName = "";
 
-    private int _speedHash;
+    private AudioClip _smallFootClip;
+    private AudioClip _bigFootClip;
+    private AudioClip _breathClip;
+
+    // [완전 개조] Idle을 포함한 모든 이동 상태를 Bool 기반 루프로 제어
+    private int _isIdleHash;
+    private int _isWalkHash;
+    private int _isRunHash;
+    private int _isChaseHash;
+    private int _attackHash;
+    private string _currentAnimState = "";
+
     private WaitForSeconds _fovWait;
     private WaitForSeconds _suspectWait;
     private WaitForSeconds _patrolWait;
@@ -65,7 +76,14 @@ public class EnemyAI : MonoBehaviour
         _animator = GetComponentInChildren<Animator>();
         _mainCamera = Camera.main;
 
-        _speedHash = Animator.StringToHash("Speed");
+        if (_agent != null) _agent.enabled = true;
+
+        _isIdleHash = Animator.StringToHash("IsIdle");
+        _isWalkHash = Animator.StringToHash("IsWalk");
+        _isRunHash = Animator.StringToHash("IsRun");
+        _isChaseHash = Animator.StringToHash("IsChase");
+        _attackHash = Animator.StringToHash("Attack");
+
         _fovWait = new WaitForSeconds(fovTickRate);
         _suspectWait = new WaitForSeconds(3f);
         _patrolWait = new WaitForSeconds(patrolWaitTime);
@@ -76,9 +94,15 @@ public class EnemyAI : MonoBehaviour
         if (PlayerController.Instance != null) _playerTransform = PlayerController.Instance.transform;
         else if (_mainCamera != null) _playerTransform = _mainCamera.transform.root;
 
+        if (AudioManager.Instance != null)
+        {
+            _smallFootClip = AudioManager.Instance.GetClip(smallFootWalkClipName);
+            _bigFootClip = AudioManager.Instance.GetClip(bigFootWalkClipName);
+            _breathClip = AudioManager.Instance.GetClip(enemyBreathCloseClipName);
+        }
+
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged += HandleNoiseLevel;
 
-        // [핫픽스 1] 컷신 전용 AI일 경우 여기서 즉시 스크립트 실행을 종료하여 Null 에러 원천 차단
         if (isNarrativeMode) return;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))
@@ -86,7 +110,9 @@ public class EnemyAI : MonoBehaviour
             _agent.Warp(hit.position);
         }
 
+        ChangeState(EnemyState.Patrol);
         MoveToNextPatrolPoint();
+
         _fovCoroutine = StartCoroutine(FOVRoutine());
     }
 
@@ -95,16 +121,56 @@ public class EnemyAI : MonoBehaviour
         if (StateManager.Instance != null) StateManager.Instance.OnNoiseLevelChanged -= HandleNoiseLevel;
     }
 
-    private void Update()
+    public void TriggerNarrativeAnimation(string stateName)
     {
-        if (_animator != null && _agent != null)
+        SetAnimationState(stateName);
+    }
+
+    private void SetAnimationState(string stateName)
+    {
+        if (_animator == null) return;
+
+        // 모든 루프형 애니메이션 Bool을 일단 차단 후 지정된 것만 활성화
+        _animator.SetBool(_isIdleHash, false);
+        _animator.SetBool(_isWalkHash, false);
+        _animator.SetBool(_isRunHash, false);
+        _animator.SetBool(_isChaseHash, false);
+
+        switch (stateName)
         {
-            _animator.SetFloat(_speedHash, _agent.velocity.magnitude);
+            case "Idle":
+                _animator.SetBool(_isIdleHash, true);
+                break;
+            case "Walk":
+                _animator.SetBool(_isWalkHash, true);
+                break;
+            case "Run":
+                _animator.SetBool(_isRunHash, true);
+                break;
+            case "Chase":
+                _animator.SetBool(_isChaseHash, true);
+                break;
+            case "Attack":
+                _animator.SetTrigger(_attackHash);
+                break;
         }
 
-        if (isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
+        _currentAnimState = stateName;
+    }
+
+    private void Update()
+    {
+        if (currentState == EnemyState.Attack || isNarrativeMode || (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()))
         {
-            if (_agent != null && _agent.isOnNavMesh) _agent.isStopped = true;
+            if (_agent != null && _agent.isOnNavMesh && !_agent.isStopped)
+            {
+                _agent.isStopped = true;
+                _agent.velocity = Vector3.zero;
+            }
+            if (currentState != EnemyState.Attack)
+            {
+                ChangeState(EnemyState.Idle);
+            }
             return;
         }
 
@@ -112,9 +178,13 @@ public class EnemyAI : MonoBehaviour
         {
             if (_agent.isOnNavMesh && !_agent.pathPending && _agent.remainingDistance < 0.5f)
             {
-                if (currentState == EnemyState.Investigate) ChangeState(EnemyState.Patrol);
+                if (currentState == EnemyState.Investigate)
+                {
+                    ReturnToNearestWaypoint();
+                    ChangeState(EnemyState.Patrol);
+                }
 
-                if (_patrolWaitCoroutine == null)
+                if (_patrolWaitCoroutine == null && currentState == EnemyState.Patrol)
                 {
                     _patrolWaitCoroutine = StartCoroutine(WaitAtPatrolPointRoutine());
                 }
@@ -122,7 +192,18 @@ public class EnemyAI : MonoBehaviour
         }
         else if (currentState == EnemyState.Chase)
         {
-            if (_playerTransform != null && _agent.isOnNavMesh) _agent.SetDestination(_playerTransform.position);
+            if (_playerTransform != null && _agent.isOnNavMesh)
+            {
+                _agent.isStopped = false;
+                _agent.SetDestination(_playerTransform.position);
+
+                float distSq = (transform.position - _playerTransform.position).sqrMagnitude;
+                if (distSq <= catchDistance * catchDistance)
+                {
+                    TriggerCatchPlayer();
+                    return;
+                }
+            }
         }
 
         bool isChasing = (currentState == EnemyState.Chase);
@@ -137,23 +218,73 @@ public class EnemyAI : MonoBehaviour
         UpdateAudioState(isChasing, isCloseToPlayer);
     }
 
-    private IEnumerator WaitAtPatrolPointRoutine()
+    private void TriggerCatchPlayer()
     {
+        ChangeState(EnemyState.Attack);
         if (_agent.isOnNavMesh)
         {
             _agent.isStopped = true;
-            _agent.speed = 0f;
+            _agent.velocity = Vector3.zero;
         }
 
-        yield return _patrolWait;
+        Vector3 lookDir = (_playerTransform.position - transform.position).normalized;
+        lookDir.y = 0;
+        if (lookDir != Vector3.zero) transform.rotation = Quaternion.LookRotation(lookDir);
 
-        if (currentState == EnemyState.Patrol)
+        OnPlayerCaught?.Invoke(this.transform);
+    }
+
+    public void ResetEnemy()
+    {
+        if (patrolPoints != null && patrolPoints.Length > 0 && patrolPoints[0] != null)
         {
             if (_agent.isOnNavMesh)
             {
+                _agent.Warp(patrolPoints[0].position);
                 _agent.isStopped = false;
-                _agent.speed = patrolSpeed;
             }
+            _currentPatrolIndex = 0;
+        }
+
+        ChangeState(EnemyState.Patrol);
+        MoveToNextPatrolPoint();
+    }
+
+    private void ReturnToNearestWaypoint()
+    {
+        if (patrolPoints == null || patrolPoints.Length == 0) return;
+
+        float minDistance = float.MaxValue;
+        int nearestIndex = 0;
+
+        for (int i = 0; i < patrolPoints.Length; i++)
+        {
+            if (patrolPoints[i] == null) continue;
+            float dist = Vector3.Distance(transform.position, patrolPoints[i].position);
+            if (dist < minDistance)
+            {
+                minDistance = dist;
+                nearestIndex = i;
+            }
+        }
+
+        _currentPatrolIndex = nearestIndex;
+        if (_agent.isOnNavMesh)
+        {
+            _agent.isStopped = false;
+            _agent.SetDestination(patrolPoints[_currentPatrolIndex].position);
+        }
+    }
+
+    private IEnumerator WaitAtPatrolPointRoutine()
+    {
+        ChangeState(EnemyState.Idle);
+
+        yield return _patrolWait;
+
+        if (currentState == EnemyState.Idle)
+        {
+            ChangeState(EnemyState.Patrol);
             MoveToNextPatrolPoint();
         }
         _patrolWaitCoroutine = null;
@@ -163,7 +294,7 @@ public class EnemyAI : MonoBehaviour
     {
         if (currentState == newState) return;
 
-        if (_patrolWaitCoroutine != null)
+        if (_patrolWaitCoroutine != null && newState != EnemyState.Idle && newState != EnemyState.Patrol)
         {
             StopCoroutine(_patrolWaitCoroutine);
             _patrolWaitCoroutine = null;
@@ -174,14 +305,40 @@ public class EnemyAI : MonoBehaviour
 
         currentState = newState;
 
-        if (_agent != null)
+        if (_agent != null && _agent.isOnNavMesh)
         {
             switch (currentState)
             {
-                case EnemyState.Patrol: _agent.speed = patrolSpeed; break;
-                case EnemyState.Investigate: _agent.speed = investigateSpeed; break;
-                case EnemyState.Chase: _agent.speed = chaseSpeed; break;
-                case EnemyState.Suspect: _agent.speed = 0f; break;
+                case EnemyState.Idle:
+                    _agent.isStopped = true;
+                    _agent.speed = 0f;
+                    SetAnimationState("Idle");
+                    break;
+                case EnemyState.Patrol:
+                    _agent.isStopped = false;
+                    _agent.speed = patrolSpeed;
+                    SetAnimationState("Walk");
+                    break;
+                case EnemyState.Investigate:
+                    _agent.isStopped = false;
+                    _agent.speed = investigateSpeed;
+                    SetAnimationState("Run");
+                    break;
+                case EnemyState.Chase:
+                    _agent.isStopped = false;
+                    _agent.speed = chaseSpeed;
+                    SetAnimationState("Chase");
+                    break;
+                case EnemyState.Suspect:
+                    _agent.isStopped = true;
+                    _agent.speed = 0f;
+                    SetAnimationState("Idle");
+                    break;
+                case EnemyState.Attack:
+                    _agent.isStopped = true;
+                    _agent.speed = 0f;
+                    SetAnimationState("Attack");
+                    break;
             }
         }
     }
@@ -197,7 +354,7 @@ public class EnemyAI : MonoBehaviour
 
     private void FindVisibleTargets()
     {
-        if (isNarrativeMode || _mainCamera == null || _playerTransform == null) return;
+        if (isNarrativeMode || _mainCamera == null || _playerTransform == null || currentState == EnemyState.Attack) return;
 
         bool canSeePlayer = false;
         bool isPlayerFreezing = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive);
@@ -229,7 +386,6 @@ public class EnemyAI : MonoBehaviour
             if (currentDistanceToPlayerSq <= criticalDistSq)
             {
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-                if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
                 return;
             }
@@ -240,7 +396,7 @@ public class EnemyAI : MonoBehaviour
                 return;
             }
 
-            if (currentState == EnemyState.Patrol)
+            if (currentState == EnemyState.Patrol || currentState == EnemyState.Idle)
             {
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 _suspectCoroutine = StartCoroutine(SuspectRoutine(_lastKnownPlayerPosition));
@@ -248,7 +404,6 @@ public class EnemyAI : MonoBehaviour
             else if (currentState == EnemyState.Suspect || currentState == EnemyState.Investigate)
             {
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-                if (_agent.isOnNavMesh) _agent.isStopped = false;
                 ChangeState(EnemyState.Chase);
             }
         }
@@ -261,10 +416,10 @@ public class EnemyAI : MonoBehaviour
 
     private void HandleNoiseLevel(NoiseLevel level, Vector3 noisePosition)
     {
-        if (isNarrativeMode || currentState == EnemyState.Chase) return;
+        if (isNarrativeMode || currentState == EnemyState.Chase || currentState == EnemyState.Attack) return;
         if (Time.time - _lastNoiseReactionTime < 3.0f && level != NoiseLevel.Critical) return;
 
-        if (level == NoiseLevel.Mid && currentState == EnemyState.Patrol)
+        if (level == NoiseLevel.Mid && (currentState == EnemyState.Patrol || currentState == EnemyState.Idle))
         {
             _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
@@ -274,7 +429,6 @@ public class EnemyAI : MonoBehaviour
         {
             _lastNoiseReactionTime = Time.time;
             if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
-            if (_agent.isOnNavMesh) _agent.isStopped = false;
 
             if (level == NoiseLevel.Critical)
             {
@@ -292,7 +446,6 @@ public class EnemyAI : MonoBehaviour
     private IEnumerator SuspectRoutine(Vector3 targetPos)
     {
         ChangeState(EnemyState.Suspect);
-        if (_agent.isOnNavMesh) _agent.isStopped = true;
 
         Vector3 lookDir = (targetPos - transform.position).normalized;
         lookDir.y = 0;
@@ -302,19 +455,17 @@ public class EnemyAI : MonoBehaviour
 
         if (currentState == EnemyState.Suspect)
         {
-            if (_agent.isOnNavMesh) _agent.isStopped = false;
+            ReturnToNearestWaypoint();
             ChangeState(EnemyState.Patrol);
-            MoveToNextPatrolPoint();
         }
     }
 
     private void MoveToNextPatrolPoint()
     {
-        // [핫픽스 1] 순찰 배열 방어 코드 완벽 강화
         if (isNarrativeMode || patrolPoints == null || patrolPoints.Length == 0) return;
         if (_currentPatrolIndex >= patrolPoints.Length || patrolPoints[_currentPatrolIndex] == null)
         {
-            _currentPatrolIndex = 0; // 예외 발생 시 0으로 초기화
+            _currentPatrolIndex = 0;
             if (patrolPoints.Length == 0 || patrolPoints[0] == null) return;
         }
 
@@ -328,27 +479,30 @@ public class EnemyAI : MonoBehaviour
 
     private void UpdateAudioState(bool isChasing, bool isCloseToPlayer)
     {
-        if (AudioManager.Instance == null) return;
-
-        string targetClipName = isChasing ? bigFootWalkClipName : smallFootWalkClipName;
-        AudioClip targetFootstep = string.IsNullOrEmpty(targetClipName) ? null : AudioManager.Instance.GetClip(targetClipName);
+        AudioClip targetFootstep = isChasing ? _bigFootClip : _smallFootClip;
 
         if (footstepSource != null && targetFootstep != null)
         {
-            if (footstepSource.clip != targetFootstep)
+            if (currentState == EnemyState.Patrol || currentState == EnemyState.Investigate || currentState == EnemyState.Chase)
             {
-                footstepSource.clip = targetFootstep;
-                footstepSource.Play();
+                if (footstepSource.clip != targetFootstep)
+                {
+                    footstepSource.clip = targetFootstep;
+                    footstepSource.Play();
+                }
+                else if (!footstepSource.isPlaying) footstepSource.Play();
             }
-            else if (!footstepSource.isPlaying) footstepSource.Play();
+            else
+            {
+                if (footstepSource.isPlaying) footstepSource.Stop();
+            }
         }
 
-        AudioClip targetBreath = string.IsNullOrEmpty(enemyBreathCloseClipName) ? null : AudioManager.Instance.GetClip(enemyBreathCloseClipName);
-        if (breathSource != null && targetBreath != null)
+        if (breathSource != null && _breathClip != null)
         {
             if (isCloseToPlayer)
             {
-                if (breathSource.clip != targetBreath) breathSource.clip = targetBreath;
+                if (breathSource.clip != _breathClip) breathSource.clip = _breathClip;
                 if (!breathSource.isPlaying) breathSource.Play();
             }
             else

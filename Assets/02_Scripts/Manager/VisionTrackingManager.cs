@@ -2,7 +2,6 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using System;
 using System.Collections;
-// [핵심 픽스] 플러그인 컴파일 충돌을 막기 위해 Mediapipe 네임스페이스를 완전히 삭제했습니다.
 
 public class VisionTrackingManager : MonoBehaviour
 {
@@ -72,78 +71,7 @@ public class VisionTrackingManager : MonoBehaviour
         SelectedDeviceName = deviceName;
         Debug.Log("[VisionTrackingManager] 카메라 변경 요청 수신: " + deviceName);
 
-        // [핵심 픽스] 타입 제약 없이 씬에 존재하는 "WebCamSource" 스크립트를 블라인드 탐색합니다.
-        MonoBehaviour webCamSource = null;
-        MonoBehaviour[] allScripts = FindObjectsOfType<MonoBehaviour>();
-        foreach (var script in allScripts)
-        {
-            if (script != null && script.GetType().Name == "WebCamSource")
-            {
-                webCamSource = script;
-                break;
-            }
-        }
-
-        if (webCamSource != null)
-        {
-            try
-            {
-                // 1. 기존에 잘못된 이름(OBS 등)으로 돌고 있는 코루틴 멱살 잡고 강제 중지
-                var isPlayingProp = webCamSource.GetType().GetProperty("isPlaying");
-                if (isPlayingProp != null && (bool)isPlayingProp.GetValue(webCamSource))
-                {
-                    var stopMethod = webCamSource.GetType().GetMethod("Stop");
-                    stopMethod?.Invoke(webCamSource, null);
-                    Debug.Log("[VisionTrackingManager] 기존 카메라 코루틴 강제 중단 완료.");
-                }
-
-                // 2. 새로운 기기 이름 주입 (변수 이름 오차까지 완벽 방어)
-                var deviceNameProp = webCamSource.GetType().GetProperty("deviceName");
-                if (deviceNameProp != null && deviceNameProp.CanWrite)
-                {
-                    deviceNameProp.SetValue(webCamSource, SelectedDeviceName);
-                }
-                else
-                {
-                    var field = webCamSource.GetType().GetField("m_DeviceName", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    if (field != null)
-                    {
-                        field.SetValue(webCamSource, SelectedDeviceName);
-                    }
-                }
-                Debug.Log("[VisionTrackingManager] WebCamSource 기기 이름 갱신 완료: " + SelectedDeviceName);
-
-                // 3. 새 카메라 재가동
-                if (allowCameraActivation)
-                {
-                    var playMethod = webCamSource.GetType().GetMethod("Play");
-                    if (playMethod != null)
-                    {
-                        IEnumerator playCoroutine = playMethod.Invoke(webCamSource, null) as IEnumerator;
-                        if (playCoroutine != null)
-                        {
-                            StartCoroutine(playCoroutine);
-                            Debug.Log("[VisionTrackingManager] 새 하드웨어로 카메라 렌즈 가동 성공.");
-                        }
-                    }
-                }
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning("[VisionTrackingManager] WebCamSource 리플렉션 제어 중 예외 발생: " + ex.Message);
-            }
-        }
-        else
-        {
-            Debug.LogWarning("[VisionTrackingManager] 씬에서 WebCamSource 컴포넌트를 찾을 수 없습니다. (에러 아님, 튜토리얼 씬 대기)");
-        }
-
-        if (!allowCameraActivation)
-        {
-            Debug.Log("[VisionTrackingManager] 타이틀 대기 상태이므로 카메라는 켜지 않습니다.");
-            return;
-        }
-
+        // Bootstrapper에게 모든 권한 위임
         IsCameraReady = true;
         OnCameraConfirmed?.Invoke(SelectedDeviceName);
     }

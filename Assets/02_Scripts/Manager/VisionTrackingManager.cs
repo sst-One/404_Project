@@ -1,9 +1,7 @@
-using Mediapipe.Unity;
-using Mediapipe.Unity.Sample;
-using System;
-using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System;
+using System.Collections;
 
 public class VisionTrackingManager : MonoBehaviour
 {
@@ -73,41 +71,7 @@ public class VisionTrackingManager : MonoBehaviour
         SelectedDeviceName = deviceName;
         Debug.Log("[VisionTrackingManager] 카메라 변경 요청 수신: " + deviceName);
 
-        var imageSource = ImageSourceProvider.ImageSource;
-        if (imageSource is WebCamSource webCamSource)
-        {
-            // 최신 플러그인 규격에 맞추어 리플렉션 혹은 패키지 내부 프로퍼티 구조 대응
-            // 만약 직접 할당이 불가능한 구조라면 DataSource 설정을 변경하거나 SelectDevice를 호출합니다.
-            try
-            {
-                var field = webCamSource.GetType().GetField("m_DeviceName", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                if (field != null)
-                {
-                    field.SetValue(webCamSource, SelectedDeviceName);
-                }
-                else
-                {
-                    // 프로퍼티 시도
-                    var prop = webCamSource.GetType().GetProperty("deviceName");
-                    if (prop != null && prop.CanWrite)
-                    {
-                        prop.SetValue(webCamSource, SelectedDeviceName);
-                    }
-                }
-                Debug.Log("[VisionTrackingManager] WebCamSource 디바이스 이름 강제 갱신 완료: " + SelectedDeviceName);
-            }
-            catch (System.Exception ex)
-            {
-                Debug.LogWarning("[VisionTrackingManager] WebCamSource 디바이스 갱신 중 예외 발생: " + ex.Message);
-            }
-        }
-
-        if (!allowCameraActivation)
-        {
-            Debug.Log("[VisionTrackingManager] 타이틀 대기 상태이므로 설정값만 저장하고 카메라는 켜지 않습니다.");
-            return;
-        }
-
+        // Bootstrapper에게 모든 권한 위임
         IsCameraReady = true;
         OnCameraConfirmed?.Invoke(SelectedDeviceName);
     }
@@ -243,7 +207,7 @@ public class VisionTrackingManager : MonoBehaviour
 
     public bool GetOriginFreezeState()
     {
-        if (!isTracking || !IsCalibrated || baselineHandPosition == Vector3.zero) return false;
+        if (!isTracking || !IsCalibrated || baselineHeadPosition == Vector3.zero) return false;
         return (currentHeadPosition.z - baselineHeadPosition.z) < backwardLeanThreshold;
     }
 }

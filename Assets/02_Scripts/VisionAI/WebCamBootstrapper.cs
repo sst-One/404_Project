@@ -30,14 +30,12 @@ public class WebCamBootstrapper : MonoBehaviour
     {
         Debug.Log($"[WebCamBootstrapper] 유저가 선택한 카메라 초기화 시작: {selectedDeviceName}");
 
-        // 1. 기존 카메라 강제 종료 (메모리 해제 및 먹통 데드락 방지 핵심)
         if (ImageSourceProvider.ImageSource != null && ImageSourceProvider.ImageSource.isPlaying)
         {
             ImageSourceProvider.ImageSource.Stop();
             Debug.Log("[WebCamBootstrapper] 기존 카메라 프로세스 종료 완료.");
         }
 
-        // 2. 장치 검색
         WebCamDevice[] devices = WebCamTexture.devices;
         int targetIndex = -1;
 
@@ -56,22 +54,35 @@ public class WebCamBootstrapper : MonoBehaviour
             targetIndex = 0;
         }
 
-        // 3. 기획자님 원본 정답 코드 복구: C# 순수 객체로 WebCamSource 인스턴스화
         var dummyResolutions = new ImageSource.ResolutionStruct[] {
             new ImageSource.ResolutionStruct(1280, 720, 30)
         };
 
         WebCamSource webCamSource = new WebCamSource(1280, dummyResolutions);
-
-        // 플러그인 내부의 강제 OBS 하드코딩을 덮어쓰기 위해 Index 할당
         webCamSource.SelectSource(targetIndex);
 
-        // 4. Provider 갱신
         ImageSourceProvider.ImageSource = webCamSource;
         Debug.Log("[WebCamBootstrapper] MediaPipe ImageSourceProvider에 새 카메라 할당 완료.");
 
-        // 5. 엔진에 플레이 명령 강제 하달 (Mac/Windows 미송출 해결의 핵심)
+        // 렌즈 가동
         yield return ImageSourceProvider.ImageSource.Play();
         Debug.Log("[WebCamBootstrapper] 물리 렌즈 가동 성공!");
+
+        yield return new WaitForSeconds(0.5f); // 텍스처 버퍼 안정화를 위한 미세 대기
+
+        // [핵심 픽스] 잠들어 있는 AI 분석 엔진(Solution)을 찾아 강제로 깨웁니다.
+        var allScripts = FindObjectsOfType<MonoBehaviour>();
+        foreach (var script in allScripts)
+        {
+            if (script.GetType().Name.EndsWith("Solution"))
+            {
+                var playMethod = script.GetType().GetMethod("Play");
+                if (playMethod != null)
+                {
+                    playMethod.Invoke(script, null);
+                    Debug.Log($"[WebCamBootstrapper] AI 분석 엔진({script.GetType().Name}) 가동 완료! 트래킹 시작!");
+                }
+            }
+        }
     }
 }

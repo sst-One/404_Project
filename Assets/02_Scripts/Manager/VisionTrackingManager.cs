@@ -79,7 +79,7 @@ public class VisionTrackingManager : MonoBehaviour
     public void UpdateFaceData(Vector3 gazePos, Vector3 headPos, Vector3 headRot)
     {
         if (!IsCameraReady) return;
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title) return;
+        // [핵심 픽스] Title 상태 데이터 차단벽 삭제 완료
 
         lock (_dataLock)
         {
@@ -93,7 +93,7 @@ public class VisionTrackingManager : MonoBehaviour
     public void UpdateHandData(Vector3 pos)
     {
         if (!IsCameraReady) return;
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title) return;
+        // [핵심 픽스] Title 상태 데이터 차단벽 삭제 완료
 
         lock (_dataLock)
         {
@@ -104,16 +104,8 @@ public class VisionTrackingManager : MonoBehaviour
 
     private void Update()
     {
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage != GameStage.Title)
-        {
-            allowCameraActivation = true;
-        }
-
-        if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
-        {
-            isTracking = false;
-            return;
-        }
+        // [핵심 픽스] Update 내부의 Title 차단벽 삭제 완료
+        allowCameraActivation = true;
 
         if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
         {

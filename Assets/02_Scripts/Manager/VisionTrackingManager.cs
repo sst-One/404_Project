@@ -71,7 +71,6 @@ public class VisionTrackingManager : MonoBehaviour
         SelectedDeviceName = deviceName;
         Debug.Log("[VisionTrackingManager] 카메라 변경 요청 수신: " + deviceName);
 
-        // Bootstrapper에게 모든 권한 위임
         IsCameraReady = true;
         OnCameraConfirmed?.Invoke(SelectedDeviceName);
     }
@@ -79,7 +78,6 @@ public class VisionTrackingManager : MonoBehaviour
     public void UpdateFaceData(Vector3 gazePos, Vector3 headPos, Vector3 headRot)
     {
         if (!IsCameraReady) return;
-        // [핵심 픽스] Title 상태 데이터 차단벽 삭제 완료
 
         lock (_dataLock)
         {
@@ -93,7 +91,6 @@ public class VisionTrackingManager : MonoBehaviour
     public void UpdateHandData(Vector3 pos)
     {
         if (!IsCameraReady) return;
-        // [핵심 픽스] Title 상태 데이터 차단벽 삭제 완료
 
         lock (_dataLock)
         {
@@ -104,7 +101,6 @@ public class VisionTrackingManager : MonoBehaviour
 
     private void Update()
     {
-        // [핵심 픽스] Update 내부의 Title 차단벽 삭제 완료
         allowCameraActivation = true;
 
         if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)

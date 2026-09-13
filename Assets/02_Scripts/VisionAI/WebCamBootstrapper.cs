@@ -1,12 +1,10 @@
+using Mediapipe.Unity;
+using Mediapipe.Unity.Sample;
 using UnityEngine;
 using System.Collections;
 
 public class WebCamBootstrapper : MonoBehaviour
 {
-    [Header("카메라 제어")]
-    [Tooltip("씬에 배치된 진짜 WebCamSource 스크립트를 여기에 끌어다 놓으세요.")]
-    public MonoBehaviour targetWebCamSource;
-
     private void Start()
     {
         if (VisionTrackingManager.Instance != null)
@@ -25,12 +23,6 @@ public class WebCamBootstrapper : MonoBehaviour
 
     private void InitializeCamera(string selectedDeviceName)
     {
-        if (targetWebCamSource == null)
-        {
-            Debug.LogError("[WebCamBootstrapper] 인스펙터에 타겟 카메라(WebCamSource)가 연결되지 않았습니다!");
-            return;
-        }
-
         StartCoroutine(SwitchCameraRoutine(selectedDeviceName));
     }
 
@@ -38,16 +30,14 @@ public class WebCamBootstrapper : MonoBehaviour
     {
         Debug.Log($"[WebCamBootstrapper] 유저가 선택한 카메라 초기화 시작: {selectedDeviceName}");
 
-        // 1. 기존에 잘못 물리거나 먹통인 카메라가 있다면 확실하게 죽입니다.
-        var isPlayingProp = targetWebCamSource.GetType().GetProperty("isPlaying");
-        if (isPlayingProp != null && (bool)isPlayingProp.GetValue(targetWebCamSource))
+        // 1. 기존 카메라 강제 종료 (메모리 해제 및 먹통 데드락 방지 핵심)
+        if (ImageSourceProvider.ImageSource != null && ImageSourceProvider.ImageSource.isPlaying)
         {
-            var stopMethod = targetWebCamSource.GetType().GetMethod("Stop");
-            stopMethod?.Invoke(targetWebCamSource, null);
-            yield return new WaitUntil(() => !(bool)isPlayingProp.GetValue(targetWebCamSource));
+            ImageSourceProvider.ImageSource.Stop();
             Debug.Log("[WebCamBootstrapper] 기존 카메라 프로세스 종료 완료.");
         }
 
+        // 2. 장치 검색
         WebCamDevice[] devices = WebCamTexture.devices;
         int targetIndex = -1;
 
@@ -62,28 +52,26 @@ public class WebCamBootstrapper : MonoBehaviour
 
         if (targetIndex == -1)
         {
-            Debug.LogError($"[WebCamBootstrapper] 기기를 찾을 수 없어 0번 인덱스로 Fallback합니다.");
+            Debug.LogWarning($"[WebCamBootstrapper] 기기를 찾을 수 없어 0번 인덱스로 Fallback합니다.");
             targetIndex = 0;
         }
 
-        // 2. 타겟 컴포넌트에 새 기기 번호(Index)를 주입합니다.
-        var selectSourceMethod = targetWebCamSource.GetType().GetMethod("SelectSource");
-        if (selectSourceMethod != null)
-        {
-            selectSourceMethod.Invoke(targetWebCamSource, new object[] { targetIndex });
-            Debug.Log("[WebCamBootstrapper] 타겟 카메라 디바이스 인덱스 할당 완료.");
-        }
+        // 3. 기획자님 원본 정답 코드 복구: C# 순수 객체로 WebCamSource 인스턴스화
+        var dummyResolutions = new ImageSource.ResolutionStruct[] {
+            new ImageSource.ResolutionStruct(1280, 720, 30)
+        };
 
-        // 3. 엔진에 플레이 명령 강제 하달
-        var playMethod = targetWebCamSource.GetType().GetMethod("Play");
-        if (playMethod != null)
-        {
-            IEnumerator playCoroutine = playMethod.Invoke(targetWebCamSource, null) as IEnumerator;
-            if (playCoroutine != null)
-            {
-                yield return StartCoroutine(playCoroutine);
-                Debug.Log("[WebCamBootstrapper] 물리 렌즈 가동 성공!");
-            }
-        }
+        WebCamSource webCamSource = new WebCamSource(1280, dummyResolutions);
+
+        // 플러그인 내부의 강제 OBS 하드코딩을 덮어쓰기 위해 Index 할당
+        webCamSource.SelectSource(targetIndex);
+
+        // 4. Provider 갱신
+        ImageSourceProvider.ImageSource = webCamSource;
+        Debug.Log("[WebCamBootstrapper] MediaPipe ImageSourceProvider에 새 카메라 할당 완료.");
+
+        // 5. 엔진에 플레이 명령 강제 하달 (Mac/Windows 미송출 해결의 핵심)
+        yield return ImageSourceProvider.ImageSource.Play();
+        Debug.Log("[WebCamBootstrapper] 물리 렌즈 가동 성공!");
     }
 }

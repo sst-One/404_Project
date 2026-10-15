@@ -12,64 +12,50 @@ public class TitleController : MonoBehaviour
     public GameObject titlePanel;
     public GameObject creditsPanel;
 
-    [Header("도입 영상 세팅 (인스펙터 직접 연결)")]
+    [Header("도입 영상 세팅")]
     public GameObject introVideoPanel;
     public VideoPlayer introVideoPlayer;
-    [Tooltip("S키를 눌러 스킵 문구가 적힌 UI 오브젝트를 연결하세요.")]
-    public GameObject skipPromptUI; // [스킵 픽스] 스킵 안내 UI 슬롯 추가
+    public GameObject skipPromptUI;
 
-    [Header("버튼 할당 (인스펙터 필수)")]
+    [Header("버튼 할당")]
+    [Tooltip("처음부터 시작 버튼")]
     public Button btnStartGame;
+    [Tooltip("저장된 진행 단계부터 이어하기 버튼")]
+    public Button btnContinueGame;
     public Button btnSettings;
     public Button btnCredits;
     public Button btnCloseCredits;
     public Button btnQuitGame;
 
     private Coroutine _transitionCoroutine;
-    private bool _isTransitioning = false;
+    private bool _isTransitioning;
+    private bool _isPlayingIntroVideo;
+    private GameStage _stageAfterIntro = GameStage.Stage1_Elevator;
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        if (btnStartGame != null)
-        {
-            btnStartGame.onClick.RemoveAllListeners();
-            btnStartGame.onClick.AddListener(OnClickStartGame);
-        }
-
-        if (btnSettings != null)
-        {
-            btnSettings.onClick.RemoveAllListeners();
-            btnSettings.onClick.AddListener(OnClickSettings);
-        }
-
-        if (btnCredits != null)
-        {
-            btnCredits.onClick.RemoveAllListeners();
-            btnCredits.onClick.AddListener(OnClickCredits);
-        }
-
-        if (btnCloseCredits != null)
-        {
-            btnCloseCredits.onClick.RemoveAllListeners();
-            btnCloseCredits.onClick.AddListener(OnClickCloseCredits);
-        }
-
-        if (btnQuitGame != null)
-        {
-            btnQuitGame.onClick.RemoveAllListeners();
-            btnQuitGame.onClick.AddListener(OnClickQuitGame);
-        }
+        AddButtonListener(btnStartGame, OnClickStartGame);
+        AddButtonListener(btnContinueGame, OnClickContinueGame);
+        AddButtonListener(btnSettings, OnClickSettings);
+        AddButtonListener(btnCredits, OnClickCredits);
+        AddButtonListener(btnCloseCredits, OnClickCloseCredits);
+        AddButtonListener(btnQuitGame, OnClickQuitGame);
 
         if (titlePanel != null) titlePanel.SetActive(false);
         if (creditsPanel != null) creditsPanel.SetActive(false);
-
-        // 초기화 시 영상 패널 끄기 및 자동 재생 정지
         if (introVideoPanel != null) introVideoPanel.SetActive(false);
         if (introVideoPlayer != null) introVideoPlayer.Stop();
         if (skipPromptUI != null) skipPromptUI.SetActive(false);
+    }
+
+    private void AddButtonListener(Button button, UnityEngine.Events.UnityAction action)
+    {
+        if (button == null) return;
+        button.onClick.RemoveAllListeners();
+        button.onClick.AddListener(action);
     }
 
     private void Start()
@@ -77,21 +63,14 @@ public class TitleController : MonoBehaviour
         if (GameFlowManager.Instance != null && GameFlowManager.Instance.currentStage == GameStage.Title)
         {
             ShowMainMenu();
-
-            if (UIManager.Instance != null)
-            {
-                StartCoroutine(UIManager.Instance.FadeInScreen());
-            }
+            if (UIManager.Instance != null) StartCoroutine(UIManager.Instance.FadeInScreen());
         }
     }
 
     private void Update()
     {
-        // [스킵 픽스] 영상 재생(트랜지션) 중일 때 S키를 누르면 강제 스킵 발동
-        if (_isTransitioning && Keyboard.current != null && Keyboard.current.sKey.wasPressedThisFrame)
-        {
+        if (_isPlayingIntroVideo && Keyboard.current != null && Keyboard.current.sKey.wasPressedThisFrame)
             SkipIntroSequence();
-        }
     }
 
     public void ShowMainMenu()
@@ -99,7 +78,10 @@ public class TitleController : MonoBehaviour
         if (titlePanel != null) titlePanel.SetActive(true);
         if (creditsPanel != null) creditsPanel.SetActive(false);
         if (btnStartGame != null) btnStartGame.interactable = true;
+        if (btnContinueGame != null)
+            btnContinueGame.interactable = GameFlowManager.Instance != null && GameFlowManager.Instance.HasSavedGame();
 
+        if (UIManager.Instance != null) UIManager.Instance.ResetTransientUI();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
     }
@@ -111,103 +93,117 @@ public class TitleController : MonoBehaviour
 
     private void OnClickStartGame()
     {
+        if (_isTransitioning) return;
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.ResetSavedGameProgress();
         if (btnStartGame != null) btnStartGame.interactable = false;
-
+        if (btnContinueGame != null) btnContinueGame.interactable = false;
         Cursor.lockState = CursorLockMode.Confined;
         Cursor.visible = false;
-
         _isTransitioning = true;
-        _transitionCoroutine = StartCoroutine(StartGameTransitionRoutine());
+        _transitionCoroutine = StartCoroutine(StartTutorialRoutine());
     }
 
-    private IEnumerator StartGameTransitionRoutine()
+    private IEnumerator StartTutorialRoutine()
     {
-        // 1. 메인 메뉴가 켜져 있는 상태에서 페이드 아웃 (자연스러운 블랙 스크린 전환)
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
-        }
-
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.0f));
         HideMainMenu();
+        if (UIManager.Instance != null) UIManager.Instance.ResetTransientUI();
+        _isTransitioning = false;
 
-        // 2. 도입 영상 시퀀스
+        // 처음부터 시작은 오프닝 영상이 아니라 튜토리얼부터 진입합니다.
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
+    }
+
+    private void OnClickContinueGame()
+    {
+        if (_isTransitioning || GameFlowManager.Instance == null) return;
+        if (!GameFlowManager.Instance.TryGetSavedGameStage(out GameStage savedStage)) return;
+
+        if (btnStartGame != null) btnStartGame.interactable = false;
+        if (btnContinueGame != null) btnContinueGame.interactable = false;
+        _isTransitioning = true;
+        _transitionCoroutine = StartCoroutine(ContinueGameRoutine(savedStage));
+    }
+
+    private IEnumerator ContinueGameRoutine(GameStage savedStage)
+    {
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1f));
+        HideMainMenu();
+        if (UIManager.Instance != null) UIManager.Instance.ResetTransientUI();
+        _isTransitioning = false;
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(savedStage);
+    }
+
+    /// <summary>튜토리얼 완료 후 호출합니다. 오프닝 영상을 재생한 다음 지정 스테이지로 이동합니다.</summary>
+    public void PlayIntroThenStartStage(GameStage nextStage)
+    {
+        if (_isTransitioning) return;
+        _stageAfterIntro = nextStage;
+        _isTransitioning = true;
+        _transitionCoroutine = StartCoroutine(IntroVideoRoutine());
+    }
+
+    private IEnumerator IntroVideoRoutine()
+    {
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.0f));
+
         if (introVideoPanel != null && introVideoPlayer != null)
         {
             introVideoPanel.SetActive(true);
+            introVideoPlayer.time = 0;
+            _isPlayingIntroVideo = true;
             introVideoPlayer.Play();
-
-            // 버퍼링 방어 후 페이드 인 (영상 노출)
-            yield return new WaitForSeconds(0.2f);
-            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
-
-            // 영상 튕김 방지 대기 후 스킵 안내 UI 노출
-            yield return new WaitForSeconds(1.0f);
+            yield return null;
+            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen(0.8f));
+            yield return new WaitForSecondsRealtime(0.7f);
             if (skipPromptUI != null) skipPromptUI.SetActive(true);
 
-            // 온전한 재생 대기
-            while (introVideoPlayer.isPlaying)
+            // 준비가 완료된 뒤 재생이 시작되지 않는 경우에도 무한 대기를 피합니다.
+            float startWait = 0f;
+            while (!introVideoPlayer.isPlaying && startWait < 10f)
             {
+                startWait += Time.unscaledDeltaTime;
                 yield return null;
             }
+            while (introVideoPlayer.isPlaying) yield return null;
 
             if (skipPromptUI != null) skipPromptUI.SetActive(false);
-
-            // 3. 영상 재생 완료 후 다시 페이드 아웃
-            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.5f));
-
-            introVideoPanel.SetActive(false);
+            _isPlayingIntroVideo = false;
         }
         else
         {
-            yield return new WaitForSecondsRealtime(0.5f);
+            yield return new WaitForSecondsRealtime(0.25f);
         }
 
-        // 4. 블랙 스크린 상태에서 튜토리얼 씬 로드
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.0f));
+        if (introVideoPanel != null) introVideoPanel.SetActive(false);
         _isTransitioning = false;
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
-        }
+        _transitionCoroutine = null;
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(_stageAfterIntro);
     }
 
-    // [스킵 픽스] 스킵 시 강제 호출되는 인터럽트 로직
     private void SkipIntroSequence()
     {
-        Debug.Log("[TitleController] 유저 입력 감지. 도입 영상 스킵 및 튜토리얼 강제 진입.");
-
-        _isTransitioning = false;
-
-        // 돌고 있는 기존 페이드 및 재생 코루틴 사살
-        if (_transitionCoroutine != null)
-        {
-            StopCoroutine(_transitionCoroutine);
-            _transitionCoroutine = null;
-        }
-
-        // 영상 및 스킵 UI 즉시 종료
+        if (!_isPlayingIntroVideo) return;
+        _isPlayingIntroVideo = false;
+        if (_transitionCoroutine != null) StopCoroutine(_transitionCoroutine);
+        _transitionCoroutine = null;
         if (introVideoPlayer != null) introVideoPlayer.Stop();
         if (introVideoPanel != null) introVideoPanel.SetActive(false);
         if (skipPromptUI != null) skipPromptUI.SetActive(false);
+        _isTransitioning = false;
+        StartCoroutine(CompleteIntroAfterSkipRoutine());
+    }
 
-        // 시각적 꼬임 방지: 화면을 즉시 0초 만에 완벽한 암전 상태로 덮어씌움
-        if (UIManager.Instance != null)
-        {
-            StartCoroutine(UIManager.Instance.FadeOutScreen(0f));
-        }
-
-        // 즉시 스테이지 강제 전이
-        if (GameFlowManager.Instance != null)
-        {
-            GameFlowManager.Instance.AdvanceToStage(GameStage.Tutorial);
-        }
+    private IEnumerator CompleteIntroAfterSkipRoutine()
+    {
+        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(0.1f));
+        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(_stageAfterIntro);
     }
 
     private void OnClickSettings()
     {
-        if (UIManager.Instance != null)
-        {
-            UIManager.Instance.TogglePause();
-        }
+        if (UIManager.Instance != null) UIManager.Instance.TogglePause();
     }
 
     private void OnClickCredits()
@@ -225,7 +221,12 @@ public class TitleController : MonoBehaviour
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
-        Application.Quit();    
+        Application.Quit();
 #endif
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 }

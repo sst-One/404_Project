@@ -34,7 +34,11 @@ public class UIManager : MonoBehaviour
     public Button btnRecalibrate;
 
     [Header("ESC Menu: Sliders & Toggles")]
+    // 구버전 씬 호환용. 새 UI에서는 가로/세로 감도 슬라이더를 사용합니다.
     public Slider rotationSpeedSlider;
+    public Slider horizontalSensitivitySlider;
+    public Slider verticalSensitivitySlider;
+    public Slider brightnessSlider;
     public Slider leanThresholdSlider;
     public Slider reachThresholdSlider;
     public Slider deadzoneSlider;
@@ -42,6 +46,9 @@ public class UIManager : MonoBehaviour
 
     [Header("ESC Menu: Value Texts")]
     public TextMeshProUGUI rotationValueText;
+    public TextMeshProUGUI horizontalSensitivityValueText;
+    public TextMeshProUGUI verticalSensitivityValueText;
+    public TextMeshProUGUI brightnessValueText;
     public TextMeshProUGUI leanValueText;
     public TextMeshProUGUI reachValueText;
     public TextMeshProUGUI deadzoneValueText;
@@ -82,7 +89,7 @@ public class UIManager : MonoBehaviour
         _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
-        if (subtitlePanel != null) subtitlePanel.SetActive(false);
+        HideSubtitle();
 
         Time.timeScale = 1f;
         AudioListener.pause = false;
@@ -124,7 +131,10 @@ public class UIManager : MonoBehaviour
         bool isMainMenuActive = TitleController.Instance != null &&
                                 TitleController.Instance.titlePanel != null &&
                                 TitleController.Instance.titlePanel.activeInHierarchy;
-        return IsPaused || isMainMenuActive;
+        bool isIntroVideoActive = TitleController.Instance != null &&
+                                  TitleController.Instance.introVideoPanel != null &&
+                                  TitleController.Instance.introVideoPanel.activeInHierarchy;
+        return IsPaused || isMainMenuActive || isIntroVideoActive;
     }
 
     public void TogglePause()
@@ -197,6 +207,7 @@ public class UIManager : MonoBehaviour
 
     public void OnClickQuit()
     {
+        ResetTransientUI();
         SaveCalibrationSettings();
         if (systemMenuPanel != null) systemMenuPanel.SetActive(false);
         Time.timeScale = 1f;
@@ -268,7 +279,17 @@ public class UIManager : MonoBehaviour
         if (btnQuit != null) { btnQuit.onClick.RemoveAllListeners(); btnQuit.onClick.AddListener(OnClickQuit); }
         if (btnRecalibrate != null) { btnRecalibrate.onClick.RemoveAllListeners(); btnRecalibrate.onClick.AddListener(OnClickRecalibrate); }
 
-        if (rotationSpeedSlider != null) { rotationSpeedSlider.minValue = 1f; rotationSpeedSlider.maxValue = 20f; }
+        bool useSplitSensitivitySliders = horizontalSensitivitySlider != null || verticalSensitivitySlider != null;
+        if (rotationSpeedSlider != null)
+        {
+            rotationSpeedSlider.minValue = 1f;
+            rotationSpeedSlider.maxValue = 8f;
+            if (useSplitSensitivitySliders) rotationSpeedSlider.gameObject.SetActive(false);
+        }
+        if (rotationValueText != null && useSplitSensitivitySliders) rotationValueText.gameObject.SetActive(false);
+        ConfigureSlider(horizontalSensitivitySlider, 0.1f, 8f, 2f);
+        ConfigureSlider(verticalSensitivitySlider, 0.1f, 8f, 2f);
+        ConfigureSlider(brightnessSlider, 0.2f, 1f, 1f);
 
         if (invertYawToggle != null)
         {
@@ -278,7 +299,19 @@ public class UIManager : MonoBehaviour
 
         if (leanThresholdSlider != null) leanThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.leanDepthThreshold = v; UpdateSliderTexts(); });
         if (reachThresholdSlider != null) reachThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.reachDepthThreshold = v; UpdateSliderTexts(); });
-        if (rotationSpeedSlider != null) rotationSpeedSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.headRotationSpeed = v; UpdateSliderTexts(); });
+        if (rotationSpeedSlider != null && horizontalSensitivitySlider == null && verticalSensitivitySlider == null) rotationSpeedSlider.onValueChanged.AddListener(v =>
+        {
+            if (_cameraLook != null)
+            {
+                _cameraLook.headRotationSpeed = v;
+                _cameraLook.SetHorizontalSensitivity(v);
+                _cameraLook.SetVerticalSensitivity(v);
+            }
+            UpdateSliderTexts();
+        });
+        if (horizontalSensitivitySlider != null) horizontalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetHorizontalSensitivity(v); UpdateSliderTexts(); });
+        if (verticalSensitivitySlider != null) verticalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetVerticalSensitivity(v); UpdateSliderTexts(); });
+        if (brightnessSlider != null) brightnessSlider.onValueChanged.AddListener(v => { if (BrightnessManager.Instance != null) BrightnessManager.Instance.SetBrightness(v); UpdateSliderTexts(); });
         if (deadzoneSlider != null) deadzoneSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.deadzoneRadius = v; UpdateSliderTexts(); });
 
         if (cameraDropdown != null)
@@ -307,8 +340,11 @@ public class UIManager : MonoBehaviour
         if (_cameraLook != null)
         {
             if (rotationSpeedSlider != null) rotationSpeedSlider.value = _cameraLook.headRotationSpeed;
+            if (horizontalSensitivitySlider != null) horizontalSensitivitySlider.value = _cameraLook.horizontalSensitivity;
+            if (verticalSensitivitySlider != null) verticalSensitivitySlider.value = _cameraLook.verticalSensitivity;
             if (deadzoneSlider != null) deadzoneSlider.value = _cameraLook.deadzoneRadius;
         }
+        if (brightnessSlider != null && BrightnessManager.Instance != null) brightnessSlider.value = BrightnessManager.Instance.Brightness;
         UpdateSliderTexts();
     }
 
@@ -316,7 +352,10 @@ public class UIManager : MonoBehaviour
     {
         if (leanThresholdSlider != null && leanValueText != null) leanValueText.text = string.Format("이동(기울임) 민감도: {0:F2}", leanThresholdSlider.value);
         if (reachThresholdSlider != null && reachValueText != null) reachValueText.text = string.Format("조작(손뻗기) 민감도: {0:F2}", reachThresholdSlider.value);
-        if (rotationSpeedSlider != null && rotationValueText != null) rotationValueText.text = string.Format("화면 회전 감도: {0:F0}", rotationSpeedSlider.value);
+        if (rotationSpeedSlider != null && rotationValueText != null) rotationValueText.text = string.Format("화면 회전 감도(구버전): {0:F1}", rotationSpeedSlider.value);
+        if (horizontalSensitivitySlider != null && horizontalSensitivityValueText != null) horizontalSensitivityValueText.text = string.Format("좌우 회전 감도: {0:F1}", horizontalSensitivitySlider.value);
+        if (verticalSensitivitySlider != null && verticalSensitivityValueText != null) verticalSensitivityValueText.text = string.Format("상하 회전 감도: {0:F1}", verticalSensitivitySlider.value);
+        if (brightnessSlider != null && brightnessValueText != null) brightnessValueText.text = string.Format("시야 밝기: {0:P0}", brightnessSlider.value);
         if (deadzoneSlider != null && deadzoneValueText != null) deadzoneValueText.text = string.Format("미세 떨림 무시(데드존): {0:F3}", deadzoneSlider.value);
     }
 
@@ -330,10 +369,31 @@ public class UIManager : MonoBehaviour
         if (_cameraLook != null)
         {
             PlayerPrefs.SetFloat("RotationSpeed", _cameraLook.headRotationSpeed);
+            PlayerPrefs.SetFloat("HorizontalSensitivity", _cameraLook.horizontalSensitivity);
+            PlayerPrefs.SetFloat("VerticalSensitivity", _cameraLook.verticalSensitivity);
             PlayerPrefs.SetFloat("DeadzoneRadius", _cameraLook.deadzoneRadius);
         }
+        if (BrightnessManager.Instance != null) PlayerPrefs.SetFloat("PlayerBrightness", BrightnessManager.Instance.Brightness);
         PlayerPrefs.SetInt("IsCalibrated", 1);
         PlayerPrefs.Save();
+    }
+
+    private void ConfigureSlider(Slider slider, float min, float max, float defaultValue)
+    {
+        if (slider == null) return;
+        float previousValue = slider.value;
+        slider.minValue = min;
+        slider.maxValue = max;
+        slider.value = Mathf.Clamp(previousValue <= 0f ? defaultValue : previousValue, min, max);
+    }
+
+    // 타이틀 복귀/새 게임 시작 시 이전 씬의 자막이나 대화 상태가 남지 않도록 정리합니다.
+    public void ResetTransientUI()
+    {
+        HideSubtitle();
+        IsDialogueActive = false;
+        isDayTransitioning = false;
+        if (dayTransitionPanel != null) dayTransitionPanel.SetActive(false);
     }
 
     public IEnumerator ShowInteractiveSubtitle(string message)
@@ -369,9 +429,9 @@ public class UIManager : MonoBehaviour
 
     public void HideSubtitle()
     {
-        if (subtitlePanel == null || subtitleText == null) return;
-        subtitlePanel.SetActive(false);
-        subtitleText.text = "";
+        if (subtitlePanel != null) subtitlePanel.SetActive(false);
+        if (subtitleText != null) subtitleText.text = "";
+        IsDialogueActive = false;
     }
 
     public IEnumerator FadeOutScreen(float customDuration = -1f)

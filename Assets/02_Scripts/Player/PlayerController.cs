@@ -21,7 +21,10 @@ public class PlayerController : MonoBehaviour
     public float readyTimeThreshold = 0.5f;
 
     [Header("Movement Settings")]
+    [Tooltip("앞뒤 이동 속도 (m/s)")]
     public float moveSpeed = 3.0f;
+    [Tooltip("좌우 이동 속도 배율. 0.55는 앞뒤 속도의 55%입니다.")]
+    [Range(0.1f, 1f)] public float lateralMoveSpeedMultiplier = 0.55f;
     public float footstepInterval = 0.4f;
 
     [Header("Audio Settings (3D Spatial)")]
@@ -38,13 +41,13 @@ public class PlayerController : MonoBehaviour
     public bool IsGripHeld { get; private set; }
     public bool IsLeanTriggered { get; private set; }
     public bool IsLeanHeld { get; private set; }
+    public Vector2 LeanMovementInput { get; private set; }
     public bool IsFreezeActive { get; private set; }
     public bool IsMoving { get; private set; }
     public bool IsFloorValid { get; private set; }
     public Transform CurrentHoverTarget { get; private set; }
     public bool IsTargetReady { get; private set; }
 
-    // 외부 컴포넌트 접근 최적화를 위한 퍼블릭 프로퍼티
     public CharacterController CC { get; private set; }
     public FirstPersonCameraLook CamLook { get; private set; }
 
@@ -56,7 +59,6 @@ public class PlayerController : MonoBehaviour
     private float _footstepTimer = 0f;
     private int _walkableLayer;
 
-    // [최적화] 발소리 오디오 영구 캐싱
     private AudioClip _cachedFootstepClip;
 
     private void Awake()
@@ -95,7 +97,6 @@ public class PlayerController : MonoBehaviour
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
-        // UI 블로킹 시 중앙 통제 (SRP 완벽 준수)
         if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
         {
             IsFreezeActive = false;
@@ -106,46 +107,65 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        // [최적화] 화면 중앙 좌표는 해상도 변경 시에만 참조하면 됨
         GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
 
         ProcessInputs();
         ProcessGazeAndInteraction();
 
-        if (IsLeanHeld && !IsMovementLocked) MoveContinuously();
+        if (LeanMovementInput.sqrMagnitude > 0.01f && !IsMovementLocked && canMove) MoveContinuously();
         else StopMovement();
     }
 
     private void ProcessInputs()
     {
+        LeanMovementInput = Vector2.zero;
+        IsGripHeld = false;
+        IsFreezeActive = false;
+
         if (forceFallbackMode || !useWebcam || VisionTrackingManager.Instance == null || !VisionTrackingManager.Instance.isTracking)
         {
+            _wasReachHeldLastFrame = false;
+
             if (Mouse.current != null)
             {
                 if (Mouse.current.leftButton.wasPressedThisFrame) IsGripTriggered = true;
-                if (Mouse.current.leftButton.isPressed) IsGripHeld = true;
+                IsGripHeld = Mouse.current.leftButton.isPressed;
             }
+
             if (Keyboard.current != null)
             {
-                IsLeanHeld = Keyboard.current.wKey.isPressed;
-                if (Keyboard.current.wKey.wasPressedThisFrame) IsLeanTriggered = true;
-                if (Keyboard.current.sKey.isPressed) IsFreezeActive = true;
+                float horizontal = 0f;
+                float vertical = 0f;
+                if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontal -= 1f;
+                if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal += 1f;
+                if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) vertical -= 1f;
+                if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) vertical += 1f;
+                LeanMovementInput = new Vector2(horizontal, vertical);
+                if (LeanMovementInput.sqrMagnitude > 1f) LeanMovementInput.Normalize();
+                IsLeanHeld = LeanMovementInput.sqrMagnitude > 0.01f;
+                IsLeanTriggered = IsLeanHeld && !_wasLeanHeldLastFrame;
+                _wasLeanHeldLastFrame = IsLeanHeld;
+                IsFreezeActive = Keyboard.current.leftShiftKey.isPressed;
             }
+            else
+            {
+                IsLeanHeld = false;
+                IsFreezeActive = false;
+            }
+            return;
         }
-        else
-        {
-            bool isCurrentlyReaching = VisionTrackingManager.Instance.GetReachState();
-            IsGripHeld = isCurrentlyReaching;
-            if (isCurrentlyReaching && !_wasReachHeldLastFrame) IsGripTriggered = true;
-            _wasReachHeldLastFrame = isCurrentlyReaching;
 
-            bool isCurrentlyLeaning = VisionTrackingManager.Instance.GetLeanState();
-            IsLeanHeld = isCurrentlyLeaning;
-            if (isCurrentlyLeaning && !_wasLeanHeldLastFrame) IsLeanTriggered = true;
-            _wasLeanHeldLastFrame = isCurrentlyLeaning;
+        VisionTrackingManager tracking = VisionTrackingManager.Instance;
+        IsFreezeActive = tracking.GetHandOverMouthState();
+        bool isCurrentlyReaching = !IsFreezeActive && tracking.GetReachState();
+        IsGripHeld = isCurrentlyReaching;
+        IsGripTriggered = isCurrentlyReaching && !_wasReachHeldLastFrame;
+        _wasReachHeldLastFrame = isCurrentlyReaching;
 
-            IsFreezeActive = VisionTrackingManager.Instance.GetOriginFreezeState();
-        }
+        LeanMovementInput = tracking.GetLeanMovementInput();
+        IsLeanHeld = LeanMovementInput.sqrMagnitude > 0.01f;
+        IsLeanTriggered = IsLeanHeld && !_wasLeanHeldLastFrame;
+        _wasLeanHeldLastFrame = IsLeanHeld;
     }
 
     private void ProcessGazeAndInteraction()
@@ -153,7 +173,6 @@ public class PlayerController : MonoBehaviour
         if (mainCamera == null) return;
         IsFloorValid = false;
 
-        // [최적화] ScreenPointToRay 수학 연산 폐기. 정중앙 기준 Ray 직접 생성
         Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
 
         if (Physics.SphereCast(ray, gazeRadius, out RaycastHit hit, maxGazeDistance, targetMask | obstacleMask))
@@ -249,7 +268,7 @@ public class PlayerController : MonoBehaviour
 
     private void MoveContinuously()
     {
-        if (mainCamera == null || CC == null || !CC.enabled) return;
+        if (CC == null || !CC.enabled) return;
 
         if (GameFlowManager.Instance != null)
         {
@@ -261,26 +280,37 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        Vector3 forwardDir = mainCamera.transform.forward;
-        forwardDir.y = 0;
+        Vector3 forwardDir = transform.forward;
+        Vector3 rightDir = transform.right;
+        forwardDir.y = 0f;
+        rightDir.y = 0f;
         forwardDir.Normalize();
+        rightDir.Normalize();
 
-        if (forwardDir.sqrMagnitude > 0.01f)
+        // 좌우 속도를 앞뒤 속도와 분리합니다. 입력 벡터를 다시 Normalize하면
+        // 좌우 속도 배율이 사라지므로 여기서는 축별 속도를 그대로 유지합니다.
+        Vector3 movement =
+            rightDir * (LeanMovementInput.x * moveSpeed * lateralMoveSpeedMultiplier) +
+            forwardDir * (LeanMovementInput.y * moveSpeed);
+
+        if (movement.sqrMagnitude <= 0.001f)
         {
-            IsMoving = true;
-            CC.Move(forwardDir * moveSpeed * Time.deltaTime);
-
-            _footstepTimer += Time.deltaTime;
-            if (_footstepTimer >= footstepInterval)
-            {
-                _footstepTimer = 0f;
-                // [최적화] 캐싱된 발소리 직접 사용
-                if (playerFootstepSource != null && _cachedFootstepClip != null)
-                    playerFootstepSource.PlayOneShot(_cachedFootstepClip);
-            }
-
-            if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.05f * Time.deltaTime);
+            StopMovement();
+            return;
         }
+
+        IsMoving = true;
+        CC.Move(movement * Time.deltaTime);
+
+        _footstepTimer += Time.deltaTime;
+        if (_footstepTimer >= footstepInterval)
+        {
+            _footstepTimer = 0f;
+            if (playerFootstepSource != null && _cachedFootstepClip != null)
+                playerFootstepSource.PlayOneShot(_cachedFootstepClip);
+        }
+
+        if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.05f * Time.deltaTime);
     }
 
     private void StopMovement()

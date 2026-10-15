@@ -21,6 +21,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
 
     private bool _hasNewHandData = false;
     private Vector3 _rawHandPos;
+    private float _rawHandScale;
 
     private void OnEnable()
     {
@@ -42,7 +43,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
         {
             if (_hasNewHandData)
             {
-                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos);
+                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos, _rawHandScale);
                 _hasNewHandData = false;
             }
 
@@ -62,14 +63,22 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
         if (result.handLandmarks != null && result.handLandmarks.Count > 0)
         {
             var landmarks = result.handLandmarks[0].landmarks;
-            if (landmarks != null && landmarks.Count > 9)
+            if (landmarks != null && landmarks.Count > 17)
             {
-                var lm = landmarks[9];
-                Vector3 pos = new Vector3(lm.x * positionMultiplier, -lm.y * positionMultiplier, lm.z * depthMultiplier);
+                // Landmark 9 = 손바닥 중앙 부근, 5/17 = 검지/새끼손가락 MCP.
+                // 손바닥 폭의 화면상 크기는 손을 카메라 쪽으로 뻗을 때 커지는 경향이 있어 Reach 판정에 사용합니다.
+                var palmCenter = landmarks[9];
+                var indexMcp = landmarks[5];
+                var pinkyMcp = landmarks[17];
+                Vector3 pos = new Vector3(palmCenter.x * positionMultiplier, -palmCenter.y * positionMultiplier, palmCenter.z * depthMultiplier);
+                float palmScale = Vector2.Distance(
+                    new Vector2(indexMcp.x, indexMcp.y),
+                    new Vector2(pinkyMcp.x, pinkyMcp.y)) * positionMultiplier;
 
                 lock (_dataLock)
                 {
                     _rawHandPos = pos;
+                    _rawHandScale = palmScale;
                     _hasNewHandData = true;
                 }
             }

@@ -105,7 +105,7 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.Movement;
         if (PlayerController.Instance != null) PlayerController.Instance.SetMovementLock(false);
 
-        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("전방에 빛나는 지점을 바라보고 몸을 기울여 이동하세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("몸을 앞으로/뒤로 기울이면 전진/후진하고, 좌우로 기울이면 옆으로 이동합니다. 고개를 돌리면 시야가 회전합니다.");
 
         SetTargetVisibility(leanTargetPoint, true);
 
@@ -124,7 +124,7 @@ public class TutorialController : MonoBehaviour
         SetTargetVisibility(leanTargetPoint, false);
 
         currentStep = TutorialStep.Freeze;
-        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("본래 자세로 돌아와 움직임을 멈추고 3초간 상체를 뒤로 젖혀 숨을 참으세요.");
+        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("손으로 입을 가리고 3초간 숨을 참으세요. 손을 내리면 숨 참기가 해제됩니다.");
 
         float freezeTimer = 0f;
         while (currentStep == TutorialStep.Freeze)
@@ -207,9 +207,18 @@ public class TutorialController : MonoBehaviour
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle("튜토리얼이 종료되었습니다. 건투를 빕니다.");
 
         yield return new WaitForSeconds(3.0f);
-        if (UIManager.Instance != null) { UIManager.Instance.HideSubtitle(); yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f)); }
+        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
-        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);
+        // 튜토리얼을 먼저 완료한 뒤 오프닝 영상을 재생하고 Stage 1로 진입합니다.
+        if (TitleController.Instance != null)
+        {
+            TitleController.Instance.PlayIntroThenStartStage(GameStage.Stage1_Elevator);
+        }
+        else
+        {
+            if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));
+            if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage1_Elevator);
+        }
     }
 
     private IEnumerator PulseHighlightRoutine(Transform targetTransform)

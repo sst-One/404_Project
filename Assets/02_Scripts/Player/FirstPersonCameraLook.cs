@@ -7,7 +7,10 @@ public class FirstPersonCameraLook : MonoBehaviour
     public Transform playerBody;
 
     [Header("Vision AI 얼굴 회전 설정")]
+    [Tooltip("구버전 호환용 감도. 새 설정은 가로/세로 감도를 사용합니다.")]
     public float headRotationSpeed = 2f;
+    [Min(0.1f)] public float horizontalSensitivity = 2f;
+    [Min(0.1f)] public float verticalSensitivity = 2f;
     public float maxPitchAngle = 60f;
     public float deadzoneRadius = 2.0f;
     public float rotationSmoothTime = 0.1f;
@@ -36,6 +39,8 @@ public class FirstPersonCameraLook : MonoBehaviour
         }
 
         headRotationSpeed = PlayerPrefs.GetFloat("RotationSpeed", 2f);
+        horizontalSensitivity = PlayerPrefs.GetFloat("HorizontalSensitivity", headRotationSpeed);
+        verticalSensitivity = PlayerPrefs.GetFloat("VerticalSensitivity", headRotationSpeed);
         deadzoneRadius = PlayerPrefs.GetFloat("DeadzoneRadius", 2.0f);
         invertYaw = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
     }
@@ -57,6 +62,20 @@ public class FirstPersonCameraLook : MonoBehaviour
     {
         invertYaw = value;
         PlayerPrefs.SetInt("InvertYaw", value ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    public void SetHorizontalSensitivity(float value)
+    {
+        horizontalSensitivity = Mathf.Max(0.1f, value);
+        PlayerPrefs.SetFloat("HorizontalSensitivity", horizontalSensitivity);
+        PlayerPrefs.Save();
+    }
+
+    public void SetVerticalSensitivity(float value)
+    {
+        verticalSensitivity = Mathf.Max(0.1f, value);
+        PlayerPrefs.SetFloat("VerticalSensitivity", verticalSensitivity);
         PlayerPrefs.Save();
     }
 
@@ -91,14 +110,14 @@ public class FirstPersonCameraLook : MonoBehaviour
             {
                 float activeYaw = deltaYaw > 0 ? deltaYaw - deadzoneRadius : deltaYaw + deadzoneRadius;
                 if (invertYaw) activeYaw = -activeYaw;
-                _baseYaw += activeYaw * headRotationSpeed * speedMultiplier * Time.deltaTime;
+                _baseYaw += activeYaw * horizontalSensitivity * speedMultiplier * Time.deltaTime;
             }
 
             if (Mathf.Abs(deltaPitch) > deadzoneRadius)
             {
                 float activePitch = deltaPitch > 0 ? deltaPitch - deadzoneRadius : deltaPitch + deadzoneRadius;
                 if (invertPitch) activePitch = -activePitch;
-                _basePitch += activePitch * headRotationSpeed * speedMultiplier * Time.deltaTime;
+                _basePitch += activePitch * verticalSensitivity * speedMultiplier * Time.deltaTime;
             }
 
             _basePitch = Mathf.Clamp(_basePitch, -maxPitchAngle, maxPitchAngle);
@@ -109,8 +128,8 @@ public class FirstPersonCameraLook : MonoBehaviour
         else if (Mouse.current != null && Mouse.current.rightButton.isPressed)
         {
             Vector2 mouseDelta = Mouse.current.delta.ReadValue();
-            _targetYaw += mouseDelta.x * 0.1f * speedMultiplier;
-            _targetPitch -= mouseDelta.y * 0.1f * speedMultiplier;
+            _targetYaw += mouseDelta.x * horizontalSensitivity * 0.05f * speedMultiplier;
+            _targetPitch -= mouseDelta.y * verticalSensitivity * 0.05f * speedMultiplier;
             _targetPitch = Mathf.Clamp(_targetPitch, -maxPitchAngle, maxPitchAngle);
             _baseYaw = _targetYaw;
             _basePitch = _targetPitch;

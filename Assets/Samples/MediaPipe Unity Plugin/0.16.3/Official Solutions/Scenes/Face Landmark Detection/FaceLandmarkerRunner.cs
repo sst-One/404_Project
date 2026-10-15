@@ -27,7 +27,6 @@ namespace Mediapipe.Unity.Sample.FaceLandmarkDetection
             var options = config.GetFaceLandmarkerOptions(config.RunningMode == Tasks.Vision.Core.RunningMode.LIVE_STREAM ? OnFaceLandmarkDetectionOutput : null);
             taskApi = FaceLandmarker.CreateFromOptions(options, GpuManager.GpuResources);
 
-            // [핵심 변경점] ImageSource가 들어올 때까지 에러를 뱉지 않고 얌전히 대기
             yield return new WaitUntil(() => ImageSourceProvider.ImageSource != null);
             var imageSource = ImageSourceProvider.ImageSource;
 
@@ -67,26 +66,41 @@ namespace Mediapipe.Unity.Sample.FaceLandmarkDetection
                     continue;
                 }
 
+                // 카메라 전환/초기화 중에는 현재 텍스처가 null일 수 있다.
+                // 유효하지 않은 텍스처를 ReadTexture*에 전달하지 않고 해당 프레임을 건너뛴다.
+                yield return waitForEndOfFrame;
+                var sourceTexture = imageSource != null ? imageSource.GetCurrentTexture() : null;
+                if (sourceTexture == null || sourceTexture.width <= 0 || sourceTexture.height <= 0)
+                {
+                    textureFrame.Release();
+                    yield return null;
+                    continue;
+                }
+
                 Image image;
                 switch (config.ImageReadMode)
                 {
                     case ImageReadMode.GPU:
                         if (!canUseGpuImage) throw new System.Exception("ImageReadMode.GPU is not supported");
-                        textureFrame.ReadTextureOnGPU(imageSource.GetCurrentTexture(), flipHorizontally, flipVertically);
+                        textureFrame.ReadTextureOnGPU(sourceTexture, flipHorizontally, flipVertically);
                         image = textureFrame.BuildGPUImage(glContext);
                         yield return waitForEndOfFrame;
                         break;
                     case ImageReadMode.CPU:
-                        yield return waitForEndOfFrame;
-                        textureFrame.ReadTextureOnCPU(imageSource.GetCurrentTexture(), flipHorizontally, flipVertically);
+                        textureFrame.ReadTextureOnCPU(sourceTexture, flipHorizontally, flipVertically);
                         image = textureFrame.BuildCPUImage();
                         textureFrame.Release();
                         break;
                     case ImageReadMode.CPUAsync:
                     default:
-                        req = textureFrame.ReadTextureAsync(imageSource.GetCurrentTexture(), flipHorizontally, flipVertically);
+                        req = textureFrame.ReadTextureAsync(sourceTexture, flipHorizontally, flipVertically);
                         yield return waitUntilReqDone;
-                        if (req.hasError) continue;
+                        if (req.hasError)
+                        {
+                            textureFrame.Release();
+                            yield return null;
+                            continue;
+                        }
                         image = textureFrame.BuildCPUImage();
                         textureFrame.Release();
                         break;

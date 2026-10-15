@@ -130,6 +130,7 @@ public class GameFlowManager : MonoBehaviour
             currentStage = nextStage;
             OnStageChanged?.Invoke(currentStage);
             SaveCheckpointIfNecessary(nextStage);
+            SaveGameStageIfPlayable(nextStage);
         }
     }
 
@@ -146,6 +147,7 @@ public class GameFlowManager : MonoBehaviour
 
         currentStage = GameStage.Title;
         OnStageChanged?.Invoke(currentStage);
+        if (UIManager.Instance != null) UIManager.Instance.ResetTransientUI();
 
         if (TitleController.Instance != null) TitleController.Instance.ShowMainMenu();
 
@@ -168,6 +170,7 @@ public class GameFlowManager : MonoBehaviour
         SceneManager.SetActiveScene(SceneManager.GetSceneByName(targetScene));
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
+        SaveGameStageIfPlayable(nextStage);
 
         yield return new WaitForSecondsRealtime(0.2f);
 
@@ -194,6 +197,41 @@ public class GameFlowManager : MonoBehaviour
             case GameStage.Stage13_Ending: return "09_Ending"; // [핫픽스 1] 엔딩 씬 명칭 연결 완료
             default: return "";
         }
+    }
+
+    private const string SavedStageKey = "404_SavedGameStage";
+    private const string HasSavedGameKey = "404_HasSavedGame";
+
+    private void SaveGameStageIfPlayable(GameStage stage)
+    {
+        if ((int)stage < (int)GameStage.Stage1_Elevator) return;
+        PlayerPrefs.SetInt(SavedStageKey, (int)stage);
+        PlayerPrefs.SetInt(HasSavedGameKey, 1);
+        PlayerPrefs.Save();
+    }
+
+    public bool HasSavedGame()
+    {
+        return PlayerPrefs.GetInt(HasSavedGameKey, 0) == 1 && TryGetSavedGameStage(out _);
+    }
+
+    public bool TryGetSavedGameStage(out GameStage stage)
+    {
+        stage = GameStage.Stage1_Elevator;
+        if (PlayerPrefs.GetInt(HasSavedGameKey, 0) != 1) return false;
+
+        int savedValue = PlayerPrefs.GetInt(SavedStageKey, (int)GameStage.Stage1_Elevator);
+        if (!System.Enum.IsDefined(typeof(GameStage), savedValue)) return false;
+        stage = (GameStage)savedValue;
+        return (int)stage >= (int)GameStage.Stage1_Elevator && (int)stage <= (int)GameStage.Stage13_Ending;
+    }
+
+    public void ResetSavedGameProgress()
+    {
+        PlayerPrefs.DeleteKey(SavedStageKey);
+        PlayerPrefs.DeleteKey(HasSavedGameKey);
+        PlayerPrefs.Save();
+        _lastCheckpoint = GameStage.Title;
     }
 
     private void SaveCheckpointIfNecessary(GameStage stage)

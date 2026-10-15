@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using UnityEngine.Video;
+using UnityEngine.SceneManagement;
 using TMPro;
 
 public class UIManager : MonoBehaviour
@@ -59,6 +60,9 @@ public class UIManager : MonoBehaviour
 
     private FirstPersonCameraLook _cameraLook;
     private List<VideoPlayer> _pausedVideos = new List<VideoPlayer>();
+    private Button _controlsTabButton;
+    private Button _gameTabButton;
+    private bool _settingsTabsInitialized;
 
     private WaitForSecondsRealtime _waitQuick;
     private WaitForSecondsRealtime _waitNormal;
@@ -69,6 +73,7 @@ public class UIManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+        SceneManager.sceneLoaded += OnSceneLoaded;
 
         _waitQuick = new WaitForSecondsRealtime(0.1f);
         _waitNormal = new WaitForSecondsRealtime(0.5f);
@@ -96,6 +101,156 @@ public class UIManager : MonoBehaviour
         IsPaused = false;
 
         InitCalibrationUI();
+        InitializeSettingsTabs();
+        ApplyResponsiveCanvasSettings();
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        ApplyResponsiveCanvasSettings();
+    }
+
+    private void ApplyResponsiveCanvasSettings()
+    {
+        Canvas[] canvases = FindObjectsOfType<Canvas>(true);
+        foreach (Canvas canvas in canvases)
+        {
+            if (canvas == null || canvas.renderMode == RenderMode.WorldSpace)
+                continue;
+
+            CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
+            if (scaler == null) scaler = canvas.gameObject.AddComponent<CanvasScaler>();
+
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+            scaler.referencePixelsPerUnit = 100f;
+        }
+    }
+
+    private void InitializeSettingsTabs()
+    {
+        if (_settingsTabsInitialized || systemMenuPanel == null)
+            return;
+
+        _settingsTabsInitialized = true;
+        _controlsTabButton = CreateSettingsTabButton("조작 설정", new Vector2(260f, 300f));
+        _gameTabButton = CreateSettingsTabButton("게임 설정", new Vector2(520f, 300f));
+
+        if (_controlsTabButton != null)
+            _controlsTabButton.onClick.AddListener(() => SetSettingsTab(true));
+        if (_gameTabButton != null)
+            _gameTabButton.onClick.AddListener(() => SetSettingsTab(false));
+
+        SetSettingsTab(true);
+    }
+
+    private Button CreateSettingsTabButton(string label, Vector2 position)
+    {
+        GameObject buttonObject = new GameObject(
+            "SettingsTab_" + label.Replace(" ", ""),
+            typeof(RectTransform), typeof(Image), typeof(Button));
+        buttonObject.transform.SetParent(systemMenuPanel.transform, false);
+
+        RectTransform rect = buttonObject.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = new Vector2(220f, 54f);
+
+        Image image = buttonObject.GetComponent<Image>();
+        image.color = new Color(0.12f, 0.16f, 0.2f, 0.96f);
+
+        Button button = buttonObject.GetComponent<Button>();
+        button.targetGraphic = image;
+        button.transition = Selectable.Transition.ColorTint;
+        button.colors = new ColorBlock
+        {
+            normalColor = new Color(0.18f, 0.23f, 0.28f, 1f),
+            highlightedColor = new Color(0.28f, 0.38f, 0.44f, 1f),
+            pressedColor = new Color(0.08f, 0.12f, 0.15f, 1f),
+            selectedColor = new Color(0.28f, 0.38f, 0.44f, 1f),
+            disabledColor = new Color(0.12f, 0.12f, 0.12f, 0.5f),
+            colorMultiplier = 1f,
+            fadeDuration = 0.08f
+        };
+        button.navigation = new Navigation { mode = Navigation.Mode.None };
+
+        GameObject textObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(buttonObject.transform, false);
+        RectTransform textRect = textObject.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+        text.text = label;
+        if (subtitleText != null && subtitleText.font != null)
+            text.font = subtitleText.font;
+        else if (TMP_Settings.defaultFontAsset != null)
+            text.font = TMP_Settings.defaultFontAsset;
+        text.alignment = TextAlignmentOptions.Center;
+        text.fontSize = 25f;
+        text.color = Color.white;
+        text.raycastTarget = false;
+        return button;
+    }
+
+    private void SetSettingsTab(bool showControls)
+    {
+        if (systemMenuPanel == null) return;
+
+        Slider[] sliders = systemMenuPanel.GetComponentsInChildren<Slider>(true);
+        foreach (Slider slider in sliders)
+        {
+            if (slider == null) continue;
+            bool isBrightness = brightnessSlider != null && slider == brightnessSlider;
+            bool isLegacyRotation = rotationSpeedSlider != null &&
+                                    slider == rotationSpeedSlider &&
+                                    (horizontalSensitivitySlider != null || verticalSensitivitySlider != null);
+            slider.gameObject.SetActive(showControls
+                ? (!isBrightness && !isLegacyRotation)
+                : isBrightness);
+        }
+
+        if (cameraDropdown != null) cameraDropdown.gameObject.SetActive(showControls);
+        if (invertYawToggle != null) invertYawToggle.gameObject.SetActive(showControls);
+        if (btnRecalibrate != null) btnRecalibrate.gameObject.SetActive(showControls);
+
+        Transform cameraLabel = systemMenuPanel.transform.Find("Camera_Select_Text");
+        if (cameraLabel != null) cameraLabel.gameObject.SetActive(showControls);
+
+        UpdateSettingsTabVisuals(showControls);
+    }
+
+    private void UpdateSettingsTabVisuals(bool showControls)
+    {
+        if (_controlsTabButton != null)
+        {
+            Image image = _controlsTabButton.GetComponent<Image>();
+            if (image != null) image.color = showControls
+                ? new Color(0.18f, 0.42f, 0.48f, 1f)
+                : new Color(0.12f, 0.16f, 0.2f, 0.96f);
+        }
+        if (_gameTabButton != null)
+        {
+            Image image = _gameTabButton.GetComponent<Image>();
+            if (image != null) image.color = !showControls
+                ? new Color(0.18f, 0.42f, 0.48f, 1f)
+                : new Color(0.12f, 0.16f, 0.2f, 0.96f);
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            Instance = null;
+        }
     }
 
     private void Update()
@@ -156,6 +311,8 @@ public class UIManager : MonoBehaviour
         PopulateCameraDropdown();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
+        InitializeSettingsTabs();
+        SetSettingsTab(true);
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;

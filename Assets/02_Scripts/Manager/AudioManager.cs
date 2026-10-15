@@ -110,7 +110,17 @@ public class AudioManager : MonoBehaviour
     {
         if (bgmSource == null) return;
         AudioClip clip = GetClip(clipName);
-        if (clip == null || bgmSource.clip == clip) return;
+        if (clip == null) return;
+
+        if (bgmSource.clip == clip)
+        {
+            if (!bgmSource.isPlaying)
+            {
+                bgmSource.loop = true;
+                bgmSource.Play();
+            }
+            return;
+        }
 
         bgmSource.outputAudioMixerGroup = bgmMixerGroup;
         bgmSource.clip = clip;

@@ -60,6 +60,16 @@ public class PlayerController : MonoBehaviour
     private int _walkableLayer;
 
     private AudioClip _cachedFootstepClip;
+    private bool _wasFreezeActiveLastFrame;
+    private float _freezeAudioCandidateTimer;
+    private bool _breathAudioPlayedForCurrentFreeze;
+    private AudioSource _breathInhaleSource;
+
+    [Header("Breath Audio Settings")]
+    [Tooltip("숨참기 소리 재생 전 오작동을 걸러내기 위해 유지해야 하는 시간")]
+    [Min(0f)] public float breathAudioConfirmDelay = 0.2f;
+    [Tooltip("숨참기 시작 소리의 음량")]
+    [Range(0f, 1f)] public float breathInhaleVolume = 0.2f;
 
     private void Awake()
     {
@@ -103,6 +113,10 @@ public class PlayerController : MonoBehaviour
             IsGripHeld = false;
             IsLeanHeld = false;
             IsMoving = false;
+            _freezeAudioCandidateTimer = 0f;
+            _breathAudioPlayedForCurrentFreeze = false;
+            StopBreathInhaleAudio();
+            _wasFreezeActiveLastFrame = false;
             ClearAllFocus();
             return;
         }
@@ -110,10 +124,66 @@ public class PlayerController : MonoBehaviour
         GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
 
         ProcessInputs();
+        HandleBreathInhaleAudio();
         ProcessGazeAndInteraction();
 
         if (LeanMovementInput.sqrMagnitude > 0.01f && !IsMovementLocked && canMove) MoveContinuously();
         else StopMovement();
+    }
+
+
+    private void HandleBreathInhaleAudio()
+    {
+        AudioManager audioManager = AudioManager.Instance;
+        VisionTrackingManager tracking = VisionTrackingManager.Instance;
+
+        // 손을 뻗는 동작과 숨참기를 구분합니다. 손 뻗기 동작 중에는
+        // 숨참기 소리를 시작하지 않고, 기존 소리도 즉시 멈춥니다.
+        bool isReaching = useWebcam && !forceFallbackMode && tracking != null &&
+                          tracking.isTracking && tracking.GetReachState();
+        bool shouldConsiderBreath = IsFreezeActive && !isReaching;
+
+        if (!shouldConsiderBreath)
+        {
+            _freezeAudioCandidateTimer = 0f;
+            _breathAudioPlayedForCurrentFreeze = false;
+            StopBreathInhaleAudio();
+            _wasFreezeActiveLastFrame = IsFreezeActive;
+            return;
+        }
+
+        // 한 프레임의 오검출이나 손을 움직이는 순간에 소리가 나는 것을 방지합니다.
+        _freezeAudioCandidateTimer += Time.deltaTime;
+        if (!_breathAudioPlayedForCurrentFreeze &&
+            _freezeAudioCandidateTimer >= breathAudioConfirmDelay &&
+            audioManager != null)
+        {
+            AudioClip clip = audioManager.GetClip("404_BreathInhale");
+            if (clip != null)
+            {
+                if (_breathInhaleSource == null)
+                {
+                    _breathInhaleSource = gameObject.AddComponent<AudioSource>();
+                    _breathInhaleSource.playOnAwake = false;
+                    _breathInhaleSource.spatialBlend = 0f;
+                    _breathInhaleSource.loop = false;
+                }
+
+                _breathInhaleSource.outputAudioMixerGroup = audioManager.voiceMixerGroup;
+                _breathInhaleSource.volume = breathInhaleVolume;
+                _breathInhaleSource.clip = clip;
+                _breathInhaleSource.Play();
+                _breathAudioPlayedForCurrentFreeze = true;
+            }
+        }
+
+        _wasFreezeActiveLastFrame = IsFreezeActive;
+    }
+
+    private void StopBreathInhaleAudio()
+    {
+        if (_breathInhaleSource != null && _breathInhaleSource.isPlaying)
+            _breathInhaleSource.Stop();
     }
 
     private void ProcessInputs()

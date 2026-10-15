@@ -75,6 +75,8 @@ public class TitleController : MonoBehaviour
 
     public void ShowMainMenu()
     {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayBGM("404_TitleBGM");
         if (titlePanel != null) titlePanel.SetActive(true);
         if (creditsPanel != null) creditsPanel.SetActive(false);
         if (btnStartGame != null) btnStartGame.interactable = true;
@@ -89,6 +91,7 @@ public class TitleController : MonoBehaviour
     public void HideMainMenu()
     {
         if (titlePanel != null) titlePanel.SetActive(false);
+        if (AudioManager.Instance != null) AudioManager.Instance.StopBGM();
     }
 
     private void OnClickStartGame()

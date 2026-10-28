@@ -630,6 +630,9 @@ public class UIManager : MonoBehaviour
 
     public IEnumerator ShowDayTransition(int day)
     {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D("SND-071_DayChange_OneShot", AudioManager.Instance.uiMixerGroup, 0.75f);
+
         isDayTransitioning = true;
         if (dayTransitionPanel == null) { isDayTransitioning = false; yield break; }
 

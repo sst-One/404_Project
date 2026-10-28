@@ -49,6 +49,9 @@ public class Stage2_Controller : MonoBehaviour
     {
         yield return new WaitForSeconds(1.0f);
 
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D("SND-008_TvOn_OneShot", AudioManager.Instance.sfxMixerGroup, 0.8f);
+
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
 
         float playDuration = 12.0f;

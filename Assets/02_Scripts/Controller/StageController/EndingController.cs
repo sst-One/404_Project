@@ -21,6 +21,10 @@ public class EndingController : MonoBehaviour
 
     private IEnumerator EndingSequenceRoutine()
     {
+        // 엔딩 전용 배경음
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayBGM("SND-065_EndingDrone_Loop");
+
         // 크레딧 패널 켜기
         if (creditsPanel != null) creditsPanel.SetActive(true);
 

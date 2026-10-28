@@ -99,6 +99,8 @@ public class TutorialController : MonoBehaviour
 
         HideCalibrationGuide();
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D("SND-072_CalibrationComplete_OneShot", AudioManager.Instance.uiMixerGroup, 0.8f);
         yield return new WaitForSeconds(0.4f);
 
         // 먼저 시야 회전을 익힙니다.

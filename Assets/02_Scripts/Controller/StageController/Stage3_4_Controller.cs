@@ -136,15 +136,34 @@ public class Stage3_4_Controller : MonoBehaviour
             suspiciousMan.TriggerNarrativeAnimation("Idle");
         }
 
-        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(suspectVoiceClipName, AudioManager.Instance.voiceMixerGroup);
-
-        if (UIManager.Instance != null)
-        {
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_1));
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_2));
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day2_Elevator_3));
-        }
+        // 각 대사를 전용 음원과 연결하고, 자막 유지 시간은 해당 음원의 길이를 따릅니다.
+        yield return StartCoroutine(PlayVoiceSubtitle(
+            "하하 죄송합니다. 같이 타도 될까요?", "SND-035_1_같이타도될까요_OneShot"));
+        yield return StartCoroutine(PlayVoiceSubtitle(
+            "요즘 좀 무섭잖아요.", "SND-035_2_요즘좀무섭잖아요_OneShot"));
+        yield return StartCoroutine(PlayVoiceSubtitle(
+            "4층 사시는구나.", "SND-035_3_4층사시는구나_OneShot"));
+        yield return StartCoroutine(PlayVoiceSubtitle(
+            "늦었는데…", "SND-035_4_늦었는데_OneShot"));
+        yield return StartCoroutine(PlayVoiceSubtitle(
+            "들어가세요.", "SND-035_5_들어가세요_OneShot"));
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
+    }
+
+    private IEnumerator PlayVoiceSubtitle(string message, string clipName)
+    {
+        AudioClip clip = AudioManager.Instance != null ? AudioManager.Instance.GetClip(clipName) : null;
+        float duration = clip != null ? clip.length : Mathf.Max(2.5f, message.Length * 0.1f);
+
+        if (AudioManager.Instance != null && clip != null)
+            AudioManager.Instance.PlayGlobal2D(clipName, AudioManager.Instance.voiceMixerGroup);
+        else
+            Debug.LogWarning($"[Stage3_4_Controller] 대사 음원을 찾을 수 없습니다: {clipName}");
+
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(message, duration));
+        else
+            yield return new WaitForSecondsRealtime(duration);
     }
 }

@@ -577,6 +577,22 @@ public class UIManager : MonoBehaviour
         IsDialogueActive = false;
     }
 
+    // 음성 대사 전용 자막: 지정된 음원 길이만큼 표시하고 입력으로 조기 종료하지 않습니다.
+    public IEnumerator ShowSubtitleForDuration(string message, float duration)
+    {
+        if (subtitlePanel == null || subtitleText == null) yield break;
+
+        IsDialogueActive = true;
+        subtitleText.text = message;
+        subtitlePanel.SetActive(true);
+
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.01f, duration));
+
+        subtitlePanel.SetActive(false);
+        subtitleText.text = "";
+        IsDialogueActive = false;
+    }
+
     public void ShowSubtitle(string message)
     {
         if (subtitlePanel == null || subtitleText == null) return;
@@ -630,6 +646,9 @@ public class UIManager : MonoBehaviour
 
     public IEnumerator ShowDayTransition(int day)
     {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D("SND-071_DayChange_OneShot", AudioManager.Instance.uiMixerGroup, 0.75f);
+
         isDayTransitioning = true;
         if (dayTransitionPanel == null) { isDayTransitioning = false; yield break; }
 

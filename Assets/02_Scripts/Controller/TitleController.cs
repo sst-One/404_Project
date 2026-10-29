@@ -76,7 +76,7 @@ public class TitleController : MonoBehaviour
     public void ShowMainMenu()
     {
         if (AudioManager.Instance != null)
-            AudioManager.Instance.PlayBGM("404_TitleBGM");
+            AudioManager.Instance.PlayBGM("SND-076_메인화면 배경음_Loop");
         if (titlePanel != null) titlePanel.SetActive(true);
         if (creditsPanel != null) creditsPanel.SetActive(false);
         if (btnStartGame != null) btnStartGame.interactable = true;

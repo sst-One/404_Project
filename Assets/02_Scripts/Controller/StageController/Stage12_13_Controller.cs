@@ -25,7 +25,7 @@ public class Stage12_13_Controller : MonoBehaviour
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
     public string tinnitusClipName = "SND-061_TinnitusRing_Loop_Timed";
     public string gemDropClipName = "SND-062_GemDrop_OneShot";
-    public string flashbackSnd1 = "SND-068_Flashback_Layer1";
+    public string flashbackSnd1 = "SND-068_MemoryCut_OneShot";
     public string flashbackSnd2 = "SND-069_Flashback_Layer2";
     public string flashbackSnd3 = "SND-070_Flashback_Layer3";
 
@@ -243,7 +243,12 @@ public class Stage12_13_Controller : MonoBehaviour
 
         if (dynamicFlashbackImages[1] != null)
         {
-            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd2, AudioManager.Instance.playerStatusMixerGroup);
+            if (AudioManager.Instance != null)
+            {
+                AudioManager.Instance.PlayGlobal2D("SND-064_FlashBackDistortion_OneShot", AudioManager.Instance.playerStatusMixerGroup, 0.7f);
+                if (!string.IsNullOrEmpty(flashbackSnd2))
+                    AudioManager.Instance.PlayGlobal2D(flashbackSnd2, AudioManager.Instance.playerStatusMixerGroup);
+            }
             dynamicFlashbackImages[1].gameObject.SetActive(true);
         }
         yield return new WaitForSeconds(3.0f);

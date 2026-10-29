@@ -204,6 +204,15 @@ public class GameFlowManager : MonoBehaviour
 
     private void SaveGameStageIfPlayable(GameStage stage)
     {
+        // 엔딩에 도달하면 이어하기 데이터를 유지하지 않습니다.
+        // 씬 로드 직후 EndingController가 초기화하더라도 여기서 다시 저장되지 않도록
+        // Stage13_Ending은 저장 대상에서 제외합니다.
+        if (stage == GameStage.Stage13_Ending)
+        {
+            ResetSavedGameProgress();
+            return;
+        }
+
         if ((int)stage < (int)GameStage.Stage1_Elevator) return;
         PlayerPrefs.SetInt(SavedStageKey, (int)stage);
         PlayerPrefs.SetInt(HasSavedGameKey, 1);

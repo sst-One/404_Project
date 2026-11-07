@@ -11,6 +11,8 @@ public class Stage8_11_Controller : MonoBehaviour
     [Header("Respawn Settings")]
     public Transform playerSpawnPoint;
     public string deathJumpscareClip = "SND-011_Hallucination_OneShot";
+    public string playerScreamClipName = "SND-033_PlayerScream_OneShot";
+    [Range(0f, 1f)] public float playerScreamVolume = 0.9f;
 
     [Header("Stage 8: Encounter Settings")]
     public float strikeDelay = 0.5f;
@@ -116,9 +118,13 @@ public class Stage8_11_Controller : MonoBehaviour
             PlayerController.Instance.SetCameraLock(true);
         }
 
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(deathJumpscareClip))
+        if (AudioManager.Instance != null)
         {
-            AudioManager.Instance.PlayGlobal2D(deathJumpscareClip, AudioManager.Instance.sfxMixerGroup);
+            // 플레이어 비명과 기존 점프스케어 사운드를 함께 재생합니다.
+            if (!string.IsNullOrEmpty(playerScreamClipName))
+                AudioManager.Instance.PlayGlobal2D(playerScreamClipName, AudioManager.Instance.voiceMixerGroup, playerScreamVolume);
+            if (!string.IsNullOrEmpty(deathJumpscareClip))
+                AudioManager.Instance.PlayGlobal2D(deathJumpscareClip, AudioManager.Instance.sfxMixerGroup);
         }
 
         Camera cam = Camera.main;

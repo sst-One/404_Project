@@ -33,6 +33,7 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
+        else Debug.LogWarning("[Stage5_6_Controller] hallucinationDecals가 연결되지 않았습니다. Test_Hallucination 오브젝트를 연결하세요.");
 
         if (fuseBox != null)
         {

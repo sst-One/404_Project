@@ -192,6 +192,13 @@ public class EnemyAI : MonoBehaviour
         }
         else if (currentState == EnemyState.Chase)
         {
+            if (HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding)
+            {
+                ChangeState(EnemyState.Investigate);
+                if (_agent.isOnNavMesh) _agent.SetDestination(_lastKnownPlayerPosition);
+                return;
+            }
+
             if (_playerTransform != null && _agent.isOnNavMesh)
             {
                 _agent.isStopped = false;
@@ -357,7 +364,12 @@ public class EnemyAI : MonoBehaviour
         if (isNarrativeMode || _mainCamera == null || _playerTransform == null || currentState == EnemyState.Attack) return;
 
         bool canSeePlayer = false;
-        bool isPlayerFreezing = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive);
+        bool isPlayerHidden = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
+        if (isPlayerHidden)
+        {
+            if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
+            return;
+        }
         float currentDistanceToPlayerSq = float.MaxValue;
 
         Vector3 targetPos = _mainCamera.transform.position;
@@ -387,12 +399,6 @@ public class EnemyAI : MonoBehaviour
             {
                 if (_suspectCoroutine != null) StopCoroutine(_suspectCoroutine);
                 ChangeState(EnemyState.Chase);
-                return;
-            }
-
-            if (isPlayerFreezing)
-            {
-                if (currentState == EnemyState.Chase) ChangeState(EnemyState.Investigate);
                 return;
             }
 

@@ -40,6 +40,9 @@ public class UIManager : MonoBehaviour
     public Slider horizontalSensitivitySlider;
     public Slider verticalSensitivitySlider;
     public Slider brightnessSlider;
+    [Tooltip("게임 설정 탭의 실내 조명 밝기 슬라이더. 별도 Slider를 생성해 연결하세요.")]
+    public Slider interiorBrightnessSlider;
+    public TextMeshProUGUI interiorBrightnessValueText;
     public Slider leanThresholdSlider;
     public Slider reachThresholdSlider;
     public Slider deadzoneSlider;
@@ -63,6 +66,29 @@ public class UIManager : MonoBehaviour
     private Button _controlsTabButton;
     private Button _gameTabButton;
     private bool _settingsTabsInitialized;
+
+    // 설정 UI는 전부 런타임에 생성합니다. 기존 Inspector 연결은 구버전 씬 호환용으로만 남깁니다.
+    private GameObject _runtimeSettingsRoot;
+    private GameObject _controlsSettingsGroup;
+    private GameObject _gameSettingsGroup;
+    private Button _cameraCycleButton;
+    private TextMeshProUGUI _cameraCycleLabel;
+    private readonly List<string> _availableCameraNames = new List<string>();
+    private int _selectedCameraIndex;
+    private Toggle _runtimeInvertYawToggle;
+    private TextMeshProUGUI _runtimeInvertYawLabel;
+    private TextMeshProUGUI _runtimeHorizontalValue;
+    private TextMeshProUGUI _runtimeVerticalValue;
+    private TextMeshProUGUI _runtimeLeanValue;
+    private TextMeshProUGUI _runtimeReachValue;
+    private TextMeshProUGUI _runtimeDeadzoneValue;
+    private TextMeshProUGUI _runtimeScreenBrightnessValue;
+    private TextMeshProUGUI _runtimeInteriorBrightnessValue;
+    private Slider _vignetteSlider;
+    private TextMeshProUGUI _runtimeVignetteValue;
+    private Image _vignetteImage;
+    private const string VignettePrefKey = "PlayerVignetteStrength";
+    private const float DefaultVignetteStrength = 0.28f;
 
     private WaitForSecondsRealtime _waitQuick;
     private WaitForSecondsRealtime _waitNormal;
@@ -100,14 +126,17 @@ public class UIManager : MonoBehaviour
         AudioListener.pause = false;
         IsPaused = false;
 
-        InitCalibrationUI();
-        InitializeSettingsTabs();
         ApplyResponsiveCanvasSettings();
+        CreateVignetteOverlay();
+        InitializeSettingsTabs();
+        InitCalibrationUI();
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
         ApplyResponsiveCanvasSettings();
+        if (_settingsTabsInitialized) SyncSlidersToCurrentValues();
     }
 
     private void ApplyResponsiveCanvasSettings()
@@ -129,119 +158,424 @@ public class UIManager : MonoBehaviour
         }
     }
 
+    private void CreateVignetteOverlay()
+    {
+        if (_vignetteImage != null) return;
+
+        GameObject canvasObject = new GameObject("Runtime_Vignette_Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        canvasObject.transform.SetParent(transform, false);
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 1;
+
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        scaler.matchWidthOrHeight = 0.5f;
+
+        GameObject imageObject = new GameObject("Vignette", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        imageObject.transform.SetParent(canvasObject.transform, false);
+        RectTransform rect = imageObject.GetComponent<RectTransform>();
+        StretchRect(rect, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        Texture2D texture = new Texture2D(512, 512, TextureFormat.RGBA32, false);
+        texture.name = "Runtime_Vignette_Texture";
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Bilinear;
+        for (int y = 0; y < 512; y++)
+        {
+            for (int x = 0; x < 512; x++)
+            {
+                float nx = (x / 511f - 0.5f) * 2f;
+                float ny = (y / 511f - 0.5f) * 2f;
+                float distance = Mathf.Sqrt(nx * nx + ny * ny);
+                float alpha = Mathf.SmoothStep(0.48f, 1.28f, distance);
+                texture.SetPixel(x, y, new Color(0f, 0f, 0f, alpha));
+            }
+        }
+        texture.Apply();
+
+        _vignetteImage = imageObject.GetComponent<Image>();
+        _vignetteImage.sprite = Sprite.Create(texture, new Rect(0, 0, 512, 512), new Vector2(0.5f, 0.5f));
+        _vignetteImage.type = Image.Type.Simple;
+        _vignetteImage.preserveAspect = false;
+        _vignetteImage.raycastTarget = false;
+        SetVignetteStrength(PlayerPrefs.GetFloat(VignettePrefKey, DefaultVignetteStrength));
+    }
+
+    private void SetVignetteStrength(float strength)
+    {
+        strength = Mathf.Clamp(strength, 0f, 0.65f);
+        if (_vignetteImage != null)
+        {
+            Color color = Color.black;
+            color.a = strength;
+            _vignetteImage.color = color;
+        }
+        PlayerPrefs.SetFloat(VignettePrefKey, strength);
+        PlayerPrefs.Save();
+        UpdateSliderTexts();
+    }
+
     private void InitializeSettingsTabs()
     {
         if (_settingsTabsInitialized || systemMenuPanel == null)
             return;
 
         _settingsTabsInitialized = true;
-        _controlsTabButton = CreateSettingsTabButton("조작 설정", new Vector2(260f, 300f));
-        _gameTabButton = CreateSettingsTabButton("게임 설정", new Vector2(520f, 300f));
 
-        if (_controlsTabButton != null)
-            _controlsTabButton.onClick.AddListener(() => SetSettingsTab(true));
-        if (_gameTabButton != null)
-            _gameTabButton.onClick.AddListener(() => SetSettingsTab(false));
+        // 기존 프리팹의 개별 설정 UI는 비활성화합니다. 새 UI와 중복되지 않습니다.
+        foreach (Transform child in systemMenuPanel.transform)
+            child.gameObject.SetActive(false);
 
-        SetSettingsTab(true);
-    }
+        _runtimeSettingsRoot = CreateUIObject("Runtime_Settings_Root", systemMenuPanel.transform);
+        StretchRect(_runtimeSettingsRoot.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        Image rootImage = _runtimeSettingsRoot.AddComponent<Image>();
+        rootImage.color = new Color(0.035f, 0.045f, 0.06f, 0.97f);
 
-    private Button CreateSettingsTabButton(string label, Vector2 position)
-    {
-        GameObject buttonObject = new GameObject(
-            "SettingsTab_" + label.Replace(" ", ""),
-            typeof(RectTransform), typeof(Image), typeof(Button));
-        buttonObject.transform.SetParent(systemMenuPanel.transform, false);
+        TextMeshProUGUI title = CreateText("설정", _runtimeSettingsRoot.transform, 34, TextAlignmentOptions.Center);
+        RectTransform titleRect = title.rectTransform;
+        titleRect.anchorMin = new Vector2(0.05f, 0.88f);
+        titleRect.anchorMax = new Vector2(0.95f, 0.99f);
+        titleRect.offsetMin = Vector2.zero;
+        titleRect.offsetMax = Vector2.zero;
 
-        RectTransform rect = buttonObject.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = new Vector2(220f, 54f);
+        _controlsTabButton = CreateRuntimeButton("조작 설정", _runtimeSettingsRoot.transform);
+        _gameTabButton = CreateRuntimeButton("게임 설정", _runtimeSettingsRoot.transform);
+        SetRect(_controlsTabButton.GetComponent<RectTransform>(), new Vector2(0.27f, 0.79f), new Vector2(0.48f, 0.87f), Vector2.zero, Vector2.zero);
+        SetRect(_gameTabButton.GetComponent<RectTransform>(), new Vector2(0.52f, 0.79f), new Vector2(0.73f, 0.87f), Vector2.zero, Vector2.zero);
+        _controlsTabButton.onClick.AddListener(() => SetSettingsTab(true));
+        _gameTabButton.onClick.AddListener(() => SetSettingsTab(false));
 
-        Image image = buttonObject.GetComponent<Image>();
-        image.color = new Color(0.12f, 0.16f, 0.2f, 0.96f);
+        // 스크롤 영역
+        GameObject scrollObject = CreateUIObject("Settings_ScrollView", _runtimeSettingsRoot.transform);
+        SetRect(scrollObject.GetComponent<RectTransform>(), new Vector2(0.06f, 0.15f), new Vector2(0.94f, 0.77f), new Vector2(0f, 0f), new Vector2(0f, 0f));
+        ScrollRect scroll = scrollObject.AddComponent<ScrollRect>();
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
 
-        Button button = buttonObject.GetComponent<Button>();
-        button.targetGraphic = image;
-        button.transition = Selectable.Transition.ColorTint;
-        button.colors = new ColorBlock
+        GameObject viewport = CreateUIObject("Viewport", scrollObject.transform);
+        StretchRect(viewport.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        Image viewportImage = viewport.AddComponent<Image>();
+        viewportImage.color = new Color(1f, 1f, 1f, 0.015f);
+        Mask mask = viewport.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        GameObject content = CreateUIObject("Content", viewport.transform);
+        RectTransform contentRect = content.GetComponent<RectTransform>();
+        contentRect.anchorMin = new Vector2(0f, 1f);
+        contentRect.anchorMax = new Vector2(1f, 1f);
+        contentRect.pivot = new Vector2(0.5f, 1f);
+        contentRect.anchoredPosition = Vector2.zero;
+        contentRect.sizeDelta = new Vector2(0f, 0f);
+        VerticalLayoutGroup contentLayout = content.AddComponent<VerticalLayoutGroup>();
+        contentLayout.padding = new RectOffset(18, 18, 12, 18);
+        contentLayout.spacing = 12f;
+        contentLayout.childControlWidth = true;
+        contentLayout.childControlHeight = true;
+        contentLayout.childForceExpandWidth = true;
+        contentLayout.childForceExpandHeight = false;
+        ContentSizeFitter fitter = content.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scroll.viewport = viewport.GetComponent<RectTransform>();
+        scroll.content = contentRect;
+
+        _controlsSettingsGroup = CreateUIObject("Controls_Settings", content.transform);
+        ConfigureVerticalGroup(_controlsSettingsGroup, 14f);
+        _gameSettingsGroup = CreateUIObject("Game_Settings", content.transform);
+        ConfigureVerticalGroup(_gameSettingsGroup, 14f);
+
+        CreateSectionHeader("카메라", _controlsSettingsGroup.transform);
+        GameObject cameraRow = CreateSettingRow("카메라 장치", _controlsSettingsGroup.transform);
+        _cameraCycleButton = CreateRuntimeButton("카메라 검색 중...", cameraRow.transform);
+        LayoutElement cameraButtonLayout = _cameraCycleButton.GetComponent<LayoutElement>();
+        cameraButtonLayout.minWidth = 320f;
+        cameraButtonLayout.preferredWidth = 420f;
+        _cameraCycleLabel = _cameraCycleButton.GetComponentInChildren<TextMeshProUGUI>();
+        _cameraCycleButton.onClick.AddListener(CycleCameraDevice);
+
+        CreateSectionHeader("조작 감도", _controlsSettingsGroup.transform);
+        horizontalSensitivitySlider = CreateSliderRow("좌우 회전 감도", 0.1f, 8f, 2f, _controlsSettingsGroup.transform, out _runtimeHorizontalValue);
+        verticalSensitivitySlider = CreateSliderRow("상하 회전 감도", 0.1f, 8f, 2f, _controlsSettingsGroup.transform, out _runtimeVerticalValue);
+        deadzoneSlider = CreateSliderRow("미세 떨림 무시", 0.01f, 0.15f, 0.03f, _controlsSettingsGroup.transform, out _runtimeDeadzoneValue);
+        leanThresholdSlider = CreateSliderRow("몸 기울임 민감도", 0.05f, 3f, 0.15f, _controlsSettingsGroup.transform, out _runtimeLeanValue);
+        reachThresholdSlider = CreateSliderRow("손 뻗기 민감도", 0.1f, 0.6f, 0.2f, _controlsSettingsGroup.transform, out _runtimeReachValue);
+
+        GameObject toggleRow = CreateSettingRow("좌우 반전", _controlsSettingsGroup.transform);
+        _runtimeInvertYawToggle = CreateRuntimeToggle(toggleRow.transform, "좌우 반전 사용");
+        _runtimeInvertYawLabel = _runtimeInvertYawToggle.GetComponentInChildren<TextMeshProUGUI>();
+        _runtimeInvertYawToggle.isOn = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
+        _runtimeInvertYawToggle.onValueChanged.AddListener(v =>
         {
-            normalColor = new Color(0.18f, 0.23f, 0.28f, 1f),
-            highlightedColor = new Color(0.28f, 0.38f, 0.44f, 1f),
-            pressedColor = new Color(0.08f, 0.12f, 0.15f, 1f),
-            selectedColor = new Color(0.28f, 0.38f, 0.44f, 1f),
-            disabledColor = new Color(0.12f, 0.12f, 0.12f, 0.5f),
-            colorMultiplier = 1f,
-            fadeDuration = 0.08f
-        };
-        button.navigation = new Navigation { mode = Navigation.Mode.None };
+            if (_cameraLook != null) _cameraLook.SetInvertYaw(v);
+            PlayerPrefs.SetInt("InvertYaw", v ? 1 : 0);
+            PlayerPrefs.Save();
+        });
 
-        GameObject textObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
-        textObject.transform.SetParent(buttonObject.transform, false);
-        RectTransform textRect = textObject.GetComponent<RectTransform>();
-        textRect.anchorMin = Vector2.zero;
-        textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = Vector2.zero;
-        textRect.offsetMax = Vector2.zero;
+        Button recalibrateButton = CreateRuntimeButton("카메라 영점 재설정", _controlsSettingsGroup.transform);
+        recalibrateButton.onClick.AddListener(OnClickRecalibrate);
 
-        TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
-        text.text = label;
-        if (subtitleText != null && subtitleText.font != null)
-            text.font = subtitleText.font;
-        else if (TMP_Settings.defaultFontAsset != null)
-            text.font = TMP_Settings.defaultFontAsset;
-        text.alignment = TextAlignmentOptions.Center;
-        text.fontSize = 25f;
-        text.color = Color.white;
-        text.raycastTarget = false;
-        return button;
+        CreateSectionHeader("화면 및 조명", _gameSettingsGroup.transform);
+        _vignetteSlider = CreateSliderRow("시야 가장자리 어둡기", 0f, 0.65f, PlayerPrefs.GetFloat(VignettePrefKey, DefaultVignetteStrength), _gameSettingsGroup.transform, out _runtimeVignetteValue);
+        _vignetteSlider.onValueChanged.AddListener(SetVignetteStrength);
+        brightnessSlider = CreateSliderRow("화면 시야 밝기", 0.2f, 1f, 1f, _gameSettingsGroup.transform, out _runtimeScreenBrightnessValue);
+        interiorBrightnessSlider = CreateSliderRow("실내 조명 밝기", 1f, 2.5f,
+            BrightnessManager.Instance != null ? BrightnessManager.Instance.defaultInteriorBrightness : 1.35f,
+            _gameSettingsGroup.transform, out _runtimeInteriorBrightnessValue);
+
+        // 하단 고정 버튼
+        GameObject footer = CreateUIObject("Settings_Footer", _runtimeSettingsRoot.transform);
+        SetRect(footer.GetComponent<RectTransform>(), new Vector2(0.06f, 0.025f), new Vector2(0.94f, 0.12f), Vector2.zero, Vector2.zero);
+        HorizontalLayoutGroup footerLayout = footer.AddComponent<HorizontalLayoutGroup>();
+        footerLayout.spacing = 18f;
+        footerLayout.childControlWidth = true;
+        footerLayout.childControlHeight = true;
+        footerLayout.childForceExpandWidth = true;
+        footerLayout.childForceExpandHeight = true;
+        btnResume = CreateRuntimeButton("계속하기", footer.transform);
+        btnQuit = CreateRuntimeButton("타이틀로 돌아가기", footer.transform);
+        btnResume.onClick.AddListener(ResumeGame);
+        btnQuit.onClick.AddListener(OnClickQuit);
+
+        PopulateRuntimeCameraList();
+        SetSettingsTab(true);
     }
 
     private void SetSettingsTab(bool showControls)
     {
-        if (systemMenuPanel == null) return;
-
-        Slider[] sliders = systemMenuPanel.GetComponentsInChildren<Slider>(true);
-        foreach (Slider slider in sliders)
-        {
-            if (slider == null) continue;
-            bool isBrightness = brightnessSlider != null && slider == brightnessSlider;
-            bool isLegacyRotation = rotationSpeedSlider != null &&
-                                    slider == rotationSpeedSlider &&
-                                    (horizontalSensitivitySlider != null || verticalSensitivitySlider != null);
-            slider.gameObject.SetActive(showControls
-                ? (!isBrightness && !isLegacyRotation)
-                : isBrightness);
-        }
-
-        if (cameraDropdown != null) cameraDropdown.gameObject.SetActive(showControls);
-        if (invertYawToggle != null) invertYawToggle.gameObject.SetActive(showControls);
-        if (btnRecalibrate != null) btnRecalibrate.gameObject.SetActive(showControls);
-
-        Transform cameraLabel = systemMenuPanel.transform.Find("Camera_Select_Text");
-        if (cameraLabel != null) cameraLabel.gameObject.SetActive(showControls);
-
+        if (_controlsSettingsGroup != null) _controlsSettingsGroup.SetActive(showControls);
+        if (_gameSettingsGroup != null) _gameSettingsGroup.SetActive(!showControls);
         UpdateSettingsTabVisuals(showControls);
     }
 
     private void UpdateSettingsTabVisuals(bool showControls)
     {
-        if (_controlsTabButton != null)
+        SetRuntimeButtonSelected(_controlsTabButton, showControls);
+        SetRuntimeButtonSelected(_gameTabButton, !showControls);
+    }
+
+    private GameObject CreateUIObject(string objectName, Transform parent)
+    {
+        GameObject go = new GameObject(objectName, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        return go;
+    }
+
+    private void StretchRect(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = offsetMin;
+        rect.offsetMax = offsetMax;
+    }
+
+    private void SetRect(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+    {
+        StretchRect(rect, anchorMin, anchorMax, offsetMin, offsetMax);
+    }
+
+    private TextMeshProUGUI CreateText(string value, Transform parent, float fontSize, TextAlignmentOptions alignment)
+    {
+        GameObject go = CreateUIObject("Text_" + value, parent);
+        TextMeshProUGUI text = go.AddComponent<TextMeshProUGUI>();
+        text.text = value;
+        text.fontSize = fontSize;
+        text.color = Color.white;
+        text.alignment = alignment;
+        text.raycastTarget = false;
+        if (subtitleText != null && subtitleText.font != null) text.font = subtitleText.font;
+        else if (TMP_Settings.defaultFontAsset != null) text.font = TMP_Settings.defaultFontAsset;
+        return text;
+    }
+
+    private Button CreateRuntimeButton(string label, Transform parent)
+    {
+        GameObject go = CreateUIObject("Button_" + label, parent);
+        Image image = go.AddComponent<Image>();
+        image.color = new Color(0.13f, 0.19f, 0.24f, 1f);
+        Button button = go.AddComponent<Button>();
+        button.targetGraphic = image;
+        button.navigation = new Navigation { mode = Navigation.Mode.None };
+        TextMeshProUGUI text = CreateText(label, go.transform, 21f, TextAlignmentOptions.Center);
+        StretchRect(text.rectTransform, Vector2.zero, Vector2.one, new Vector2(8f, 4f), new Vector2(-8f, -4f));
+        LayoutElement layout = go.AddComponent<LayoutElement>();
+        layout.minHeight = 48f;
+        layout.preferredHeight = 52f;
+        return button;
+    }
+
+    private void SetRuntimeButtonSelected(Button button, bool selected)
+    {
+        if (button == null) return;
+        Image image = button.GetComponent<Image>();
+        if (image != null) image.color = selected
+            ? new Color(0.12f, 0.42f, 0.48f, 1f)
+            : new Color(0.13f, 0.19f, 0.24f, 1f);
+    }
+
+    private void ConfigureVerticalGroup(GameObject go, float spacing)
+    {
+        VerticalLayoutGroup layout = go.AddComponent<VerticalLayoutGroup>();
+        layout.spacing = spacing;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+        ContentSizeFitter fitter = go.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        LayoutElement element = go.AddComponent<LayoutElement>();
+        element.minHeight = 0f;
+        element.flexibleHeight = 0f;
+    }
+
+    private void CreateSectionHeader(string label, Transform parent)
+    {
+        TextMeshProUGUI header = CreateText(label, parent, 25f, TextAlignmentOptions.Left);
+        header.color = new Color(0.55f, 0.85f, 0.9f, 1f);
+        LayoutElement layout = header.gameObject.AddComponent<LayoutElement>();
+        layout.preferredHeight = 42f;
+        layout.minHeight = 42f;
+    }
+
+    private GameObject CreateSettingRow(string label, Transform parent)
+    {
+        GameObject row = CreateUIObject("SettingRow_" + label, parent);
+        HorizontalLayoutGroup layout = row.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 18f;
+        layout.padding = new RectOffset(8, 8, 4, 4);
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = true;
+        LayoutElement rowElement = row.AddComponent<LayoutElement>();
+        rowElement.minHeight = 58f;
+        rowElement.preferredHeight = 62f;
+        TextMeshProUGUI title = CreateText(label, row.transform, 20f, TextAlignmentOptions.Left);
+        LayoutElement titleLayout = title.gameObject.AddComponent<LayoutElement>();
+        titleLayout.minWidth = 260f;
+        titleLayout.preferredWidth = 300f;
+        titleLayout.flexibleWidth = 0f;
+        return row;
+    }
+
+    private Slider CreateSliderRow(string label, float min, float max, float defaultValue, Transform parent, out TextMeshProUGUI valueText)
+    {
+        GameObject row = CreateSettingRow(label, parent);
+        GameObject sliderObject = CreateUIObject("Slider_" + label, row.transform);
+        Image background = sliderObject.AddComponent<Image>();
+        background.color = new Color(0.12f, 0.15f, 0.18f, 1f);
+        LayoutElement sliderElement = sliderObject.AddComponent<LayoutElement>();
+        sliderElement.minHeight = 34f;
+        sliderElement.preferredHeight = 38f;
+        sliderElement.minWidth = 180f;
+        sliderElement.flexibleWidth = 1f;
+        Slider slider = sliderObject.AddComponent<Slider>();
+        slider.minValue = min;
+        slider.maxValue = max;
+        slider.wholeNumbers = false;
+        slider.direction = Slider.Direction.LeftToRight;
+
+        GameObject fillArea = CreateUIObject("Fill Area", sliderObject.transform);
+        RectTransform fillAreaRect = fillArea.GetComponent<RectTransform>();
+        StretchRect(fillAreaRect, new Vector2(0f, 0.25f), new Vector2(1f, 0.75f), new Vector2(8f, 0f), new Vector2(-8f, 0f));
+        GameObject fill = CreateUIObject("Fill", fillArea.transform);
+        StretchRect(fill.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        Image fillImage = fill.AddComponent<Image>();
+        fillImage.color = new Color(0.2f, 0.72f, 0.78f, 1f);
+        slider.fillRect = fill.GetComponent<RectTransform>();
+
+        GameObject handleArea = CreateUIObject("Handle Slide Area", sliderObject.transform);
+        StretchRect(handleArea.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, new Vector2(8f, 0f), new Vector2(-8f, 0f));
+        GameObject handle = CreateUIObject("Handle", handleArea.transform);
+        RectTransform handleRect = handle.GetComponent<RectTransform>();
+        handleRect.sizeDelta = new Vector2(18f, 28f);
+        Image handleImage = handle.AddComponent<Image>();
+        handleImage.color = Color.white;
+        slider.handleRect = handleRect;
+        slider.targetGraphic = handleImage;
+
+        valueText = CreateText(defaultValue.ToString("0.00"), row.transform, 18f, TextAlignmentOptions.Right);
+        LayoutElement valueLayout = valueText.gameObject.AddComponent<LayoutElement>();
+        valueLayout.minWidth = 82f;
+        valueLayout.preferredWidth = 92f;
+        valueLayout.flexibleWidth = 0f;
+        slider.value = Mathf.Clamp(defaultValue, min, max);
+        return slider;
+    }
+
+    private Toggle CreateRuntimeToggle(Transform parent, string label)
+    {
+        GameObject toggleObject = CreateUIObject("Toggle_" + label, parent);
+        HorizontalLayoutGroup layout = toggleObject.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 10f;
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childControlWidth = false;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        LayoutElement element = toggleObject.AddComponent<LayoutElement>();
+        element.preferredHeight = 48f;
+        element.preferredWidth = 320f;
+
+        GameObject box = CreateUIObject("Checkbox", toggleObject.transform);
+        RectTransform boxRect = box.GetComponent<RectTransform>();
+        boxRect.sizeDelta = new Vector2(28f, 28f);
+        Image boxImage = box.AddComponent<Image>();
+        boxImage.color = new Color(0.16f, 0.2f, 0.24f, 1f);
+        GameObject check = CreateUIObject("Checkmark", box.transform);
+        StretchRect(check.GetComponent<RectTransform>(), new Vector2(0.15f, 0.15f), new Vector2(0.85f, 0.85f), Vector2.zero, Vector2.zero);
+        Image checkImage = check.AddComponent<Image>();
+        checkImage.color = new Color(0.25f, 0.85f, 0.8f, 1f);
+
+        TextMeshProUGUI text = CreateText(label, toggleObject.transform, 19f, TextAlignmentOptions.Left);
+        LayoutElement textLayout = text.gameObject.AddComponent<LayoutElement>();
+        textLayout.preferredWidth = 220f;
+        Toggle toggle = toggleObject.AddComponent<Toggle>();
+        toggle.targetGraphic = boxImage;
+        toggle.graphic = checkImage;
+        toggle.isOn = false;
+        return toggle;
+    }
+
+    private void PopulateRuntimeCameraList()
+    {
+        _availableCameraNames.Clear();
+        WebCamDevice[] devices = WebCamTexture.devices;
+        foreach (WebCamDevice device in devices) _availableCameraNames.Add(device.name);
+
+        string selected = VisionTrackingManager.Instance != null ? VisionTrackingManager.Instance.SelectedDeviceName : string.Empty;
+        _selectedCameraIndex = _availableCameraNames.IndexOf(selected);
+        if (_selectedCameraIndex < 0 && _availableCameraNames.Count > 0)
         {
-            Image image = _controlsTabButton.GetComponent<Image>();
-            if (image != null) image.color = showControls
-                ? new Color(0.18f, 0.42f, 0.48f, 1f)
-                : new Color(0.12f, 0.16f, 0.2f, 0.96f);
+            _selectedCameraIndex = _availableCameraNames.FindIndex(n => !n.Contains("OBS") && !n.Contains("Virtual"));
+            if (_selectedCameraIndex < 0) _selectedCameraIndex = 0;
         }
-        if (_gameTabButton != null)
+        UpdateCameraButtonLabel();
+    }
+
+    private void CycleCameraDevice()
+    {
+        if (_availableCameraNames.Count == 0)
         {
-            Image image = _gameTabButton.GetComponent<Image>();
-            if (image != null) image.color = !showControls
-                ? new Color(0.18f, 0.42f, 0.48f, 1f)
-                : new Color(0.12f, 0.16f, 0.2f, 0.96f);
+            PopulateRuntimeCameraList();
+            if (_availableCameraNames.Count == 0) return;
         }
+        _selectedCameraIndex = (_selectedCameraIndex + 1) % _availableCameraNames.Count;
+        string selectedName = _availableCameraNames[_selectedCameraIndex];
+        if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
+        UpdateCameraButtonLabel();
+    }
+
+    private void UpdateCameraButtonLabel()
+    {
+        if (_cameraCycleLabel == null) return;
+        string label = _availableCameraNames.Count == 0
+            ? "카메라 없음 - 다시 눌러 검색"
+            : "카메라: " + _availableCameraNames[Mathf.Clamp(_selectedCameraIndex, 0, _availableCameraNames.Count - 1)] + "  (눌러서 변경)";
+        _cameraCycleLabel.text = label;
     }
 
     private void OnDestroy()
@@ -308,7 +642,7 @@ public class UIManager : MonoBehaviour
         if (_cameraLook == null) _cameraLook = FindObjectOfType<FirstPersonCameraLook>();
         SyncSlidersToCurrentValues();
 
-        PopulateCameraDropdown();
+        PopulateRuntimeCameraList();
 
         if (systemMenuPanel != null) systemMenuPanel.SetActive(true);
         InitializeSettingsTabs();
@@ -332,15 +666,6 @@ public class UIManager : MonoBehaviour
     public void ResumeGame()
     {
         if (!IsPaused) return;
-
-        if (cameraDropdown != null && cameraDropdown.options.Count > 0)
-        {
-            string selectedName = cameraDropdown.options[cameraDropdown.value].text;
-            if (VisionTrackingManager.Instance != null)
-            {
-                VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
-            }
-        }
 
         SaveCalibrationSettings();
 
@@ -382,138 +707,74 @@ public class UIManager : MonoBehaviour
         ResumeGame();
     }
 
-    private void PopulateCameraDropdown()
-    {
-        if (cameraDropdown == null) return;
-
-        WebCamDevice[] devices = WebCamTexture.devices;
-        cameraDropdown.ClearOptions();
-        List<string> options = new List<string>();
-        int defaultIndex = 0;
-        int activeIndex = -1;
-
-        string currentSelected = "";
-        if (VisionTrackingManager.Instance != null && !string.IsNullOrEmpty(VisionTrackingManager.Instance.SelectedDeviceName))
-        {
-            currentSelected = VisionTrackingManager.Instance.SelectedDeviceName;
-        }
-
-        for (int i = 0; i < devices.Length; i++)
-        {
-            options.Add(devices[i].name);
-
-            if (devices[i].name == currentSelected)
-            {
-                activeIndex = i;
-            }
-
-            if (!devices[i].name.Contains("OBS") && !devices[i].name.Contains("Virtual") && defaultIndex == 0)
-            {
-                defaultIndex = i;
-            }
-        }
-
-        if (options.Count > 0)
-        {
-            cameraDropdown.AddOptions(options);
-
-            if (activeIndex != -1)
-            {
-                cameraDropdown.value = activeIndex;
-            }
-            else
-            {
-                cameraDropdown.value = defaultIndex;
-            }
-
-            cameraDropdown.RefreshShownValue();
-        }
-    }
-
     private void InitCalibrationUI()
     {
         if (btnResume != null) { btnResume.onClick.RemoveAllListeners(); btnResume.onClick.AddListener(ResumeGame); }
         if (btnQuit != null) { btnQuit.onClick.RemoveAllListeners(); btnQuit.onClick.AddListener(OnClickQuit); }
-        if (btnRecalibrate != null) { btnRecalibrate.onClick.RemoveAllListeners(); btnRecalibrate.onClick.AddListener(OnClickRecalibrate); }
 
-        bool useSplitSensitivitySliders = horizontalSensitivitySlider != null || verticalSensitivitySlider != null;
-        if (rotationSpeedSlider != null)
-        {
-            rotationSpeedSlider.minValue = 1f;
-            rotationSpeedSlider.maxValue = 8f;
-            if (useSplitSensitivitySliders) rotationSpeedSlider.gameObject.SetActive(false);
-        }
-        if (rotationValueText != null && useSplitSensitivitySliders) rotationValueText.gameObject.SetActive(false);
         ConfigureSlider(horizontalSensitivitySlider, 0.1f, 8f, 2f);
         ConfigureSlider(verticalSensitivitySlider, 0.1f, 8f, 2f);
         ConfigureSlider(brightnessSlider, 0.2f, 1f, 1f);
+        ConfigureSlider(_vignetteSlider, 0f, 0.65f, PlayerPrefs.GetFloat(VignettePrefKey, DefaultVignetteStrength));
+        SetVignetteStrength(_vignetteSlider != null ? _vignetteSlider.value : DefaultVignetteStrength);
+        ConfigureSlider(interiorBrightnessSlider, 1f, 2.5f,
+            BrightnessManager.Instance != null ? BrightnessManager.Instance.defaultInteriorBrightness : 1.35f);
+        ConfigureSlider(leanThresholdSlider, 0.05f, 3f, 0.15f);
+        ConfigureSlider(reachThresholdSlider, 0.1f, 0.6f, 0.2f);
+        ConfigureSlider(deadzoneSlider, 0.01f, 0.15f, 0.03f);
 
-        if (invertYawToggle != null)
-        {
-            invertYawToggle.isOn = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
-            invertYawToggle.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetInvertYaw(v); });
-        }
+        if (horizontalSensitivitySlider != null)
+            horizontalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetHorizontalSensitivity(v); UpdateSliderTexts(); });
+        if (verticalSensitivitySlider != null)
+            verticalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetVerticalSensitivity(v); UpdateSliderTexts(); });
+        if (brightnessSlider != null)
+            brightnessSlider.onValueChanged.AddListener(v => { if (BrightnessManager.Instance != null) BrightnessManager.Instance.SetBrightness(v); UpdateSliderTexts(); });
+        if (interiorBrightnessSlider != null)
+            interiorBrightnessSlider.onValueChanged.AddListener(v => { if (BrightnessManager.Instance != null) BrightnessManager.Instance.SetInteriorBrightness(v); UpdateSliderTexts(); });
+        if (leanThresholdSlider != null)
+            leanThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.leanDepthThreshold = v; UpdateSliderTexts(); });
+        if (reachThresholdSlider != null)
+            reachThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.reachDepthThreshold = v; UpdateSliderTexts(); });
+        if (deadzoneSlider != null)
+            deadzoneSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.deadzoneRadius = v; UpdateSliderTexts(); });
 
-        if (leanThresholdSlider != null) leanThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.leanDepthThreshold = v; UpdateSliderTexts(); });
-        if (reachThresholdSlider != null) reachThresholdSlider.onValueChanged.AddListener(v => { if (VisionTrackingManager.Instance != null) VisionTrackingManager.Instance.reachDepthThreshold = v; UpdateSliderTexts(); });
-        if (rotationSpeedSlider != null && horizontalSensitivitySlider == null && verticalSensitivitySlider == null) rotationSpeedSlider.onValueChanged.AddListener(v =>
-        {
-            if (_cameraLook != null)
-            {
-                _cameraLook.headRotationSpeed = v;
-                _cameraLook.SetHorizontalSensitivity(v);
-                _cameraLook.SetVerticalSensitivity(v);
-            }
-            UpdateSliderTexts();
-        });
-        if (horizontalSensitivitySlider != null) horizontalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetHorizontalSensitivity(v); UpdateSliderTexts(); });
-        if (verticalSensitivitySlider != null) verticalSensitivitySlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.SetVerticalSensitivity(v); UpdateSliderTexts(); });
-        if (brightnessSlider != null) brightnessSlider.onValueChanged.AddListener(v => { if (BrightnessManager.Instance != null) BrightnessManager.Instance.SetBrightness(v); UpdateSliderTexts(); });
-        if (deadzoneSlider != null) deadzoneSlider.onValueChanged.AddListener(v => { if (_cameraLook != null) _cameraLook.deadzoneRadius = v; UpdateSliderTexts(); });
-
-        if (cameraDropdown != null)
-        {
-            cameraDropdown.onValueChanged.RemoveAllListeners();
-            cameraDropdown.onValueChanged.AddListener(index => {
-                if (cameraDropdown.options.Count > index)
-                {
-                    string selectedName = cameraDropdown.options[index].text;
-                    if (VisionTrackingManager.Instance != null)
-                    {
-                        VisionTrackingManager.Instance.ReceiveCameraSelection(selectedName);
-                    }
-                }
-            });
-        }
+        SyncSlidersToCurrentValues();
     }
 
     private void SyncSlidersToCurrentValues()
     {
         if (VisionTrackingManager.Instance != null)
         {
-            if (leanThresholdSlider != null) leanThresholdSlider.value = VisionTrackingManager.Instance.leanDepthThreshold;
-            if (reachThresholdSlider != null) reachThresholdSlider.value = VisionTrackingManager.Instance.reachDepthThreshold;
+            if (leanThresholdSlider != null) leanThresholdSlider.SetValueWithoutNotify(VisionTrackingManager.Instance.leanDepthThreshold);
+            if (reachThresholdSlider != null) reachThresholdSlider.SetValueWithoutNotify(VisionTrackingManager.Instance.reachDepthThreshold);
         }
         if (_cameraLook != null)
         {
-            if (rotationSpeedSlider != null) rotationSpeedSlider.value = _cameraLook.headRotationSpeed;
-            if (horizontalSensitivitySlider != null) horizontalSensitivitySlider.value = _cameraLook.horizontalSensitivity;
-            if (verticalSensitivitySlider != null) verticalSensitivitySlider.value = _cameraLook.verticalSensitivity;
-            if (deadzoneSlider != null) deadzoneSlider.value = _cameraLook.deadzoneRadius;
+            if (horizontalSensitivitySlider != null) horizontalSensitivitySlider.SetValueWithoutNotify(_cameraLook.horizontalSensitivity);
+            if (verticalSensitivitySlider != null) verticalSensitivitySlider.SetValueWithoutNotify(_cameraLook.verticalSensitivity);
+            if (deadzoneSlider != null) deadzoneSlider.SetValueWithoutNotify(_cameraLook.deadzoneRadius);
         }
-        if (brightnessSlider != null && BrightnessManager.Instance != null) brightnessSlider.value = BrightnessManager.Instance.Brightness;
+        if (brightnessSlider != null && BrightnessManager.Instance != null)
+            brightnessSlider.SetValueWithoutNotify(BrightnessManager.Instance.Brightness);
+        if (interiorBrightnessSlider != null && BrightnessManager.Instance != null)
+            interiorBrightnessSlider.SetValueWithoutNotify(BrightnessManager.Instance.InteriorBrightness);
+        if (_vignetteSlider != null)
+            _vignetteSlider.SetValueWithoutNotify(PlayerPrefs.GetFloat(VignettePrefKey, DefaultVignetteStrength));
+        if (_runtimeInvertYawToggle != null)
+            _runtimeInvertYawToggle.SetIsOnWithoutNotify(PlayerPrefs.GetInt("InvertYaw", 0) == 1);
         UpdateSliderTexts();
     }
 
     private void UpdateSliderTexts()
     {
-        if (leanThresholdSlider != null && leanValueText != null) leanValueText.text = string.Format("이동(기울임) 민감도: {0:F2}", leanThresholdSlider.value);
-        if (reachThresholdSlider != null && reachValueText != null) reachValueText.text = string.Format("조작(손뻗기) 민감도: {0:F2}", reachThresholdSlider.value);
-        if (rotationSpeedSlider != null && rotationValueText != null) rotationValueText.text = string.Format("화면 회전 감도(구버전): {0:F1}", rotationSpeedSlider.value);
-        if (horizontalSensitivitySlider != null && horizontalSensitivityValueText != null) horizontalSensitivityValueText.text = string.Format("좌우 회전 감도: {0:F1}", horizontalSensitivitySlider.value);
-        if (verticalSensitivitySlider != null && verticalSensitivityValueText != null) verticalSensitivityValueText.text = string.Format("상하 회전 감도: {0:F1}", verticalSensitivitySlider.value);
-        if (brightnessSlider != null && brightnessValueText != null) brightnessValueText.text = string.Format("시야 밝기: {0:P0}", brightnessSlider.value);
-        if (deadzoneSlider != null && deadzoneValueText != null) deadzoneValueText.text = string.Format("미세 떨림 무시(데드존): {0:F3}", deadzoneSlider.value);
+        if (_runtimeHorizontalValue != null && horizontalSensitivitySlider != null) _runtimeHorizontalValue.text = horizontalSensitivitySlider.value.ToString("0.0");
+        if (_runtimeVerticalValue != null && verticalSensitivitySlider != null) _runtimeVerticalValue.text = verticalSensitivitySlider.value.ToString("0.0");
+        if (_runtimeLeanValue != null && leanThresholdSlider != null) _runtimeLeanValue.text = leanThresholdSlider.value.ToString("0.00");
+        if (_runtimeReachValue != null && reachThresholdSlider != null) _runtimeReachValue.text = reachThresholdSlider.value.ToString("0.00");
+        if (_runtimeDeadzoneValue != null && deadzoneSlider != null) _runtimeDeadzoneValue.text = deadzoneSlider.value.ToString("0.000");
+        if (_runtimeScreenBrightnessValue != null && brightnessSlider != null) _runtimeScreenBrightnessValue.text = brightnessSlider.value.ToString("P0");
+        if (_runtimeInteriorBrightnessValue != null && interiorBrightnessSlider != null) _runtimeInteriorBrightnessValue.text = (interiorBrightnessSlider.value * 100f).ToString("0") + "%";
+        if (_runtimeVignetteValue != null && _vignetteSlider != null) _runtimeVignetteValue.text = (_vignetteSlider.value * 100f).ToString("0") + "%";
     }
 
     private void SaveCalibrationSettings()
@@ -530,7 +791,15 @@ public class UIManager : MonoBehaviour
             PlayerPrefs.SetFloat("VerticalSensitivity", _cameraLook.verticalSensitivity);
             PlayerPrefs.SetFloat("DeadzoneRadius", _cameraLook.deadzoneRadius);
         }
-        if (BrightnessManager.Instance != null) PlayerPrefs.SetFloat("PlayerBrightness", BrightnessManager.Instance.Brightness);
+        if (BrightnessManager.Instance != null)
+        {
+            PlayerPrefs.SetFloat("PlayerBrightness", BrightnessManager.Instance.Brightness);
+            PlayerPrefs.SetFloat("InteriorBrightness", BrightnessManager.Instance.InteriorBrightness);
+        }
+        if (_vignetteSlider != null)
+            PlayerPrefs.SetFloat(VignettePrefKey, _vignetteSlider.value);
+        if (_runtimeInvertYawToggle != null)
+            PlayerPrefs.SetInt("InvertYaw", _runtimeInvertYawToggle.isOn ? 1 : 0);
         PlayerPrefs.SetInt("IsCalibrated", 1);
         PlayerPrefs.Save();
     }

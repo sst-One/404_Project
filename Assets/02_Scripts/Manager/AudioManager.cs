@@ -80,7 +80,15 @@ public class AudioManager : MonoBehaviour
         if (string.IsNullOrEmpty(clipName)) return null;
         if (_clipDictionary.TryGetValue(clipName, out AudioClip clip)) return clip;
 
-        Debug.LogWarning($"[AudioManager] 사운드 파일을 찾을 수 없습니다: {clipName}");
+        // Resources/Audio 폴더에 추가된 클립은 Inspector 목록을 수정하지 않아도 이름으로 자동 로드합니다.
+        clip = Resources.Load<AudioClip>("Audio/" + clipName);
+        if (clip != null)
+        {
+            _clipDictionary[clipName] = clip;
+            return clip;
+        }
+
+        Debug.LogWarning($"[AudioManager] 사운드 파일을 찾을 수 없습니다: {clipName}. allAudioClips 또는 Resources/Audio를 확인하세요.");
         return null;
     }
 

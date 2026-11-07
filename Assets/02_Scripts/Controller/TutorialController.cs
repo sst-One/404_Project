@@ -24,6 +24,15 @@ public class TutorialController : MonoBehaviour
     public float highlightPulseSpeed = 2.0f;
 
     private Coroutine _highlightCoroutine;
+    private PlayerController _tutorialPlayer;
+
+    private PlayerController GetTutorialPlayer()
+    {
+        if (_tutorialPlayer != null) return _tutorialPlayer;
+        if (PlayerController.Instance != null) _tutorialPlayer = PlayerController.Instance;
+        else _tutorialPlayer = FindObjectOfType<PlayerController>(true);
+        return _tutorialPlayer;
+    }
     public bool IsCameraLocked { get; private set; } = true;
     private Renderer[] _activeHighlightRenderers;
     private GameObject _calibrationGuideRoot;
@@ -34,10 +43,11 @@ public class TutorialController : MonoBehaviour
     private void Start()
     {
         IsCameraLocked = true;
+        _tutorialPlayer = GetTutorialPlayer();
         highlightColor = Color.white;
 
-        if (PlayerController.Instance != null)
-            PlayerController.Instance.SetMovementLock(true);
+        if (_tutorialPlayer != null)
+            _tutorialPlayer.SetMovementLock(true);
 
         if (testObject != null)
         {
@@ -62,6 +72,11 @@ public class TutorialController : MonoBehaviour
 
     private IEnumerator TutorialSequence()
     {
+        // Player는 이전 씬의 싱글톤이 아니라 튜토리얼 씬에서 생성될 수 있으므로 준비될 때까지 탐색합니다.
+        yield return new WaitUntil(() => GetTutorialPlayer() != null);
+        _tutorialPlayer = GetTutorialPlayer();
+        _tutorialPlayer.SetMovementLock(true);
+
         if (UIManager.Instance != null)
             yield return StartCoroutine(UIManager.Instance.FadeInScreen(1.0f));
 
@@ -112,8 +127,8 @@ public class TutorialController : MonoBehaviour
 
         // 이어서 실제 이동을 직접 수행하게 합니다.
         currentStep = TutorialStep.Movement;
-        if (PlayerController.Instance != null)
-            PlayerController.Instance.SetMovementLock(false);
+        if (GetTutorialPlayer() != null)
+            GetTutorialPlayer().SetMovementLock(false);
 
         if (UIManager.Instance != null)
             UIManager.Instance.ShowSubtitle("상체를 앞·뒤로 기울여 이동하고, 머리를 좌·우로 기울여 옆으로 이동해 목표 지점까지 가보세요.");
@@ -128,10 +143,10 @@ public class TutorialController : MonoBehaviour
         {
             movementElapsed += Time.deltaTime;
 
-            if (leanTargetPoint != null && PlayerController.Instance != null)
+            if (leanTargetPoint != null && GetTutorialPlayer() != null)
             {
                 float dist = Vector3.Distance(
-                    PlayerController.Instance.transform.position,
+                    GetTutorialPlayer().transform.position,
                     leanTargetPoint.position
                 );
                 reachedMovementTarget = dist < 1.5f;
@@ -160,7 +175,7 @@ public class TutorialController : MonoBehaviour
         float freezeTimer = 0f;
         while (currentStep == TutorialStep.Freeze)
         {
-            if (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive)
+            if (GetTutorialPlayer() != null && GetTutorialPlayer().IsFreezeActive)
             {
                 freezeTimer += Time.deltaTime;
                 if (freezeTimer >= 3.0f)

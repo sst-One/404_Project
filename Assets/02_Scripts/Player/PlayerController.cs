@@ -14,11 +14,15 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 1f;
-    public float gazeRadius = 0.3f;
+    public float maxGazeDistance = 1.6f;
+    public float gazeRadius = 0.5f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
-    public float readyTimeThreshold = 0.5f;
+    public float readyTimeThreshold = 0.25f;
+    [Tooltip("아이템 상호작용 보정 최대 거리")]
+    public float interactionAssistDistance = 1.6f;
+    [Tooltip("아이템 상호작용 보정 반경")]
+    public float interactionAssistRadius = 0.5f;
 
     [Header("Movement Settings")]
     [Tooltip("앞뒤 이동 속도 (m/s)")]
@@ -113,10 +117,6 @@ public class PlayerController : MonoBehaviour
             IsGripHeld = false;
             IsLeanHeld = false;
             IsMoving = false;
-            _freezeAudioCandidateTimer = 0f;
-            _breathAudioPlayedForCurrentFreeze = false;
-            StopBreathInhaleAudio();
-            _wasFreezeActiveLastFrame = false;
             ClearAllFocus();
             return;
         }
@@ -124,67 +124,12 @@ public class PlayerController : MonoBehaviour
         GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
 
         ProcessInputs();
-        HandleBreathInhaleAudio();
         ProcessGazeAndInteraction();
 
         if (LeanMovementInput.sqrMagnitude > 0.01f && !IsMovementLocked && canMove) MoveContinuously();
         else StopMovement();
     }
 
-
-    private void HandleBreathInhaleAudio()
-    {
-        AudioManager audioManager = AudioManager.Instance;
-        VisionTrackingManager tracking = VisionTrackingManager.Instance;
-
-        // 손을 뻗는 동작과 숨참기를 구분합니다. 손 뻗기 동작 중에는
-        // 숨참기 소리를 시작하지 않고, 기존 소리도 즉시 멈춥니다.
-        bool isReaching = useWebcam && !forceFallbackMode && tracking != null &&
-                          tracking.isTracking && tracking.GetReachState();
-        bool shouldConsiderBreath = IsFreezeActive && !isReaching;
-
-        if (!shouldConsiderBreath)
-        {
-            _freezeAudioCandidateTimer = 0f;
-            _breathAudioPlayedForCurrentFreeze = false;
-            StopBreathInhaleAudio();
-            _wasFreezeActiveLastFrame = IsFreezeActive;
-            return;
-        }
-
-        // 한 프레임의 오검출이나 손을 움직이는 순간에 소리가 나는 것을 방지합니다.
-        _freezeAudioCandidateTimer += Time.deltaTime;
-        if (!_breathAudioPlayedForCurrentFreeze &&
-            _freezeAudioCandidateTimer >= breathAudioConfirmDelay &&
-            audioManager != null)
-        {
-            AudioClip clip = audioManager.GetClip("404_BreathInhale");
-            if (clip != null)
-            {
-                if (_breathInhaleSource == null)
-                {
-                    _breathInhaleSource = gameObject.AddComponent<AudioSource>();
-                    _breathInhaleSource.playOnAwake = false;
-                    _breathInhaleSource.spatialBlend = 0f;
-                    _breathInhaleSource.loop = false;
-                }
-
-                _breathInhaleSource.outputAudioMixerGroup = audioManager.voiceMixerGroup;
-                _breathInhaleSource.volume = breathInhaleVolume;
-                _breathInhaleSource.clip = clip;
-                _breathInhaleSource.Play();
-                _breathAudioPlayedForCurrentFreeze = true;
-            }
-        }
-
-        _wasFreezeActiveLastFrame = IsFreezeActive;
-    }
-
-    private void StopBreathInhaleAudio()
-    {
-        if (_breathInhaleSource != null && _breathInhaleSource.isPlaying)
-            _breathInhaleSource.Stop();
-    }
 
     private void ProcessInputs()
     {
@@ -215,7 +160,6 @@ public class PlayerController : MonoBehaviour
                 IsLeanHeld = LeanMovementInput.sqrMagnitude > 0.01f;
                 IsLeanTriggered = IsLeanHeld && !_wasLeanHeldLastFrame;
                 _wasLeanHeldLastFrame = IsLeanHeld;
-                IsFreezeActive = Keyboard.current.leftShiftKey.isPressed;
             }
             else
             {
@@ -226,8 +170,8 @@ public class PlayerController : MonoBehaviour
         }
 
         VisionTrackingManager tracking = VisionTrackingManager.Instance;
-        IsFreezeActive = tracking.GetHandOverMouthState();
-        bool isCurrentlyReaching = !IsFreezeActive && tracking.GetReachState();
+        IsFreezeActive = false;
+        bool isCurrentlyReaching = tracking.GetReachState();
         IsGripHeld = isCurrentlyReaching;
         IsGripTriggered = isCurrentlyReaching && !_wasReachHeldLastFrame;
         _wasReachHeldLastFrame = isCurrentlyReaching;
@@ -245,7 +189,9 @@ public class PlayerController : MonoBehaviour
 
         Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
 
-        if (Physics.SphereCast(ray, gazeRadius, out RaycastHit hit, maxGazeDistance, targetMask | obstacleMask))
+        float castDistance = Mathf.Max(maxGazeDistance, interactionAssistDistance);
+        float castRadius = Mathf.Max(gazeRadius, interactionAssistRadius);
+        if (Physics.SphereCast(ray, castRadius, out RaycastHit hit, castDistance, targetMask | obstacleMask))
         {
             GameObject hitObj = hit.transform.gameObject;
             int hitLayer = hitObj.layer;

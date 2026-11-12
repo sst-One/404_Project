@@ -14,15 +14,15 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 0.75f;
-    public float gazeRadius = 0.18f;
+    public float maxGazeDistance = 1.3f;
+    public float gazeRadius = 0.2f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
     public float readyTimeThreshold = 0.25f;
-    [Tooltip("아이템 상호작용 보정 최대 거리")]
-    public float interactionAssistDistance = 1.3f;
-    [Tooltip("아이템 상호작용 보정 반경")]
-    public float interactionAssistRadius = 0.18f;
+    [Tooltip("일반 상호작용 직선의 최대 거리(m)")]
+    public float interactionAssistDistance = 2f;
+    [Tooltip("카메라 정면 상호작용 직선의 반경(m). BoxCollider가 이 두꺼운 직선에 닿으면 감지됩니다.")]
+    public float interactionAssistRadius = 0.3f;
     [Tooltip("거리 제한 예외가 지정된 엘리베이터 버튼을 시선으로 탐색할 최대 거리")]
     [Min(1f)] public float distanceIndependentScanDistance = 100f;
 
@@ -194,64 +194,128 @@ public class PlayerController : MonoBehaviour
 
         IsFloorValid = false;
         Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
-        // 일반 상호작용은 플레이어가 물체 가까이 접근해야 합니다.
-        // 엘리베이터 버튼만 별도 플래그를 통해 거리 제한 없이 시선 탐색합니다.
+
+        // 일반 상호작용은 카메라 정면의 두꺼운 직선(SphereCast) 안에
+        // 상호작용 오브젝트의 Collider가 들어왔을 때만 허용합니다.
+        // 최대 거리는 기존 두 거리 설정 중 더 작은 값으로 유지합니다.
         float normalInteractionDistance = Mathf.Min(maxGazeDistance, interactionAssistDistance);
-        float castRadius = Mathf.Max(gazeRadius, interactionAssistRadius);
-        float castDistance = Mathf.Max(normalInteractionDistance, distanceIndependentScanDistance);
+        float castRadius = Mathf.Max(0.001f, interactionAssistRadius);
+        float elevatorScanDistance = Mathf.Max(normalInteractionDistance, distanceIndependentScanDistance);
         int queryMask = targetMask.value | obstacleMask.value;
 
-        RaycastHit[] hits = Physics.SphereCastAll(
-            ray, castRadius, castDistance, queryMask, QueryTriggerInteraction.Collide);
-
-        if (hits == null || hits.Length == 0)
+        // 엘리베이터 버튼은 기존 예외를 유지합니다.
+        // 두께가 없는 카메라 정중앙 Raycast로만 찾고, ignorePlayerDistanceLimit이
+        // 지정된 버튼만 거리 제한 없이 선택합니다. 다른 일반 물체는 여기서 선택하지 않습니다.
+        if (Physics.Raycast(ray, out RaycastHit elevatorHit, elevatorScanDistance,
+                queryMask, QueryTriggerInteraction.Collide))
         {
-            ClearAllFocus();
-            return;
+            int hitLayerBit = 1 << elevatorHit.collider.gameObject.layer;
+            bool hitObstacle = (obstacleMask.value & hitLayerBit) != 0;
+            bool hitWalkable = _walkableLayer >= 0 &&
+                               elevatorHit.collider.gameObject.layer == _walkableLayer;
+
+            if (hitWalkable)
+            {
+                IsFloorValid = true;
+            }
+            else if (!hitObstacle && (targetMask.value & hitLayerBit) != 0)
+            {
+                InteractableItem elevatorItem =
+                    elevatorHit.collider.GetComponentInParent<InteractableItem>();
+
+                if (elevatorItem != null && elevatorItem.ignorePlayerDistanceLimit &&
+                    elevatorItem.isInteractable && elevatorItem.gameObject.activeInHierarchy)
+                {
+                    ProcessTargetHover(elevatorItem);
+                    return;
+                }
+            }
         }
 
-        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-        for (int i = 0; i < hits.Length; i++)
+        // 화면 정중앙의 얇은 Raycast를 먼저 검사합니다.
+        // 중앙 조준점이 일반 상호작용 오브젝트의 Collider(BoxCollider 포함) 안에
+        // 들어오면 두꺼운 SphereCast 보정 판정보다 우선하여 해당 오브젝트를 선택합니다.
+        // 엘리베이터 거리 예외 오브젝트는 위의 기존 전용 경로만 사용합니다.
+        if (normalInteractionDistance > 0f &&
+            Physics.Raycast(ray, out RaycastHit centerHit, normalInteractionDistance,
+                queryMask, QueryTriggerInteraction.Collide))
         {
-            Collider hitCollider = hits[i].collider;
-            if (hitCollider == null || !hitCollider.enabled || !hitCollider.gameObject.activeInHierarchy)
-                continue;
-
-            int layerBit = 1 << hitCollider.gameObject.layer;
-            if ((obstacleMask.value & layerBit) != 0)
+            Collider centerCollider = centerHit.collider;
+            if (centerCollider != null && centerCollider.enabled &&
+                centerCollider.gameObject.activeInHierarchy)
             {
-                ClearAllFocus();
-                return;
-            }
+                int centerLayerBit = 1 << centerCollider.gameObject.layer;
+                bool centerHitObstacle = (obstacleMask.value & centerLayerBit) != 0;
+                bool centerHitTarget = (targetMask.value & centerLayerBit) != 0;
 
-            if (_walkableLayer >= 0 && hitCollider.gameObject.layer == _walkableLayer)
+                if (!centerHitObstacle && centerHitTarget)
+                {
+                    InteractableItem centerItem =
+                        centerCollider.GetComponentInParent<InteractableItem>();
+
+                    if (centerItem != null && centerItem.isInteractable &&
+                        centerItem.gameObject.activeInHierarchy &&
+                        !centerItem.ignorePlayerDistanceLimit)
+                    {
+                        ProcessTargetHover(centerItem);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 일반 물체 탐색: 카메라 정면을 따라 일정 반경을 가진 직선을 쏩니다.
+        // 장애물은 후보 검색에서 제외하고, 각 후보의 실제 표면까지 직선 시야가
+        // 확보되는지 별도로 검사하여 책상/주변 콜라이더가 후보 탐색을 과도하게
+        // 가로채는 현상을 줄입니다.
+        if (normalInteractionDistance > 0f)
+        {
+            RaycastHit[] targetHits = Physics.SphereCastAll(
+                ray,
+                castRadius,
+                normalInteractionDistance,
+                targetMask,
+                QueryTriggerInteraction.Collide);
+
+            if (targetHits != null && targetHits.Length > 0)
             {
-                // SphereCast 반경이 넓으면 낮은 위치의 버튼/물체보다 바닥을 먼저 감지할 수 있습니다.
-                // 바닥은 시선 상호작용의 차단물이 아니므로 기록만 하고 다음 충돌을 계속 검사합니다.
-                IsFloorValid = true;
-                continue;
+                System.Array.Sort(targetHits, (a, b) => a.distance.CompareTo(b.distance));
+
+                for (int i = 0; i < targetHits.Length; i++)
+                {
+                    Collider hitCollider = targetHits[i].collider;
+                    if (hitCollider == null || !hitCollider.enabled ||
+                        !hitCollider.gameObject.activeInHierarchy)
+                        continue;
+
+                    InteractableItem item = hitCollider.GetComponentInParent<InteractableItem>();
+                    if (item == null || !item.isInteractable || !item.gameObject.activeInHierarchy)
+                        continue;
+
+                    // 거리 예외 플래그가 있는 엘리베이터 버튼은 일반 SphereCast 경로에서
+                    // 처리하지 않고 위의 기존 정중앙 Raycast 경로만 사용합니다.
+                    if (item.ignorePlayerDistanceLimit)
+                        continue;
+
+                    // SphereCast가 감지한 콜라이더 표면의 접점까지 장애물이 있는지 검사합니다.
+                    // 접점 바로 앞까지만 검사해 대상 자신의 Collider를 장애물로 오인하지 않습니다.
+                    Vector3 toTarget = targetHits[i].point - ray.origin;
+                    float targetDistance = toTarget.magnitude;
+                    if (targetDistance > 0.001f)
+                    {
+                        float obstructionCheckDistance = Mathf.Max(0f, targetDistance - 0.01f);
+                        if (obstructionCheckDistance > 0f &&
+                            Physics.Raycast(ray.origin, toTarget.normalized, out RaycastHit blockingHit,
+                                obstructionCheckDistance, obstacleMask, QueryTriggerInteraction.Ignore))
+                        {
+                            continue;
+                        }
+                    }
+
+                    ProcessTargetHover(item);
+                    return;
+                }
             }
-
-            if ((targetMask.value & layerBit) == 0)
-                continue;
-
-            // 실제 Collider는 자식 메시 오브젝트에 있고 IInteractable은 부모에 붙는
-            // 프리팹 구조를 지원합니다. 자식 콜라이더의 레이어도 그대로 검사합니다.
-            InteractableItem item = hitCollider.GetComponentInParent<InteractableItem>();
-            if (item == null || !item.isInteractable || !item.gameObject.activeInHierarchy)
-                continue;
-
-            // 거리 제한 예외는 엘리베이터 버튼 등 명시적으로 지정된 물체에만 적용합니다.
-            // 일반 물체가 너무 멀리 있으면 그 뒤의 물체를 관통해 선택하지 않습니다.
-            if (!item.ignorePlayerDistanceLimit && hits[i].distance > normalInteractionDistance)
-            {
-                ClearAllFocus();
-                return;
-            }
-
-            ProcessTargetHover(item);
-            return;
         }
 
         bool floorWasValid = IsFloorValid;

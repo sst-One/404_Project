@@ -57,11 +57,19 @@ public class HidingSpotManager : MonoBehaviour
         _isHiding = true;
         _timeInSpot = 0f;
         _currentStage = 0;
+
+        // 은신 진입 시 수동 입력 없이 호흡음을 중지합니다.
+        if (StateManager.Instance != null)
+            StateManager.Instance.SetHidingBreathSuppressed(true);
     }
 
     public void StopHiding()
     {
         _isHiding = false;
+
+        if (StateManager.Instance != null)
+            StateManager.Instance.SetHidingBreathSuppressed(false);
+
         ResetHidingSpot();
     }
 

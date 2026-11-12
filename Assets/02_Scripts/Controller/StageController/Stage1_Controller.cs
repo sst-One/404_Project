@@ -21,6 +21,8 @@ public class Stage1_Controller : MonoBehaviour
 
         if (elevatorButton != null)
         {
+            // 엘리베이터 버튼은 거리 제한 없이 바라보고 손동작으로 상호작용합니다.
+            elevatorButton.ignorePlayerDistanceLimit = true;
             elevatorButton.onInteractAction -= OnButtonReached;
             elevatorButton.onInteractAction += OnButtonReached;
         }

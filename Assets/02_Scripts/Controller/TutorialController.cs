@@ -9,7 +9,7 @@ public class TutorialController : MonoBehaviour
 
     private enum TutorialStep
     {
-        Intro, CameraSetup, Calibration, Rotation, Movement, Sensitivity, Freeze, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
+        Intro, CameraSetup, Calibration, Rotation, Movement, Sensitivity, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
     }
 
     private TutorialStep currentStep = TutorialStep.Intro;
@@ -18,6 +18,7 @@ public class TutorialController : MonoBehaviour
     public Transform leanTargetPoint;
     public InteractableItem testObject;
     public HidingSpotAction testHidingSpot;
+    [SerializeField] private TutorialFloorRoute hidingFloorRoute;
 
     [Header("Highlight Settings")]
     public Color highlightColor = new Color(1f, 0f, 0f, 0.5f);
@@ -40,10 +41,17 @@ public class TutorialController : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
+    private void OnDisable()
+    {
+        if (hidingFloorRoute != null) hidingFloorRoute.HideRoute();
+    }
+
     private void Start()
     {
         IsCameraLocked = true;
         _tutorialPlayer = GetTutorialPlayer();
+        if (hidingFloorRoute == null)
+            hidingFloorRoute = FindObjectOfType<TutorialFloorRoute>(true);
         highlightColor = Color.white;
 
         if (_tutorialPlayer != null)
@@ -55,7 +63,11 @@ public class TutorialController : MonoBehaviour
             testObject.interactOnlyOnce = false;
         }
 
-        if (testHidingSpot != null) testHidingSpot.isInteractable = false;
+        if (testHidingSpot != null)
+        {
+            testHidingSpot.isInteractable = false;
+            testHidingSpot.DisableObjectiveHighlight();
+        }
 
         SetTargetVisibility(leanTargetPoint, false);
         StartCoroutine(TutorialSequence());
@@ -168,29 +180,12 @@ public class TutorialController : MonoBehaviour
             UIManager.Instance.ShowSubtitle("[ESC]를 눌러 '조작 설정'에서 상하·좌우 회전 감도를 조절해보세요. 완료하면 메뉴를 닫으세요.");
         yield return StartCoroutine(WaitForSystemMenuOpenAndClose());
 
-        currentStep = TutorialStep.Freeze;
+        // 수동 숨참기 튜토리얼은 제거했습니다.
+        // 은신 중 호흡 억제/발각 완화 효과는 HidingSpotManager의 은신 상태를 통해
+        // PlayerController와 StateManager가 자동으로 처리합니다.
+        currentStep = TutorialStep.Interaction;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("숨을 참아야 할 때는 손으로 입을 가리세요. 손을 내리면 숨 참기가 해제됩니다. 먼저 3초간 유지해보세요.");
-
-        float freezeTimer = 0f;
-        while (currentStep == TutorialStep.Freeze)
-        {
-            if (GetTutorialPlayer() != null && GetTutorialPlayer().IsFreezeActive)
-            {
-                freezeTimer += Time.deltaTime;
-                if (freezeTimer >= 3.0f)
-                    currentStep = TutorialStep.Interaction;
-            }
-            else
-            {
-                freezeTimer = 0f;
-            }
-
-            yield return null;
-        }
-
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("흰색으로 빛나는 사물을 바라본 뒤, 손을 뻗어 상호작용하세요.");
+            UIManager.Instance.ShowSubtitle("흰색으로 빛나는 사물을 바라보세요. 손을 뻗은 상태에서 가볍게 주먹을 쥐었다가 다시 펴면 상호작용합니다.");
 
         bool interactionDone = false;
         System.Action interactCallback = () => { interactionDone = true; };
@@ -200,7 +195,6 @@ public class TutorialController : MonoBehaviour
             testObject.onInteractAction -= interactCallback;
             testObject.onInteractAction += interactCallback;
             testObject.EnableInteractionWithLight();
-            _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testObject.transform));
         }
 
         while (!interactionDone) yield return null;
@@ -210,7 +204,14 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.HidingEnter;
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 가까운 은신처를 바라보고 손을 뻗어 숨으세요.");
+            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 바닥의 흰색 안내선을 따라 은신처로 이동한 뒤, 은신처를 바라보고 상호작용하세요.");
+
+        if (hidingFloorRoute != null && testHidingSpot != null)
+        {
+            PlayerController routePlayer = GetTutorialPlayer();
+            hidingFloorRoute.SetTargets(routePlayer != null ? routePlayer.transform : null, testHidingSpot.transform);
+            hidingFloorRoute.ShowRoute();
+        }
 
         bool hidingEntered = false;
         System.Action hidingEnterCallback = () => { hidingEntered = true; };
@@ -220,11 +221,11 @@ public class TutorialController : MonoBehaviour
             testHidingSpot.onInteractAction -= hidingEnterCallback;
             testHidingSpot.onInteractAction += hidingEnterCallback;
             testHidingSpot.EnableInteractionWithLight();
-            _highlightCoroutine = StartCoroutine(PulseHighlightRoutine(testHidingSpot.transform));
         }
 
         while (!hidingEntered) yield return null;
         StopHighlight();
+        if (hidingFloorRoute != null) hidingFloorRoute.HideRoute();
 
         if (testHidingSpot != null) testHidingSpot.isInteractable = false;
 
@@ -242,7 +243,7 @@ public class TutorialController : MonoBehaviour
 
         if (testHidingSpot != null)
         {
-            testHidingSpot.isInteractable = true;
+            testHidingSpot.EnableInteractionWithLight();
             testHidingSpot.onInteractAction += hidingExitCallback;
         }
         else hidingExited = true;

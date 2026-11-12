@@ -34,7 +34,8 @@ public class HidingSpotAction : InteractableItem
 
     public override void OnInteract()
     {
-        // [핵심 롤백] 무조건 부모(InteractableItem)의 상태 관리를 먼저 통과시킵니다!
+        if (!isInteractable || _isTransitioning) return;
+        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking()) return;
         base.OnInteract();
 
         if (_isTransitioning) return;

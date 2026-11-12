@@ -44,6 +44,7 @@ public class PhoneController : InteractableItem
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        DisablePhoneFlashlight();
         HidePhone();
     }
 
@@ -78,6 +79,7 @@ public class PhoneController : InteractableItem
     {
         gameObject.SetActive(true);
         isInteractable = false;
+        DisablePhoneFlashlight();
 
         Camera targetCam = GetItemCamera();
         if (targetCam != null)
@@ -92,6 +94,13 @@ public class PhoneController : InteractableItem
             transform.localPosition = leftHandPosition;
             transform.localRotation = Quaternion.Euler(leftHandRotation);
         }
+    }
+
+    private void DisablePhoneFlashlight()
+    {
+        Transform flashlightProxy = transform.Find("PhoneFlashlightProxy");
+        if (flashlightProxy != null)
+            flashlightProxy.gameObject.SetActive(false);
     }
 
     public void HidePhone()
@@ -231,7 +240,7 @@ public class PhoneController : InteractableItem
         currentState = PhoneState.Calling;
         if (phoneUI != null) phoneUI.ShowCallingScreen();
 
-            if (sfxSource != null && AudioManager.Instance != null)
+        if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
             if (clip != null) { sfxSource.clip = clip; sfxSource.loop = true; sfxSource.Play(); }
@@ -278,7 +287,7 @@ public class PhoneController : InteractableItem
 
         currentState = PhoneState.Success;
         if (phoneUI != null) phoneUI.ShowPoliceCallScreen();
-            if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
+        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
         float voiceLength = 4.0f;
         if (voiceSource != null && AudioManager.Instance != null)

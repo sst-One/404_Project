@@ -23,8 +23,15 @@ public class TutorialFloorRoute : MonoBehaviour
         line = GetComponent<LineRenderer>();
         path = new NavMeshPath();
         line.useWorldSpace = true;
-        line.startWidth = lineWidth;
-        line.endWidth = lineWidth;
+        line.alignment = LineAlignment.View;
+        line.textureMode = LineTextureMode.Stretch;
+        line.numCornerVertices = 4;
+        line.numCapVertices = 4;
+        line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        line.receiveShadows = false;
+        line.sortingOrder = 20;
+        line.startWidth = Mathf.Max(0.10f, lineWidth);
+        line.endWidth = Mathf.Max(0.10f, lineWidth);
         line.startColor = routeColor;
         line.endColor = routeColor;
         line.positionCount = 0;
@@ -32,7 +39,14 @@ public class TutorialFloorRoute : MonoBehaviour
         if (line.sharedMaterial == null)
         {
             Shader shader = Shader.Find("Sprites/Default");
-            if (shader != null) line.material = new Material(shader);
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Unlit/Color");
+            if (shader != null)
+            {
+                Material routeMaterial = new Material(shader);
+                if (routeMaterial.HasProperty("_Color")) routeMaterial.SetColor("_Color", routeColor);
+                line.sharedMaterial = routeMaterial;
+            }
         }
     }
 
@@ -53,6 +67,7 @@ public class TutorialFloorRoute : MonoBehaviour
     public void ShowRoute()
     {
         if (player == null && PlayerController.Instance != null) player = PlayerController.Instance.transform;
+        timer = updateInterval;
         line.enabled = true;
         RefreshRoute();
     }
@@ -66,6 +81,8 @@ public class TutorialFloorRoute : MonoBehaviour
 
     private void RefreshRoute()
     {
+        if (line == null || !line.enabled) return;
+        if (player == null && PlayerController.Instance != null) player = PlayerController.Instance.transform;
         if (player == null || hidingSpot == null) { line.positionCount = 0; return; }
         NavMeshHit startHit, endHit;
         bool startOnMesh = NavMesh.SamplePosition(player.position, out startHit, 2f, NavMesh.AllAreas);

@@ -26,10 +26,13 @@ public class Stage5_6_Controller : MonoBehaviour
 
     private bool isBlackout = false;
     private bool hasFoundClue = false;
+    private DoorController[] _stageDoors;
+    private TutorialFloorRoute fuseBoxFloorRoute;
 
     private void Start()
     {
         _originalAmbientColor = RenderSettings.ambientLight;
+        _stageDoors = FindObjectsOfType<DoorController>(true);
 
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
@@ -56,6 +59,7 @@ public class Stage5_6_Controller : MonoBehaviour
     {
         if (fuseBox != null) fuseBox.onInteractAction -= OnFuseBoxReached;
         if (clueItem != null) clueItem.onInteractAction -= OnClueFound;
+        HideFuseBoxFloorRoute();
     }
 
     private IEnumerator Day3IntroSequence()
@@ -108,6 +112,11 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
 
+        // Door.prefab의 각 문짝 DoorController가 기본 isInteractable=false로 저장되어 있어
+        // 정전 이후 이 씬의 문 상호작용을 명시적으로 복구합니다.
+        EnableStageDoorInteractions();
+        ShowFuseBoxFloorRoute();
+
         if (affectAmbientLight) RenderSettings.ambientLight = Color.black;
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(2);
 
@@ -129,9 +138,59 @@ public class Stage5_6_Controller : MonoBehaviour
         if (fuseBox != null) fuseBox.EnableInteractionWithLight();
     }
 
+
+    private void EnableStageDoorInteractions()
+    {
+        if (_stageDoors == null || _stageDoors.Length == 0)
+            _stageDoors = FindObjectsOfType<DoorController>(true);
+
+        if (_stageDoors.Length == 0)
+            Debug.LogWarning("[Stage5_6_Controller] 현재 씬에서 DoorController를 찾지 못했습니다.");
+        else
+            Debug.Log($"[Stage5_6_Controller] 정전 후 문 상호작용 복구 대상: {_stageDoors.Length}개");
+
+        foreach (DoorController door in _stageDoors)
+        {
+            if (door == null || !door.gameObject.scene.IsValid()) continue;
+            door.interactOnlyOnce = false;
+            door.isInteractable = true;
+            Collider[] colliders = door.GetComponentsInChildren<Collider>(true);
+            foreach (Collider col in colliders)
+                if (col != null) col.enabled = true;
+        }
+    }
+
+    private void ShowFuseBoxFloorRoute()
+    {
+        if (fuseBox == null || PlayerController.Instance == null) return;
+
+        if (fuseBoxFloorRoute == null)
+        {
+            GameObject routeObject = new GameObject("Stage5_6_FuseBoxFloorRoute");
+            routeObject.transform.SetParent(transform, false);
+            LineRenderer line = routeObject.AddComponent<LineRenderer>();
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            line.alignment = LineAlignment.View;
+            line.textureMode = LineTextureMode.Stretch;
+            line.numCapVertices = 4;
+            fuseBoxFloorRoute = routeObject.AddComponent<TutorialFloorRoute>();
+        }
+
+        fuseBoxFloorRoute.SetTargets(PlayerController.Instance.transform, fuseBox.transform);
+        fuseBoxFloorRoute.ShowRoute();
+    }
+
+    private void HideFuseBoxFloorRoute()
+    {
+        if (fuseBoxFloorRoute != null)
+            fuseBoxFloorRoute.HideRoute();
+    }
+
     private void OnFuseBoxReached()
     {
         if (!isBlackout) return;
+        HideFuseBoxFloorRoute();
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(fuseBoxClipName, AudioManager.Instance.sfxMixerGroup);
 
         if (fuseBox != null)

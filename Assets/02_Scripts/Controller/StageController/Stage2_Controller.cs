@@ -49,6 +49,13 @@ public class Stage2_Controller : MonoBehaviour
     {
         yield return new WaitForSeconds(1.0f);
 
+        // TV 뉴스 재생 연출 중에는 이동과 시점 입력을 모두 잠급니다.
+        if (PlayerController.Instance != null)
+        {
+            PlayerController.Instance.SetMovementLock(true);
+            PlayerController.Instance.SetCameraLock(true);
+        }
+
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayGlobal2D("SND-008_TvOn_OneShot", AudioManager.Instance.sfxMixerGroup, 0.8f);
 
@@ -67,12 +74,8 @@ public class Stage2_Controller : MonoBehaviour
             playDuration = tvNewsSource.clip.length;
         }
 
-        FirstPersonCameraLook cameraLookScript = null;
         if (PlayerController.Instance != null && PlayerController.Instance.CamLook != null)
         {
-            cameraLookScript = PlayerController.Instance.CamLook;
-            cameraLookScript.enabled = false;
-
             Camera cam = PlayerController.Instance.mainCamera;
             if (cam != null && tvLookTarget != null)
             {
@@ -103,8 +106,12 @@ public class Stage2_Controller : MonoBehaviour
 
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(fadeDuration));
 
-        if (cameraLookScript != null) cameraLookScript.enabled = true;
+        if (GameFlowManager.Instance != null)
+            GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
 
-        if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
+        // 이 Stage2_Controller는 씬 언로드 시 함께 파괴되므로 여기서 다음 씬을
+        // 기다리며 잠금을 해제하면 코루틴이 중간에 중단될 수 있습니다.
+        // 영속 GameFlowManager가 04_Stage3_4를 Active Scene으로 전환한 직후
+        // 이동/카메라 잠금을 해제합니다.
     }
 }

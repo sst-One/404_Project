@@ -37,31 +37,49 @@ public class PhoneController : InteractableItem
 
     public event Action onCallSuccess;
     private bool _isInteracting = false;
+    private Vector3 _phoneInitialLocalScale;
+    private bool _hasCachedPhoneInitialScale;
 
     private void Awake()
     {
+        // 프리팹에 처음 설정된 휴대폰 로컬 스케일을 기준값으로 보존합니다.
+        // 월드 스케일을 매번 환산하면 씬/카메라 부모 스케일 변화가 누적된 것처럼
+        // 로컬 스케일이 달라질 수 있으므로, 원래 설정값을 그대로 복원합니다.
+        CachePhoneInitialScale();
+
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        DontDestroyOnLoad(gameObject);
 
-        DisablePhoneFlashlight();
-        HidePhone();
-    }
+        // Item_Phone은 Player 프리팹 내부의 자식 오브젝트입니다.
+        // DontDestroyOnLoad는 루트 오브젝트에 적용해야 하므로 플레이어 루트를 유지합니다.
+        GameObject persistenceRoot = transform.root != null ? transform.root.gameObject : gameObject;
+        if (persistenceRoot != null && persistenceRoot.scene.IsValid())
+            DontDestroyOnLoad(persistenceRoot);
 
-    private void Start()
-    {
+        // Phone은 처음에는 숨기되, ShowPhoneInHand로 다시 활성화된 뒤
+        // Start에서 Idle 상태를 이유로 자신을 다시 비활성화하지 않도록 합니다.
         interactOnlyOnce = false;
-
-        if (currentState == PhoneState.Idle)
-        {
-            HidePhone();
-        }
+        HidePhone();
     }
 
     public override void OnInteract()
     {
+        // 휴대폰은 바닥에 떨어져 회수 가능한 상태일 때만 상호작용을 처리합니다.
+        if (currentState != PhoneState.Dropped || !isInteractable)
+            return;
+
+        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
+            return;
+
         base.OnInteract();
         OnPhoneReached();
+    }
+
+    private void CachePhoneInitialScale()
+    {
+        if (_hasCachedPhoneInitialScale) return;
+        _phoneInitialLocalScale = transform.localScale;
+        _hasCachedPhoneInitialScale = true;
     }
 
     private Camera GetItemCamera()
@@ -79,13 +97,15 @@ public class PhoneController : InteractableItem
     {
         gameObject.SetActive(true);
         isInteractable = false;
-        DisablePhoneFlashlight();
 
         Camera targetCam = GetItemCamera();
         if (targetCam != null)
         {
-            // [결함 2 픽스 관련] 기획자님 지시대로 SetParent(..., false) 등 스케일 보정 로직 모두 롤백
-            transform.SetParent(targetCam.transform);
+            // 카메라에 재부모화할 때마다 프리팹에 처음 설정된 로컬 스케일을 복원합니다.
+            // 이전 스테이지의 부모/월드 스케일을 기준으로 재계산하지 않아 크기 변화가 누적되지 않습니다.
+            transform.SetParent(targetCam.transform, false);
+            CachePhoneInitialScale();
+            transform.localScale = _phoneInitialLocalScale;
             gameObject.layer = LayerMask.NameToLayer("FP_Item");
             foreach (Transform child in GetComponentsInChildren<Transform>(true))
             {
@@ -94,13 +114,6 @@ public class PhoneController : InteractableItem
             transform.localPosition = leftHandPosition;
             transform.localRotation = Quaternion.Euler(leftHandRotation);
         }
-    }
-
-    private void DisablePhoneFlashlight()
-    {
-        Transform flashlightProxy = transform.Find("PhoneFlashlightProxy");
-        if (flashlightProxy != null)
-            flashlightProxy.gameObject.SetActive(false);
     }
 
     public void HidePhone()
@@ -122,6 +135,12 @@ public class PhoneController : InteractableItem
     public void TriggerDrop(Transform targetFloorPoint)
     {
         if (currentState != PhoneState.Idle) return;
+        if (targetFloorPoint == null)
+        {
+            Debug.LogError("[PhoneController] 휴대폰 낙하 위치(phoneDropTarget)가 연결되지 않았습니다.", this);
+            return;
+        }
+
         gameObject.SetActive(true);
         StartCoroutine(DropRoutine(targetFloorPoint));
     }
@@ -155,13 +174,32 @@ public class PhoneController : InteractableItem
         transform.rotation = endRot;
         currentState = PhoneState.Dropped;
 
-        gameObject.layer = LayerMask.NameToLayer("Interactable");
-        foreach (Transform child in GetComponentsInChildren<Transform>(true))
+        int interactableLayer = LayerMask.NameToLayer("Interactable");
+        if (interactableLayer >= 0)
         {
-            child.gameObject.layer = LayerMask.NameToLayer("Interactable");
+            gameObject.layer = interactableLayer;
+            foreach (Transform child in GetComponentsInChildren<Transform>(true))
+                child.gameObject.layer = interactableLayer;
+        }
+        else
+        {
+            Debug.LogError("[PhoneController] 'Interactable' 레이어를 찾을 수 없습니다. PlayerController의 전용 휴대폰 탐색은 계속 사용할 수 있습니다.", this);
         }
 
-        isInteractable = true;
+        // 휴대폰의 루트/자식 Collider가 모두 탐색 대상이 되도록 복구합니다.
+        Collider[] phoneColliders = GetComponentsInChildren<Collider>(true);
+        foreach (Collider phoneCollider in phoneColliders)
+        {
+            if (phoneCollider != null)
+                phoneCollider.enabled = true;
+        }
+
+        Physics.SyncTransforms();
+
+        // 단순히 bool만 켜면 상호작용 메시 발광 초기화가 누락될 수 있으므로
+        // 공통 활성화 함수를 호출해 Collider와 메시 발광을 함께 복구합니다.
+        EnableInteractionWithLight();
+
         StartVibration();
         if (phoneUI != null) phoneUI.ShowDefaultScreen();
     }
@@ -240,7 +278,7 @@ public class PhoneController : InteractableItem
         currentState = PhoneState.Calling;
         if (phoneUI != null) phoneUI.ShowCallingScreen();
 
-        if (sfxSource != null && AudioManager.Instance != null)
+            if (sfxSource != null && AudioManager.Instance != null)
         {
             AudioClip clip = AudioManager.Instance.GetClip(dialingClipName);
             if (clip != null) { sfxSource.clip = clip; sfxSource.loop = true; sfxSource.Play(); }
@@ -287,7 +325,7 @@ public class PhoneController : InteractableItem
 
         currentState = PhoneState.Success;
         if (phoneUI != null) phoneUI.ShowPoliceCallScreen();
-        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
+            if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
         float voiceLength = 4.0f;
         if (voiceSource != null && AudioManager.Instance != null)

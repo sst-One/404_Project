@@ -4,6 +4,9 @@ using UnityEngine;
 // InteractableItem 상속
 public class DoorController : InteractableItem
 {
+    // 문은 상호작용 가능 상태가 되더라도 목표 오브젝트처럼 발광하지 않습니다.
+    protected override bool CanShowInteractionGlow => false;
+
     [Header("Door Settings")]
     public Transform doorTargetTransform;
     public float moveDuration = 0.5f;

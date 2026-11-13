@@ -10,10 +10,12 @@ public class InteractableItem : MonoBehaviour, IInteractable
     [Header("오브젝트 정보")]
     public string itemName = "Test Object";
     public bool isInteractable = true;
-    [Tooltip("엘리베이터 버튼처럼 거리 제한 없이 시선으로만 대상 지정해야 하는 경우에만 활성화합니다.")]
-    public bool ignorePlayerDistanceLimit = false;
     public bool interactOnlyOnce = true;
     public bool destroyOnPickup = false;
+
+    [Header("상호작용 거리 설정")]
+    [Tooltip("활성화하면 플레이어와의 거리 제한을 무시하고 화면 중앙 조준으로만 상호작용합니다. 엘리베이터 버튼 전용으로 사용합니다.")]
+    public bool ignorePlayerDistanceLimit = false;
 
     [Header("메시 자체 발광")]
     public Color interactionGlowColor = Color.white;
@@ -33,7 +35,9 @@ public class InteractableItem : MonoBehaviour, IInteractable
     {
         public Renderer renderer;
         public int materialIndex;
+        public Material material;
         public Color originalEmission;
+        public bool originalEmissionKeywordEnabled;
     }
 
     private readonly List<GlowMaterial> _glowMaterials = new List<GlowMaterial>();
@@ -42,9 +46,11 @@ public class InteractableItem : MonoBehaviour, IInteractable
     private MaterialPropertyBlock _glowBlock;
     private Coroutine _glowCoroutine;
     private bool _glowActive;
-    // 스테이지 진행상 현재 목표로 지정된 경우에만 포커스 발광을 허용합니다.
-    private bool _objectiveHighlightArmed;
     private static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
+
+    // 상호작용 가능 여부와 강조 발광 여부는 별개의 상태입니다.
+    // 문처럼 조작은 가능하지만 빛나면 안 되는 오브젝트는 파생 클래스에서 false로 지정합니다.
+    protected virtual bool CanShowInteractionGlow => true;
 
     private void Awake()
     {
@@ -54,20 +60,16 @@ public class InteractableItem : MonoBehaviour, IInteractable
     private void Start()
     {
         EnsureGlowBlock();
-        CacheGlowMaterials();
-        // 발광은 상호작용 대상이 실제로 포커스된 동안에만 켭니다.
-        // isInteractable만으로 시작 시 발광하지 않습니다.
+        if (CanShowInteractionGlow && isInteractable) StartMeshGlow();
+        else StopMeshGlow();
     }
 
     private void Update()
     {
-        // 상호작용 가능 여부만으로는 발광하지 않습니다.
-        // 스테이지 진행 스크립트가 현재 목표로 지정했고, 플레이어가 실제로 바라볼 때만 발광합니다.
-        bool shouldGlow = _objectiveHighlightArmed && isInteractable;
-
-        if (shouldGlow && !_glowActive)
+        // 상호작용 상태와 발광 허용 상태를 모두 확인합니다.
+        if (CanShowInteractionGlow && isInteractable && !_glowActive)
             StartMeshGlow();
-        else if (!shouldGlow && _glowActive)
+        else if ((!CanShowInteractionGlow || !isInteractable) && _glowActive)
             StopMeshGlow();
     }
 
@@ -76,19 +78,8 @@ public class InteractableItem : MonoBehaviour, IInteractable
         StopMeshGlow();
     }
 
-    public virtual void OnFocusEnter()
-    {
-        IsFocused = true;
-        if (_objectiveHighlightArmed && isInteractable)
-            StartMeshGlow();
-    }
-
-    public virtual void OnFocusExit()
-    {
-        IsFocused = false;
-        // 목표 단계가 계속되는 동안에는 시선을 돌려도 발광을 유지합니다.
-        // 목표 종료/상호작용 완료는 DisableObjectiveHighlight 또는 OnInteract에서 처리합니다.
-    }
+    public virtual void OnFocusEnter() { IsFocused = true; }
+    public virtual void OnFocusExit() { IsFocused = false; }
     public virtual void OnReadyStateReached() { }
 
     public virtual void OnInteract()
@@ -101,7 +92,6 @@ public class InteractableItem : MonoBehaviour, IInteractable
         if (StateManager.Instance != null) StateManager.Instance.AddNoise(0.15f);
 
         StopMeshGlow();
-        _objectiveHighlightArmed = false;
         DisableChildPulseLights();
 
         onInteractEvent?.Invoke();
@@ -122,17 +112,20 @@ public class InteractableItem : MonoBehaviour, IInteractable
     {
         _hasInteracted = false;
         isInteractable = true;
-        _objectiveHighlightArmed = false;
-        // 단순 재활성화는 목표 지정이 아니므로 발광하지 않습니다.
+        StartMeshGlow();
+    }
+
+    /// <summary>상호작용 대상의 메시 발광과 자식 PulseLight 강조를 즉시 종료합니다.</summary>
+    public void DisableInteractionGlow()
+    {
         StopMeshGlow();
+        DisableChildPulseLights();
     }
 
     public void EnableInteractionWithLight()
     {
         _hasInteracted = false;
         isInteractable = true;
-        // 이 메서드는 스테이지 진행상 지금 상호작용해야 하는 목표를 지정할 때 호출합니다.
-        _objectiveHighlightArmed = true;
 
         Collider[] colliders = GetComponentsInChildren<Collider>(true);
         foreach (Collider col in colliders)
@@ -140,20 +133,10 @@ public class InteractableItem : MonoBehaviour, IInteractable
 
         // 주변을 비추는 Point Light는 사용하지 않고, 상호작용 대상의 메시 자체를 발광시킵니다.
         DisableChildPulseLights();
-        StopMeshGlow();
+        StartMeshGlow();
 
         Animator anim = GetComponent<Animator>();
         if (anim != null) anim.enabled = false;
-    }
-
-    /// <summary>
-    /// 현재 단계의 목표에서 제외합니다. 이후 포커스되어도 발광하지 않습니다.
-    /// 상호작용 자체를 비활성화하지는 않으므로 필요하면 isInteractable을 별도로 설정하세요.
-    /// </summary>
-    public void DisableObjectiveHighlight()
-    {
-        _objectiveHighlightArmed = false;
-        StopMeshGlow();
     }
 
     private void DisableChildPulseLights()
@@ -178,21 +161,21 @@ public class InteractableItem : MonoBehaviour, IInteractable
         foreach (Renderer targetRenderer in renderers)
         {
             if (targetRenderer == null) continue;
-            Material[] materials = targetRenderer.sharedMaterials;
+            // materials는 렌더러별 인스턴스를 반환하므로 한 오브젝트의 발광 설정이
+            // 같은 Shared Material을 쓰는 다른 오브젝트에 번지지 않습니다.
+            Material[] materials = targetRenderer.materials;
             for (int i = 0; i < materials.Length; i++)
             {
                 Material material = materials[i];
                 if (material == null || !material.HasProperty(EmissionColorId)) continue;
 
-                if (!material.IsKeywordEnabled("_EMISSION"))
-                    material.EnableKeyword("_EMISSION");
-
-                Color baseColor = material.GetColor(EmissionColorId);
                 _glowMaterials.Add(new GlowMaterial
                 {
                     renderer = targetRenderer,
                     materialIndex = i,
-                    originalEmission = baseColor
+                    material = material,
+                    originalEmission = material.GetColor(EmissionColorId),
+                    originalEmissionKeywordEnabled = material.IsKeywordEnabled("_EMISSION")
                 });
             }
         }
@@ -200,11 +183,23 @@ public class InteractableItem : MonoBehaviour, IInteractable
 
     private void StartMeshGlow()
     {
+        if (!CanShowInteractionGlow)
+        {
+            StopMeshGlow();
+            return;
+        }
+
         EnsureGlowBlock();
         if (_glowActive) return;
         if (_glowMaterials.Count == 0) CacheGlowMaterials();
 
         _glowActive = true;
+        for (int i = 0; i < _glowMaterials.Count; i++)
+        {
+            Material material = _glowMaterials[i].material;
+            if (material != null) material.EnableKeyword("_EMISSION");
+        }
+
         if (_glowCoroutine == null && _glowMaterials.Count > 0)
             _glowCoroutine = StartCoroutine(MeshGlowRoutine());
     }
@@ -261,6 +256,10 @@ public class InteractableItem : MonoBehaviour, IInteractable
             entry.renderer.GetPropertyBlock(_glowBlock, entry.materialIndex);
             _glowBlock.SetColor(EmissionColorId, entry.originalEmission);
             entry.renderer.SetPropertyBlock(_glowBlock, entry.materialIndex);
+
+            // 강조 표시가 끝나면 원래 Emission Keyword 상태까지 되돌립니다.
+            if (entry.material != null && !entry.originalEmissionKeywordEnabled)
+                entry.material.DisableKeyword("_EMISSION");
         }
     }
 }

@@ -84,7 +84,7 @@ public class GameFlowManager : MonoBehaviour
             }
             else
             {
-                playerRig.localScale = new Vector3(0.15f, 0.17f, 0.15f);
+                playerRig.localScale = new Vector3(0.2f, 0.22f, 0.2f);
             }
         }
 

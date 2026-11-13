@@ -14,8 +14,8 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 1.3f;
-    public float gazeRadius = 0.2f;
+    public float maxGazeDistance = 0.75f;
+    public float gazeRadius = 0.18f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
     public float readyTimeThreshold = 0.25f;
@@ -23,6 +23,9 @@ public class PlayerController : MonoBehaviour
     public float interactionAssistDistance = 2f;
     [Tooltip("카메라 정면 상호작용 직선의 반경(m). BoxCollider가 이 두꺼운 직선에 닿으면 감지됩니다.")]
     public float interactionAssistRadius = 0.3f;
+    [Header("Dropped Phone Interaction")]
+    [Tooltip("스테이지 8~11에서 바닥에 떨어진 휴대폰 전용 최대 탐색 거리(m). 일반 물체의 상호작용 거리는 변경하지 않습니다.")]
+    [Min(0.1f)] public float droppedPhoneInteractionDistance = 2.5f;
     [Tooltip("거리 제한 예외가 지정된 엘리베이터 버튼을 시선으로 탐색할 최대 거리")]
     [Min(1f)] public float distanceIndependentScanDistance = 100f;
 
@@ -318,9 +321,132 @@ public class PlayerController : MonoBehaviour
             }
         }
 
+        // 떨어진 휴대폰은 바닥에 놓이는 위치 특성상 일반 물체의 짧은 탐색 거리
+        // (maxGazeDistance)에 걸릴 수 있으므로 별도 거리로 한 번 더 탐색합니다.
+        // 이 예외는 PhoneController + Dropped 상태에만 적용하며 다른 물체와
+        // 엘리베이터 버튼의 거리 규칙은 변경하지 않습니다.
+        // 휴대폰은 바닥에 놓인 작은 오브젝트라 일반 targetMask / SphereCast 결과에
+        // 의존하면 레이어나 바닥 충돌에 의해 누락될 수 있습니다. 전용 판정은 매 프레임
+        // 독립적으로 실행하고, 실제 PhoneController가 Dropped 상태일 때만 포커스합니다.
+        float phoneScanDistance = Mathf.Max(normalInteractionDistance, droppedPhoneInteractionDistance);
+        if (TryFocusDroppedPhone(ray, castRadius, phoneScanDistance))
+            return;
+
         bool floorWasValid = IsFloorValid;
         ClearAllFocus();
         IsFloorValid = floorWasValid;
+    }
+
+    private bool TryFocusDroppedPhone(Ray ray, float castRadius, float scanDistance)
+    {
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null)
+        {
+            PhoneController[] phones = FindObjectsOfType<PhoneController>(true);
+            for (int i = 0; i < phones.Length; i++)
+            {
+                if (phones[i] != null && phones[i].currentState == PhoneState.Dropped)
+                {
+                    phone = phones[i];
+                    break;
+                }
+            }
+        }
+
+        if (phone == null || phone.currentState != PhoneState.Dropped ||
+            !phone.isInteractable || !phone.gameObject.activeInHierarchy ||
+            phone.ignorePlayerDistanceLimit)
+            return false;
+
+        // Collider가 비활성화되었거나 Interactable 레이어가 누락된 경우에도
+        // 휴대폰의 실제 Renderer bounds를 기준으로 시선 접근을 판정합니다.
+        Renderer[] renderers = phone.GetComponentsInChildren<Renderer>(true);
+        Bounds phoneBounds = new Bounds(phone.transform.position, Vector3.one * 0.15f);
+        bool hasBounds = false;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer targetRenderer = renderers[i];
+            if (targetRenderer == null || !targetRenderer.enabled ||
+                !targetRenderer.gameObject.activeInHierarchy)
+                continue;
+
+            if (!hasBounds)
+            {
+                phoneBounds = targetRenderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                phoneBounds.Encapsulate(targetRenderer.bounds);
+            }
+        }
+
+        Collider[] phoneColliders = phone.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < phoneColliders.Length; i++)
+        {
+            Collider phoneCollider = phoneColliders[i];
+            if (phoneCollider == null || !phoneCollider.enabled ||
+                !phoneCollider.gameObject.activeInHierarchy)
+                continue;
+
+            if (!hasBounds)
+            {
+                phoneBounds = phoneCollider.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                phoneBounds.Encapsulate(phoneCollider.bounds);
+            }
+        }
+
+        Vector3 boundsCenter = hasBounds ? phoneBounds.center : phone.transform.position;
+        float projection = Vector3.Dot(boundsCenter - ray.origin, ray.direction);
+        if (projection < 0f || projection > scanDistance)
+            return false;
+
+        Vector3 pointOnRay = ray.GetPoint(projection);
+        Vector3 targetPoint = hasBounds ? phoneBounds.ClosestPoint(pointOnRay) : boundsCenter;
+        float lateralDistance = Vector3.Distance(pointOnRay, targetPoint);
+
+        // 휴대폰의 크기만큼의 여유를 두되, 화면 중앙에서 지나치게 벗어난 물체는 선택하지 않습니다.
+        float allowedLateralDistance = castRadius + 0.05f;
+        if (lateralDistance > allowedLateralDistance)
+            return false;
+
+        Vector3 toTarget = targetPoint - ray.origin;
+        float targetDistance = toTarget.magnitude;
+        if (targetDistance > scanDistance)
+            return false;
+
+        // 바닥에 놓인 휴대폰은 바닥(Walkable) 콜라이더가 시야 판정을 가로막을 수 있습니다.
+        // 휴대폰 자신과 Walkable은 무시하고, 그 외 장애물만 실제 가림 물체로 처리합니다.
+        if (targetDistance > 0.001f && obstacleMask.value != 0)
+        {
+            RaycastHit[] blockers = Physics.RaycastAll(
+                ray.origin,
+                toTarget.normalized,
+                Mathf.Max(0f, targetDistance - 0.01f),
+                obstacleMask,
+                QueryTriggerInteraction.Ignore);
+
+            int walkableLayer = LayerMask.NameToLayer("Walkable");
+            for (int i = 0; i < blockers.Length; i++)
+            {
+                Collider blocker = blockers[i].collider;
+                if (blocker == null) continue;
+                if (blocker.transform == phone.transform || blocker.transform.IsChildOf(phone.transform))
+                    continue;
+                if (walkableLayer >= 0 && blocker.gameObject.layer == walkableLayer)
+                    continue;
+
+                return false;
+            }
+        }
+
+        ProcessTargetHover(phone);
+        return true;
     }
 
     private void ProcessTargetHover(InteractableItem interactable)

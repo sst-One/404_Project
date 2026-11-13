@@ -18,30 +18,25 @@ public class EndingController : MonoBehaviour
     public AudioSource endingBgmSource;
     public string endingBgmClipName = "SND-065_EndingTheme_Loop";
 
-    [Header("Return to Title")]
-    [Min(0f)] public float returnButtonDelay = 10f;
-    public string returnButtonLabel = "게임 시작 화면으로 돌아가기";
-
     private PlayerController _playerController;
     private FirstPersonCameraLook _cameraLook;
     private bool _playerControllerWasEnabled;
     private bool _cameraLookWasEnabled;
     private bool _controlsLocked;
     private bool _isReturningToTitle;
-    private GameObject _returnButtonObject;
+    private Coroutine _endingRoutine;
+    private GameObject _skipButtonObject;
 
     private void Start()
     {
         LockPlayerControls();
 
         // 엔딩에 도달하면 이어하기 저장 데이터를 제거합니다.
-        // GameFlowManager에서도 Stage13_Ending 저장을 차단해 재저장을 방지합니다.
         if (GameFlowManager.Instance != null)
             GameFlowManager.Instance.ResetSavedGameProgress();
 
         StartEndingMusic();
-        StartCoroutine(EndingSequenceRoutine());
-        StartCoroutine(ShowReturnButtonRoutine());
+        _endingRoutine = StartCoroutine(EndingSequenceRoutine());
     }
 
     private void LockPlayerControls()
@@ -61,7 +56,7 @@ public class EndingController : MonoBehaviour
         if (_cameraLook != null)
             _cameraLookWasEnabled = _cameraLook.enabled;
 
-        // 락 플래그만으로 막히지 않는 상호작용 입력까지 차단합니다.
+        // 락 플래그로 차단되지 않는 상호작용 입력까지 막습니다.
         if (_playerController != null)
             _playerController.enabled = false;
         if (_cameraLook != null)
@@ -110,7 +105,7 @@ public class EndingController : MonoBehaviour
 
     private IEnumerator EndingSequenceRoutine()
     {
-        // 기존 엔딩 씬의 타이틀 페이드 효과를 유지합니다.
+        // 기존 엔딩 타이틀 페이드 연출을 유지합니다.
         if (titleCanvasGroup != null)
         {
             titleCanvasGroup.alpha = 1f;
@@ -131,14 +126,28 @@ public class EndingController : MonoBehaviour
             titleCanvasGroup.alpha = 0f;
         }
 
-        // 기존 엔딩 씬의 크레딧 스크롤 설정을 유지합니다.
+        // 크레딧이 시작되는 시점에 언제든 메인 화면으로 이동할 수 있는 스킵 버튼을 표시합니다.
+        CreateSkipButton();
+
+        // 크레딧 전체가 화면 위로 완전히 빠져나갈 때까지 스크롤합니다.
         if (creditsRectTransform != null && creditScrollSpeed > 0f)
         {
+            TMP_Text creditsText = creditsRectTransform.GetComponent<TMP_Text>();
+            if (creditsText != null)
+                creditsText.ForceMeshUpdate();
+
+            // RectTransform 높이가 짧게 설정되어 있어도 실제 텍스트 전체 높이를 기준으로
+            // 스크롤 종료 지점을 계산해 마지막 줄까지 화면 밖으로 이동시킵니다.
+            float contentHeight = creditsRectTransform.rect.height;
+            if (creditsText != null)
+                contentHeight = Mathf.Max(contentHeight, creditsText.preferredHeight);
+
             float targetY = Mathf.Approximately(overrideTargetY, 0f)
-                ? Screen.height + creditsRectTransform.rect.height
+                ? Screen.height + contentHeight
                 : overrideTargetY;
 
-            while (creditsRectTransform.anchoredPosition.y < targetY)
+            while (creditsRectTransform != null &&
+                   creditsRectTransform.anchoredPosition.y < targetY)
             {
                 Vector2 position = creditsRectTransform.anchoredPosition;
                 position.y = Mathf.Min(targetY, position.y + creditScrollSpeed * Time.unscaledDeltaTime);
@@ -146,91 +155,71 @@ public class EndingController : MonoBehaviour
                 yield return null;
             }
         }
+        else if (creditsRectTransform == null)
+        {
+            Debug.LogWarning("[EndingController] 크레딧 RectTransform이 연결되지 않아 크레딧 스크롤을 건너뜁니다.", this);
+        }
 
-        // 크레딧 종료 후 자동으로 타이틀로 이동하지 않습니다.
-        // 사용자가 10초 후 표시되는 버튼을 눌러 직접 돌아갑니다.
+        // 기존 씬 설정의 endDelay(기본 3초)를 유지한 뒤 자동으로 메인 화면으로 복귀합니다.
         if (endDelay > 0f)
             yield return new WaitForSecondsRealtime(endDelay);
+
+        ReturnToTitle();
     }
 
-    private IEnumerator ShowReturnButtonRoutine()
+    private void CreateSkipButton()
     {
-        yield return new WaitForSecondsRealtime(Mathf.Max(0f, returnButtonDelay));
-        if (!_isReturningToTitle)
-            CreateReturnButton();
-    }
+        if (_skipButtonObject != null || creditsRectTransform == null) return;
 
-    private void CreateReturnButton()
-    {
-        Canvas canvas = FindObjectOfType<Canvas>(true);
+        Canvas canvas = creditsRectTransform.GetComponentInParent<Canvas>();
         if (canvas == null)
         {
-            Debug.LogError("[EndingController] 엔딩 씬에서 버튼을 배치할 Canvas를 찾지 못했습니다.");
+            Debug.LogWarning("[EndingController] 엔딩 Canvas를 찾지 못해 크레딧 스킵 버튼을 만들 수 없습니다.", this);
             return;
         }
 
-        // 09_Ending.unity의 Canvas RectTransform은 원본 파일에서 localScale이 (0, 0, 0)입니다.
-        // 이 상태에서 자식으로 버튼을 생성하면 버튼도 월드 스케일이 0이 되어 보이지 않습니다.
-        // 버튼 생성 전에 Canvas 스케일을 정상화합니다.
-        RectTransform canvasRect = canvas.GetComponent<RectTransform>();
-        if (canvasRect != null && (Mathf.Approximately(canvasRect.localScale.x, 0f) ||
-                                   Mathf.Approximately(canvasRect.localScale.y, 0f) ||
-                                   Mathf.Approximately(canvasRect.localScale.z, 0f)))
-        {
-            canvasRect.localScale = Vector3.one;
-            Debug.LogWarning("[EndingController] 엔딩 Canvas의 스케일이 0이어서 Vector3.one으로 복구했습니다.");
-        }
+        _skipButtonObject = new GameObject("Credits_SkipButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        RectTransform buttonRect = _skipButtonObject.GetComponent<RectTransform>();
+        buttonRect.SetParent(canvas.transform, false);
+        buttonRect.anchorMin = new Vector2(1f, 0f);
+        buttonRect.anchorMax = new Vector2(1f, 0f);
+        buttonRect.pivot = new Vector2(1f, 0f);
+        buttonRect.sizeDelta = new Vector2(190f, 64f);
+        buttonRect.anchoredPosition = new Vector2(-48f, 48f);
 
-        canvas.gameObject.SetActive(true);
-        _returnButtonObject = new GameObject("ReturnToTitleButton", typeof(RectTransform), typeof(Image), typeof(Button));
-        RectTransform rect = _returnButtonObject.GetComponent<RectTransform>();
-        rect.SetParent(canvas.transform, false);
-        rect.SetAsLastSibling();
-        rect.localScale = Vector3.one;
-        rect.anchorMin = new Vector2(0.5f, 0f);
-        rect.anchorMax = new Vector2(0.5f, 0f);
-        rect.pivot = new Vector2(0.5f, 0f);
-        rect.anchoredPosition = new Vector2(0f, 90f);
-        rect.sizeDelta = new Vector2(460f, 78f);
+        Image background = _skipButtonObject.GetComponent<Image>();
+        background.color = new Color(0.06f, 0.06f, 0.06f, 0.88f);
+        background.raycastTarget = true;
 
-        Image image = _returnButtonObject.GetComponent<Image>();
-        image.color = new Color(0.12f, 0.12f, 0.12f, 0.94f);
-
-        Button button = _returnButtonObject.GetComponent<Button>();
-        button.targetGraphic = image;
-        button.transition = Selectable.Transition.ColorTint;
-        button.colors = new ColorBlock
-        {
-            normalColor = new Color(0.18f, 0.18f, 0.18f, 0.96f),
-            highlightedColor = new Color(0.32f, 0.32f, 0.32f, 1f),
-            pressedColor = new Color(0.08f, 0.08f, 0.08f, 1f),
-            selectedColor = new Color(0.32f, 0.32f, 0.32f, 1f),
-            disabledColor = new Color(0.15f, 0.15f, 0.15f, 0.5f),
-            colorMultiplier = 1f,
-            fadeDuration = 0.1f
-        };
+        Button button = _skipButtonObject.GetComponent<Button>();
+        button.targetGraphic = background;
+        button.navigation = new Navigation { mode = Navigation.Mode.None };
+        ColorBlock colors = button.colors;
+        colors.normalColor = new Color(1f, 1f, 1f, 1f);
+        colors.highlightedColor = new Color(0.82f, 0.9f, 1f, 1f);
+        colors.pressedColor = new Color(0.65f, 0.75f, 0.9f, 1f);
+        button.colors = colors;
         button.onClick.AddListener(ReturnToTitle);
 
-        GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
+        GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
         RectTransform labelRect = labelObject.GetComponent<RectTransform>();
-        labelRect.SetParent(rect, false);
+        labelRect.SetParent(buttonRect, false);
         labelRect.anchorMin = Vector2.zero;
         labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = Vector2.zero;
-        labelRect.offsetMax = Vector2.zero;
+        labelRect.offsetMin = new Vector2(8f, 4f);
+        labelRect.offsetMax = new Vector2(-8f, -4f);
 
         TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
-        label.text = string.IsNullOrEmpty(returnButtonLabel) ? "게임 시작 화면으로 돌아가기" : returnButtonLabel;
-        label.alignment = TextAlignmentOptions.Center;
+        TMP_Text sourceCredits = creditsRectTransform.GetComponent<TMP_Text>();
+        if (sourceCredits != null) label.font = sourceCredits.font;
+        label.text = "SKIP  ▶";
         label.fontSize = 26f;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
         label.color = Color.white;
         label.raycastTarget = false;
 
-        TMP_Text existingText = canvas.GetComponentInChildren<TMP_Text>(true);
-        if (existingText != null && existingText.font != null)
-            label.font = existingText.font;
-        else if (TMP_Settings.defaultFontAsset != null)
-            label.font = TMP_Settings.defaultFontAsset;
+        buttonRect.SetAsLastSibling();
     }
 
     private void ReturnToTitle()
@@ -238,19 +227,28 @@ public class EndingController : MonoBehaviour
         if (_isReturningToTitle) return;
         _isReturningToTitle = true;
 
-        if (GameFlowManager.Instance != null)
-            GameFlowManager.Instance.ResetSavedGameProgress();
+        if (_endingRoutine != null)
+        {
+            StopCoroutine(_endingRoutine);
+            _endingRoutine = null;
+        }
+
+        if (_skipButtonObject != null)
+        {
+            Destroy(_skipButtonObject);
+            _skipButtonObject = null;
+        }
 
         if (GameFlowManager.Instance != null)
         {
-            // 씬 전환 페이드가 끝나고 엔딩 씬이 언로드될 때 OnDestroy에서 조작을 복구합니다.
-            // 전환 중 플레이어가 잠깐 움직이는 것을 방지하기 위해 여기서는 잠금을 유지합니다.
+            GameFlowManager.Instance.ResetSavedGameProgress();
+            // GameFlowManager가 페이드아웃 → 엔딩 씬 언로드 → 메인 메뉴 표시를 처리합니다.
             GameFlowManager.Instance.AdvanceToStage(GameStage.Title);
         }
         else
         {
+            Debug.LogError("[EndingController] GameFlowManager를 찾지 못해 메인 화면으로 돌아갈 수 없습니다.", this);
             RestorePlayerControls();
-            Debug.LogError("[EndingController] GameFlowManager를 찾지 못해 타이틀로 돌아갈 수 없습니다.");
         }
     }
 

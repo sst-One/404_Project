@@ -80,11 +80,11 @@ public class GameFlowManager : MonoBehaviour
             if (sceneName == "01_Tutorial" || sceneName == "03_Stage2" || sceneName == "05_Stage5_6" ||
                 sceneName == "07_Stage8_11" || sceneName == "08_Stage12_13")
             {
-                playerRig.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+                playerRig.localScale = new Vector3(0.5f, 0.7f, 0.5f);
             }
             else
             {
-                playerRig.localScale = new Vector3(0.15f, 0.15f, 0.15f);
+                playerRig.localScale = new Vector3(0.2f, 0.22f, 0.2f);
             }
         }
 
@@ -168,6 +168,15 @@ public class GameFlowManager : MonoBehaviour
         currentStage = nextStage;
 
         SceneManager.SetActiveScene(SceneManager.GetSceneByName(targetScene));
+
+        // Stage 2의 TV 뉴스 연출은 Stage2_Controller가 있는 씬이 언로드되면서
+        // 해당 코루틴도 함께 중단됩니다. 따라서 씬 전환을 담당하는 영속 GameFlowManager가
+        // 다음 씬을 Active Scene으로 지정한 직후 잠금을 해제합니다.
+        if (targetScene == "04_Stage3_4")
+        {
+            ReleaseStage2PresentationLocks();
+        }
+
         OnStageChanged?.Invoke(currentStage);
         SaveCheckpointIfNecessary(nextStage);
         SaveGameStageIfPlayable(nextStage);
@@ -175,6 +184,21 @@ public class GameFlowManager : MonoBehaviour
         yield return new WaitForSecondsRealtime(0.2f);
 
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeInScreen());
+    }
+
+    private void ReleaseStage2PresentationLocks()
+    {
+        PlayerController player = playerRig != null
+            ? playerRig.GetComponent<PlayerController>()
+            : null;
+        if (player == null) player = PlayerController.Instance;
+        if (player == null) return;
+
+        player.SetCameraLock(false);
+        player.SetMovementLock(false);
+
+        // 이전 TV 연출에서 카메라 컴포넌트를 비활성화한 경우에도 정상 입력을 복구합니다.
+        if (player.CamLook != null) player.CamLook.enabled = true;
     }
 
     private string GetSceneNameForStage(GameStage stage)

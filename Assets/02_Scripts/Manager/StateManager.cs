@@ -27,19 +27,13 @@ public class StateManager : MonoBehaviour
     public string nervousBreathClipName = "";
     public string nervousHeartbeatClipName = "";
 
-    [Header("Freeze (호흡참기) 패널티 설정")]
-    public float heartbeatIncreaseInterval = 1.0f;
-    public int heartbeatAmountPerTick = 1;
+    [Header("Heartbeat Overload")]
     public float overloadNoisePenalty = 0.5f;
 
-    private bool _isFreezing;
-    private bool _isOverloaded;
-    private bool _requireInputReset;
-    private Coroutine _freezeHeartbeatCoroutine;
+    // 은신 중에는 플레이어 호흡음을 중지해 자동으로 숨을 참는 연출을 적용합니다.
+    private bool _isBreathSuppressedByHiding;
 
     // [최적화] 코루틴 캐싱 객체
-    private WaitForSeconds _freezeWait;
-    private WaitForSeconds _overloadWait;
     private WaitForSeconds _noiseWait;
     private WaitForSeconds _threatWait;
     private WaitForSeconds _cooldownWait;
@@ -51,8 +45,6 @@ public class StateManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
 
         // [최적화] Awake 할당으로 런타임 GC 발생 억제
-        _freezeWait = new WaitForSeconds(heartbeatIncreaseInterval);
-        _overloadWait = new WaitForSeconds(2.0f);
         _noiseWait = new WaitForSeconds(1.0f);
         _threatWait = new WaitForSeconds(0.5f);
         _cooldownWait = new WaitForSeconds(1.5f);
@@ -62,61 +54,6 @@ public class StateManager : MonoBehaviour
     {
         StartCoroutine(HeartbeatCooldownRoutine());
         StartCoroutine(NoiseCooldownRoutine());
-    }
-
-    private void Update()
-    {
-        ProcessFreezeState();
-    }
-
-    private void ProcessFreezeState()
-    {
-        if (_isOverloaded || PlayerController.Instance == null) return;
-
-        bool isFreezeInput = PlayerController.Instance.IsFreezeActive;
-
-        if (_requireInputReset)
-        {
-            if (!isFreezeInput) _requireInputReset = false;
-            return;
-        }
-
-        if (isFreezeInput && !_isFreezing)
-        {
-            _isFreezing = true;
-            _freezeHeartbeatCoroutine = StartCoroutine(FreezeHeartbeatRoutine());
-        }
-        else if (!isFreezeInput && _isFreezing)
-        {
-            _isFreezing = false;
-            if (_freezeHeartbeatCoroutine != null) StopCoroutine(_freezeHeartbeatCoroutine);
-        }
-    }
-
-    private IEnumerator FreezeHeartbeatRoutine()
-    {
-        while (_isFreezing)
-        {
-            yield return _freezeWait;
-            AddHeartbeat(heartbeatAmountPerTick);
-        }
-    }
-
-    private void TriggerOverloadPenalty()
-    {
-        _isOverloaded = true;
-        _isFreezing = false;
-        if (_freezeHeartbeatCoroutine != null) StopCoroutine(_freezeHeartbeatCoroutine);
-
-        AddNoise(overloadNoisePenalty);
-        StartCoroutine(OverloadRecoveryRoutine());
-    }
-
-    private IEnumerator OverloadRecoveryRoutine()
-    {
-        yield return _overloadWait;
-        _isOverloaded = false;
-        _requireInputReset = true;
     }
 
     public void AddNoise(float amount, Vector3 noiseSourcePosition = default)
@@ -171,7 +108,9 @@ public class StateManager : MonoBehaviour
             OnHeartbeatLevelChanged?.Invoke(_currentHeartbeatLevel);
             UpdateHeartbeatEffects(_currentHeartbeatValue);
 
-            if (_currentHeartbeatLevel == HeartbeatLevel.Overload) TriggerOverloadPenalty();
+            // 기존 심박수 과부하의 소음 패널티는 유지합니다.
+            if (_currentHeartbeatLevel == HeartbeatLevel.Overload)
+                AddNoise(overloadNoisePenalty);
         }
     }
 
@@ -213,18 +152,41 @@ public class StateManager : MonoBehaviour
         }
     }
 
+    public void SetHidingBreathSuppressed(bool suppressed)
+    {
+        if (_isBreathSuppressedByHiding == suppressed) return;
+        _isBreathSuppressedByHiding = suppressed;
+
+        if (AudioManager.Instance == null) return;
+        if (suppressed)
+            AudioManager.Instance.StopBreathSound();
+        else
+            UpdateHeartbeatEffects((int)_currentHeartbeatLevel);
+    }
+
     private void UpdateHeartbeatEffects(int level)
     {
         if (AudioManager.Instance == null) return;
 
+        if (_isBreathSuppressedByHiding)
+            AudioManager.Instance.StopBreathSound();
+        else if (level >= 2)
+        {
+            if (!string.IsNullOrEmpty(nervousBreathClipName))
+                AudioManager.Instance.PlayBreathSound(nervousBreathClipName);
+        }
+        else if (!string.IsNullOrEmpty(normalBreathClipName))
+        {
+            AudioManager.Instance.PlayBreathSound(normalBreathClipName);
+        }
+
         if (level >= 2)
         {
-            if (!string.IsNullOrEmpty(nervousBreathClipName)) AudioManager.Instance.PlayBreathSound(nervousBreathClipName);
-            if (!string.IsNullOrEmpty(nervousHeartbeatClipName)) AudioManager.Instance.PlayStatusSound(nervousHeartbeatClipName);
+            if (!string.IsNullOrEmpty(nervousHeartbeatClipName))
+                AudioManager.Instance.PlayStatusSound(nervousHeartbeatClipName);
         }
         else
         {
-            if (!string.IsNullOrEmpty(normalBreathClipName)) AudioManager.Instance.PlayBreathSound(normalBreathClipName);
             AudioManager.Instance.StopStatusSound();
         }
     }

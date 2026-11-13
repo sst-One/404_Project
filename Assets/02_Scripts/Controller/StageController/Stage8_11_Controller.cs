@@ -45,7 +45,37 @@ public class Stage8_11_Controller : MonoBehaviour
             PhoneController.Instance.currentState = PhoneState.Idle;
         }
 
+        PrepareHidingSpotInteractions();
         StartCoroutine(InitStageSequence());
+    }
+
+
+    private void PrepareHidingSpotInteractions()
+    {
+        HidingSpotAction[] hidingSpots = FindObjectsOfType<HidingSpotAction>(true);
+        int targetLayer = 6; // Player 프리팹의 targetMask(7744)에 포함된 Interactable 레이어
+        if (PlayerController.Instance != null)
+        {
+            int mask = PlayerController.Instance.targetMask.value;
+            for (int i = 0; i < 32; i++)
+            {
+                if ((mask & (1 << i)) != 0) { targetLayer = i; break; }
+            }
+        }
+
+        Debug.Log($"[Stage8_11_Controller] 은신처 상호작용 초기화 대상: {hidingSpots.Length}개");
+        foreach (HidingSpotAction spot in hidingSpots)
+        {
+            if (spot == null) continue;
+            spot.gameObject.layer = targetLayer;
+            spot.interactOnlyOnce = false;
+            // Stage 8에서는 아직 은신처가 진행 목표가 아닙니다.
+            spot.isInteractable = false;
+            spot.DisableObjectiveHighlight();
+            Collider[] colliders = spot.GetComponentsInChildren<Collider>(true);
+            foreach (Collider col in colliders)
+                if (col != null) col.enabled = true;
+        }
     }
 
     private void OnDestroy()
@@ -103,6 +133,17 @@ public class Stage8_11_Controller : MonoBehaviour
         }
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage9_Hide);
+        ArmHidingSpotObjectives();
+    }
+
+    private void ArmHidingSpotObjectives()
+    {
+        HidingSpotAction[] hidingSpots = FindObjectsOfType<HidingSpotAction>(true);
+        foreach (HidingSpotAction spot in hidingSpots)
+        {
+            if (spot == null || !spot.gameObject.activeInHierarchy) continue;
+            spot.EnableInteractionWithLight();
+        }
     }
 
     private void HandlePlayerCaught(Transform enemyTransform)

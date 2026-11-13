@@ -15,6 +15,9 @@ public class HidingSpotAction : InteractableItem
     private bool _isOccupied = false;
     private bool _isTransitioning = false;
 
+    // 은신처에 들어간 뒤에는 퇴장 상호작용이 가능하더라도 발광은 멈춥니다.
+    protected override bool CanShowInteractionGlow => !_isOccupied;
+
     private void Start()
     {
         interactOnlyOnce = false;
@@ -41,6 +44,21 @@ public class HidingSpotAction : InteractableItem
 
         if (_isOccupied) StartCoroutine(ExitRoutine());
         else StartCoroutine(EnterRoutine());
+    }
+
+    /// <summary>은신처의 목표 강조 표시(자식 PulseLight 및 메시 발광)를 종료합니다.</summary>
+    public void DisableObjectiveHighlight()
+    {
+        // HidingSpotAction 자체의 메시 발광까지 종료합니다.
+        // 은신 중에는 CanShowInteractionGlow가 false이므로 Update에서도 다시 켜지지 않습니다.
+        DisableInteractionGlow();
+
+        PulseLight[] pulseLights = GetComponentsInChildren<PulseLight>(true);
+        foreach (PulseLight pulse in pulseLights)
+        {
+            if (pulse != null)
+                pulse.StopPulse();
+        }
     }
 
     private void ForceEject()

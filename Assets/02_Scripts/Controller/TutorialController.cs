@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -9,7 +10,7 @@ public class TutorialController : MonoBehaviour
 
     private enum TutorialStep
     {
-        Intro, CameraSetup, Calibration, Rotation, Movement, Sensitivity, Freeze, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
+        Intro, CameraSetup, Calibration, Rotation, Movement, Sensitivity, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
     }
 
     private TutorialStep currentStep = TutorialStep.Intro;
@@ -18,6 +19,7 @@ public class TutorialController : MonoBehaviour
     public Transform leanTargetPoint;
     public InteractableItem testObject;
     public HidingSpotAction testHidingSpot;
+    [SerializeField] private TutorialFloorRoute hidingFloorRoute;
 
     [Header("Highlight Settings")]
     public Color highlightColor = new Color(1f, 0f, 0f, 0.5f);
@@ -40,10 +42,17 @@ public class TutorialController : MonoBehaviour
 
     private void Awake() { Instance = this; }
 
+    private void OnDisable()
+    {
+        if (hidingFloorRoute != null) hidingFloorRoute.HideRoute();
+    }
+
     private void Start()
     {
         IsCameraLocked = true;
         _tutorialPlayer = GetTutorialPlayer();
+        if (hidingFloorRoute == null)
+            hidingFloorRoute = FindObjectOfType<TutorialFloorRoute>(true);
         highlightColor = Color.white;
 
         if (_tutorialPlayer != null)
@@ -168,29 +177,12 @@ public class TutorialController : MonoBehaviour
             UIManager.Instance.ShowSubtitle("[ESC]를 눌러 '조작 설정'에서 상하·좌우 회전 감도를 조절해보세요. 완료하면 메뉴를 닫으세요.");
         yield return StartCoroutine(WaitForSystemMenuOpenAndClose());
 
-        currentStep = TutorialStep.Freeze;
+        // 수동 숨참기 튜토리얼은 제거했습니다.
+        // 은신 중 호흡 억제/발각 완화 효과는 HidingSpotManager의 은신 상태를 통해
+        // PlayerController와 StateManager가 자동으로 처리합니다.
+        currentStep = TutorialStep.Interaction;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("숨을 참아야 할 때는 손으로 입을 가리세요. 손을 내리면 숨 참기가 해제됩니다. 먼저 3초간 유지해보세요.");
-
-        float freezeTimer = 0f;
-        while (currentStep == TutorialStep.Freeze)
-        {
-            if (GetTutorialPlayer() != null && GetTutorialPlayer().IsFreezeActive)
-            {
-                freezeTimer += Time.deltaTime;
-                if (freezeTimer >= 3.0f)
-                    currentStep = TutorialStep.Interaction;
-            }
-            else
-            {
-                freezeTimer = 0f;
-            }
-
-            yield return null;
-        }
-
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("흰색으로 빛나는 사물을 바라본 뒤, 손을 뻗어 상호작용하세요.");
+            UIManager.Instance.ShowSubtitle("흰색으로 빛나는 사물을 바라보세요. 손을 뻗은 상태에서 가볍게 주먹을 쥐었다가 다시 펴면 상호작용합니다.");
 
         bool interactionDone = false;
         System.Action interactCallback = () => { interactionDone = true; };
@@ -210,7 +202,14 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.HidingEnter;
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 가까운 은신처를 바라보고 손을 뻗어 숨으세요.");
+            UIManager.Instance.ShowSubtitle("위협이 다가옵니다! 바닥의 흰색 안내선을 따라 은신처로 이동한 뒤, 은신처를 바라보고 상호작용하세요.");
+
+        if (hidingFloorRoute != null && testHidingSpot != null)
+        {
+            PlayerController routePlayer = GetTutorialPlayer();
+            hidingFloorRoute.SetTargets(routePlayer != null ? routePlayer.transform : null, testHidingSpot.transform);
+            hidingFloorRoute.ShowRoute();
+        }
 
         bool hidingEntered = false;
         System.Action hidingEnterCallback = () => { hidingEntered = true; };
@@ -225,8 +224,13 @@ public class TutorialController : MonoBehaviour
 
         while (!hidingEntered) yield return null;
         StopHighlight();
+        if (hidingFloorRoute != null) hidingFloorRoute.HideRoute();
 
-        if (testHidingSpot != null) testHidingSpot.isInteractable = false;
+        if (testHidingSpot != null)
+        {
+            testHidingSpot.DisableObjectiveHighlight();
+            testHidingSpot.isInteractable = false;
+        }
 
         currentStep = TutorialStep.HidingGuide;
         if (UIManager.Instance != null)
@@ -375,23 +379,49 @@ public class TutorialController : MonoBehaviour
         HideCalibrationGuide();
     }
 
+    // 튜토리얼에서 강조한 렌더러만 원래 발광/PropertyBlock 상태를 복구하기 위한 캐시입니다.
+    private readonly Dictionary<Renderer, MaterialPropertyBlock> _highlightOriginalBlocks =
+        new Dictionary<Renderer, MaterialPropertyBlock>();
+    private readonly Dictionary<Renderer, Material[]> _highlightMaterials =
+        new Dictionary<Renderer, Material[]>();
+    private readonly Dictionary<Renderer, bool[]> _highlightOriginalEmissionKeywords =
+        new Dictionary<Renderer, bool[]>();
+
     private IEnumerator PulseHighlightRoutine(Transform targetTransform)
     {
         if (targetTransform == null) yield break;
-        _activeHighlightRenderers = targetTransform.GetComponentsInChildren<Renderer>();
+        _activeHighlightRenderers = targetTransform.GetComponentsInChildren<Renderer>(true);
         if (_activeHighlightRenderers.Length == 0) yield break;
 
-        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
         int emissionColorID = Shader.PropertyToID("_EmissionColor");
+        _highlightOriginalBlocks.Clear();
+        _highlightMaterials.Clear();
+        _highlightOriginalEmissionKeywords.Clear();
 
+        // 강조 대상(testObject) 하위 렌더러만 별도 Material 인스턴스로 처리합니다.
+        // sharedMaterial의 키워드를 변경하면 같은 재질을 쓰는 다른 문까지 영향을 받을 수 있습니다.
         foreach (Renderer r in _activeHighlightRenderers)
         {
-            if (r != null && r.sharedMaterial != null && !r.sharedMaterial.IsKeywordEnabled("_EMISSION"))
+            if (r == null) continue;
+
+            MaterialPropertyBlock originalBlock = new MaterialPropertyBlock();
+            r.GetPropertyBlock(originalBlock);
+            _highlightOriginalBlocks[r] = originalBlock;
+
+            Material[] materials = r.materials;
+            bool[] originalKeywords = new bool[materials.Length];
+            for (int i = 0; i < materials.Length; i++)
             {
-                r.sharedMaterial.EnableKeyword("_EMISSION");
+                Material material = materials[i];
+                if (material == null) continue;
+                originalKeywords[i] = material.IsKeywordEnabled("_EMISSION");
+                if (material.HasProperty(emissionColorID)) material.EnableKeyword("_EMISSION");
             }
+            _highlightMaterials[r] = materials;
+            _highlightOriginalEmissionKeywords[r] = originalKeywords;
         }
 
+        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
         while (true)
         {
             float lerp = Mathf.PingPong(Time.time * highlightPulseSpeed, 1f);
@@ -399,12 +429,10 @@ public class TutorialController : MonoBehaviour
 
             foreach (Renderer r in _activeHighlightRenderers)
             {
-                if (r != null)
-                {
-                    r.GetPropertyBlock(propBlock);
-                    propBlock.SetColor(emissionColorID, finalColor);
-                    r.SetPropertyBlock(propBlock);
-                }
+                if (r == null) continue;
+                r.GetPropertyBlock(propBlock);
+                propBlock.SetColor(emissionColorID, finalColor);
+                r.SetPropertyBlock(propBlock);
             }
             yield return null;
         }
@@ -418,20 +446,32 @@ public class TutorialController : MonoBehaviour
             _highlightCoroutine = null;
         }
 
-        if (_activeHighlightRenderers == null) return;
-
-        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
-        int emissionColorID = Shader.PropertyToID("_EmissionColor");
-
-        foreach (Renderer r in _activeHighlightRenderers)
+        if (_activeHighlightRenderers != null)
         {
-            if (r != null)
+            foreach (Renderer r in _activeHighlightRenderers)
             {
-                r.GetPropertyBlock(propBlock);
-                propBlock.SetColor(emissionColorID, Color.black);
-                r.SetPropertyBlock(propBlock);
+                if (r == null) continue;
+
+                // 강조 전의 PropertyBlock을 그대로 복구해 원래 재질 발광을 훼손하지 않습니다.
+                if (_highlightOriginalBlocks.TryGetValue(r, out MaterialPropertyBlock originalBlock))
+                    r.SetPropertyBlock(originalBlock);
+
+                if (_highlightMaterials.TryGetValue(r, out Material[] materials) &&
+                    _highlightOriginalEmissionKeywords.TryGetValue(r, out bool[] originalKeywords))
+                {
+                    for (int i = 0; i < materials.Length && i < originalKeywords.Length; i++)
+                    {
+                        if (materials[i] == null) continue;
+                        if (originalKeywords[i]) materials[i].EnableKeyword("_EMISSION");
+                        else materials[i].DisableKeyword("_EMISSION");
+                    }
+                }
             }
         }
+
+        _highlightOriginalBlocks.Clear();
+        _highlightMaterials.Clear();
+        _highlightOriginalEmissionKeywords.Clear();
         _activeHighlightRenderers = null;
     }
 }

@@ -13,6 +13,7 @@ public class BalconyCurtainController : MonoBehaviour, IInteractable
     [Min(0.1f)] public float openSpeed = 1.8f;
     public bool allowCloseAfterOpen = false;
     public bool isInteractable = true;
+    [Min(0.1f)] public float interactionRange = 2.0f;
 
     public bool IsFocused { get; private set; }
     public bool IsOpen { get; private set; }

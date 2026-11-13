@@ -23,6 +23,9 @@ public class VisionTrackingManager : MonoBehaviour
     [Tooltip("손바닥 랜드마크의 화면상 크기. 디버깅용입니다.")]
     public float currentHandScale;
 
+    [Tooltip("MediaPipe 손 랜드마크로 판정한 주먹 쥠 상태입니다.")]
+    public bool currentHandIsFist;
+
     [Tooltip("손바닥의 중립 자세 기준 크기. 디버깅용입니다.")]
     public float baselineHandScale;
 
@@ -86,7 +89,9 @@ public class VisionTrackingManager : MonoBehaviour
     private bool _hasValidHeadBaseline;
     private bool _hasValidHandBaseline;
     private float _rawHandScale;
+    private bool _rawHandIsFist;
     private float _threadHandScale;
+    private bool _threadHandIsFist;
     private float _baselineHandScale;
 
     private readonly object _dataLock = new object();
@@ -188,12 +193,17 @@ public class VisionTrackingManager : MonoBehaviour
     // 기존 호출부 호환용 오버로드
     public void UpdateHandData(Vector3 pos)
     {
-        UpdateHandData(pos, 0f);
+        UpdateHandData(pos, 0f, false);
     }
 
-    // apparentScale은 손바닥의 화면상 크기이며,
-    // 손을 카메라 쪽으로 뻗을 때 커지는 정도를 이용합니다.
+    // 기존 호출부 호환용 오버로드입니다.
     public void UpdateHandData(Vector3 pos, float apparentScale)
+    {
+        UpdateHandData(pos, apparentScale, false);
+    }
+
+    // apparentScale은 손바닥 크기, isFist는 손가락 랜드마크로 계산한 주먹 상태입니다.
+    public void UpdateHandData(Vector3 pos, float apparentScale, bool isFist)
     {
         if (!IsCameraReady)
             return;
@@ -202,6 +212,7 @@ public class VisionTrackingManager : MonoBehaviour
         {
             _threadHandPos = pos;
             _threadHandScale = apparentScale;
+            _threadHandIsFist = isFist;
             _hasNewHandData = true;
         }
     }
@@ -240,6 +251,7 @@ public class VisionTrackingManager : MonoBehaviour
             {
                 _rawHandPos = _threadHandPos;
                 _rawHandScale = _threadHandScale;
+                _rawHandIsFist = _threadHandIsFist;
                 _hasReceivedHandData = true;
                 _lastHandDataReceivedTime = Time.time;
 
@@ -247,6 +259,7 @@ public class VisionTrackingManager : MonoBehaviour
                 {
                     currentHandPosition = _rawHandPos;
                     currentHandScale = _rawHandScale;
+                    currentHandIsFist = _rawHandIsFist;
 
                     // 캘리브레이션 중 손이 보이지 않았다면 첫 손 프레임을 중립 기준으로 삼습니다.
                     if (!_hasValidHandBaseline && _rawHandScale > 0.001f)
@@ -270,6 +283,9 @@ public class VisionTrackingManager : MonoBehaviour
         bool faceFresh = HasFreshFaceData();
         isTracking = faceFresh;
         IsInFallbackMode = !faceFresh;
+
+        if (!HasFreshHandData())
+            currentHandIsFist = false;
     }
 
     private bool HasFreshFaceData()
@@ -282,6 +298,12 @@ public class VisionTrackingManager : MonoBehaviour
     {
         return _hasReceivedHandData &&
                Time.time - _lastHandDataReceivedTime <= handTrackingTimeout;
+    }
+
+    // 손 추적이 끊긴 프레임에서는 이전 주먹 상태를 재사용하지 않습니다.
+    public bool GetFistState()
+    {
+        return isTracking && IsCalibrated && HasFreshHandData() && currentHandIsFist;
     }
 
     public void StartCalibration()

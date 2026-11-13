@@ -22,10 +22,11 @@ public class Stage7_Controller : MonoBehaviour
 
         if (gemItem != null)
         {
+            // 대사가 끝나기 전에는 보석 오브젝트 자체를 숨겨 렌더링되지 않게 합니다.
             gemItem.isInteractable = false;
-            if (gemItem.GetComponent<Collider>() != null) gemItem.GetComponent<Collider>().enabled = false;
             gemItem.onInteractAction -= OnGemReached;
             gemItem.onInteractAction += OnGemReached;
+            gemItem.gameObject.SetActive(false);
         }
 
         StartCoroutine(Day4IntroSequence());
@@ -65,7 +66,14 @@ public class Stage7_Controller : MonoBehaviour
         yield return StartCoroutine(PlayVoiceSubtitle(
             "조심해서 들어가요.", "SND-035_7_조심해서들어가요_OneShot"));
 
-        if (gemItem != null) gemItem.EnableInteractionWithLight();
+        if (gemItem != null)
+        {
+            // 아저씨의 마지막 대사와 음성이 모두 끝난 뒤 보석을 등장시키고
+            // 기존 상호작용 및 발광을 활성화합니다.
+            gemItem.gameObject.SetActive(true);
+            gemItem.EnableInteractionWithLight();
+            Physics.SyncTransforms();
+        }
     }
 
     private void OnGemReached()

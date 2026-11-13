@@ -22,6 +22,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
     private bool _hasNewHandData = false;
     private Vector3 _rawHandPos;
     private float _rawHandScale;
+    private bool _rawHandIsFist;
 
     private void OnEnable()
     {
@@ -43,7 +44,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
         {
             if (_hasNewHandData)
             {
-                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos, _rawHandScale);
+                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos, _rawHandScale, _rawHandIsFist);
                 _hasNewHandData = false;
             }
 
@@ -63,7 +64,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
         if (result.handLandmarks != null && result.handLandmarks.Count > 0)
         {
             var landmarks = result.handLandmarks[0].landmarks;
-            if (landmarks != null && landmarks.Count > 17)
+            if (landmarks != null && landmarks.Count > 20)
             {
                 // Landmark 9 = 손바닥 중앙 부근, 5/17 = 검지/새끼손가락 MCP.
                 // 손바닥 폭의 화면상 크기는 손을 카메라 쪽으로 뻗을 때 커지는 경향이 있어 Reach 판정에 사용합니다.
@@ -75,10 +76,32 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
                     new Vector2(indexMcp.x, indexMcp.y),
                     new Vector2(pinkyMcp.x, pinkyMcp.y)) * positionMultiplier;
 
+                // 손목(0)과 각 손가락 PIP/끝점의 거리를 비교합니다.
+                // 4개 손가락 중 3개 이상이 손바닥 쪽으로 접히면 주먹으로 판정합니다.
+                Vector2 wrist = new Vector2(landmarks[0].x, landmarks[0].y);
+                int[] pipIndices = { 6, 10, 14, 18 };
+                int[] tipIndices = { 8, 12, 16, 20 };
+                int curledFingerCount = 0;
+
+                for (int i = 0; i < tipIndices.Length; i++)
+                {
+                    Vector2 pip = new Vector2(landmarks[pipIndices[i]].x, landmarks[pipIndices[i]].y);
+                    Vector2 tip = new Vector2(landmarks[tipIndices[i]].x, landmarks[tipIndices[i]].y);
+
+                    float pipDistance = Vector2.Distance(pip, wrist);
+                    float tipDistance = Vector2.Distance(tip, wrist);
+
+                    if (tipDistance < pipDistance * 0.92f)
+                        curledFingerCount++;
+                }
+
+                bool isFist = curledFingerCount >= 3;
+
                 lock (_dataLock)
                 {
                     _rawHandPos = pos;
                     _rawHandScale = palmScale;
+                    _rawHandIsFist = isFist;
                     _hasNewHandData = true;
                 }
             }

@@ -14,15 +14,20 @@ public class PlayerController : MonoBehaviour
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
-    public float maxGazeDistance = 1.6f;
-    public float gazeRadius = 0.5f;
+    public float maxGazeDistance = 0.75f;
+    public float gazeRadius = 0.18f;
     public LayerMask targetMask;
     public LayerMask obstacleMask;
     public float readyTimeThreshold = 0.25f;
-    [Tooltip("아이템 상호작용 보정 최대 거리")]
-    public float interactionAssistDistance = 1.6f;
-    [Tooltip("아이템 상호작용 보정 반경")]
-    public float interactionAssistRadius = 0.5f;
+    [Tooltip("일반 상호작용 직선의 최대 거리(m)")]
+    public float interactionAssistDistance = 2f;
+    [Tooltip("카메라 정면 상호작용 직선의 반경(m). BoxCollider가 이 두꺼운 직선에 닿으면 감지됩니다.")]
+    public float interactionAssistRadius = 0.3f;
+    [Header("Dropped Phone Interaction")]
+    [Tooltip("스테이지 8~11에서 바닥에 떨어진 휴대폰 전용 최대 탐색 거리(m). 일반 물체의 상호작용 거리는 변경하지 않습니다.")]
+    [Min(0.1f)] public float droppedPhoneInteractionDistance = 2.5f;
+    [Tooltip("거리 제한 예외가 지정된 엘리베이터 버튼을 시선으로 탐색할 최대 거리")]
+    [Min(1f)] public float distanceIndependentScanDistance = 100f;
 
     [Header("Movement Settings")]
     [Tooltip("앞뒤 이동 속도 (m/s)")]
@@ -135,7 +140,7 @@ public class PlayerController : MonoBehaviour
     {
         LeanMovementInput = Vector2.zero;
         IsGripHeld = false;
-        IsFreezeActive = false;
+        IsFreezeActive = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
 
         if (forceFallbackMode || !useWebcam || VisionTrackingManager.Instance == null || !VisionTrackingManager.Instance.isTracking)
         {
@@ -164,13 +169,13 @@ public class PlayerController : MonoBehaviour
             else
             {
                 IsLeanHeld = false;
-                IsFreezeActive = false;
+                IsFreezeActive = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
             }
             return;
         }
 
         VisionTrackingManager tracking = VisionTrackingManager.Instance;
-        IsFreezeActive = false;
+        IsFreezeActive = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
         bool isCurrentlyReaching = tracking.GetReachState();
         IsGripHeld = isCurrentlyReaching;
         IsGripTriggered = isCurrentlyReaching && !_wasReachHeldLastFrame;
@@ -184,40 +189,276 @@ public class PlayerController : MonoBehaviour
 
     private void ProcessGazeAndInteraction()
     {
-        if (mainCamera == null) return;
-        IsFloorValid = false;
+        if (mainCamera == null)
+        {
+            ClearAllFocus();
+            return;
+        }
 
+        IsFloorValid = false;
         Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
 
-        float castDistance = Mathf.Max(maxGazeDistance, interactionAssistDistance);
-        float castRadius = Mathf.Max(gazeRadius, interactionAssistRadius);
-        if (Physics.SphereCast(ray, castRadius, out RaycastHit hit, castDistance, targetMask | obstacleMask))
+        // 일반 상호작용은 카메라 정면의 두꺼운 직선(SphereCast) 안에
+        // 상호작용 오브젝트의 Collider가 들어왔을 때만 허용합니다.
+        // 최대 거리는 기존 두 거리 설정 중 더 작은 값으로 유지합니다.
+        float normalInteractionDistance = Mathf.Min(maxGazeDistance, interactionAssistDistance);
+        float castRadius = Mathf.Max(0.001f, interactionAssistRadius);
+        float elevatorScanDistance = Mathf.Max(normalInteractionDistance, distanceIndependentScanDistance);
+        int queryMask = targetMask.value | obstacleMask.value;
+
+        // 엘리베이터 버튼은 기존 예외를 유지합니다.
+        // 두께가 없는 카메라 정중앙 Raycast로만 찾고, ignorePlayerDistanceLimit이
+        // 지정된 버튼만 거리 제한 없이 선택합니다. 다른 일반 물체는 여기서 선택하지 않습니다.
+        if (Physics.Raycast(ray, out RaycastHit elevatorHit, elevatorScanDistance,
+                queryMask, QueryTriggerInteraction.Collide))
         {
-            GameObject hitObj = hit.transform.gameObject;
-            int hitLayer = hitObj.layer;
+            int hitLayerBit = 1 << elevatorHit.collider.gameObject.layer;
+            bool hitObstacle = (obstacleMask.value & hitLayerBit) != 0;
+            bool hitWalkable = _walkableLayer >= 0 &&
+                               elevatorHit.collider.gameObject.layer == _walkableLayer;
 
-            if ((obstacleMask & (1 << hitLayer)) != 0)
-            {
-                ClearAllFocus();
-                return;
-            }
-
-            if (hitLayer == _walkableLayer)
+            if (hitWalkable)
             {
                 IsFloorValid = true;
-                ClearObjectFocus();
             }
-            else if ((targetMask & (1 << hitLayer)) != 0)
+            else if (!hitObstacle && (targetMask.value & hitLayerBit) != 0)
             {
-                ProcessTargetHover(hit.transform);
+                InteractableItem elevatorItem =
+                    elevatorHit.collider.GetComponentInParent<InteractableItem>();
+
+                if (elevatorItem != null && elevatorItem.ignorePlayerDistanceLimit &&
+                    elevatorItem.isInteractable && elevatorItem.gameObject.activeInHierarchy)
+                {
+                    ProcessTargetHover(elevatorItem);
+                    return;
+                }
             }
         }
-        else ClearAllFocus();
+
+        // 화면 정중앙의 얇은 Raycast를 먼저 검사합니다.
+        // 중앙 조준점이 일반 상호작용 오브젝트의 Collider(BoxCollider 포함) 안에
+        // 들어오면 두꺼운 SphereCast 보정 판정보다 우선하여 해당 오브젝트를 선택합니다.
+        // 엘리베이터 거리 예외 오브젝트는 위의 기존 전용 경로만 사용합니다.
+        if (normalInteractionDistance > 0f &&
+            Physics.Raycast(ray, out RaycastHit centerHit, normalInteractionDistance,
+                queryMask, QueryTriggerInteraction.Collide))
+        {
+            Collider centerCollider = centerHit.collider;
+            if (centerCollider != null && centerCollider.enabled &&
+                centerCollider.gameObject.activeInHierarchy)
+            {
+                int centerLayerBit = 1 << centerCollider.gameObject.layer;
+                bool centerHitObstacle = (obstacleMask.value & centerLayerBit) != 0;
+                bool centerHitTarget = (targetMask.value & centerLayerBit) != 0;
+
+                if (!centerHitObstacle && centerHitTarget)
+                {
+                    InteractableItem centerItem =
+                        centerCollider.GetComponentInParent<InteractableItem>();
+
+                    if (centerItem != null && centerItem.isInteractable &&
+                        centerItem.gameObject.activeInHierarchy &&
+                        !centerItem.ignorePlayerDistanceLimit)
+                    {
+                        ProcessTargetHover(centerItem);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 일반 물체 탐색: 카메라 정면을 따라 일정 반경을 가진 직선을 쏩니다.
+        // 장애물은 후보 검색에서 제외하고, 각 후보의 실제 표면까지 직선 시야가
+        // 확보되는지 별도로 검사하여 책상/주변 콜라이더가 후보 탐색을 과도하게
+        // 가로채는 현상을 줄입니다.
+        if (normalInteractionDistance > 0f)
+        {
+            RaycastHit[] targetHits = Physics.SphereCastAll(
+                ray,
+                castRadius,
+                normalInteractionDistance,
+                targetMask,
+                QueryTriggerInteraction.Collide);
+
+            if (targetHits != null && targetHits.Length > 0)
+            {
+                System.Array.Sort(targetHits, (a, b) => a.distance.CompareTo(b.distance));
+
+                for (int i = 0; i < targetHits.Length; i++)
+                {
+                    Collider hitCollider = targetHits[i].collider;
+                    if (hitCollider == null || !hitCollider.enabled ||
+                        !hitCollider.gameObject.activeInHierarchy)
+                        continue;
+
+                    InteractableItem item = hitCollider.GetComponentInParent<InteractableItem>();
+                    if (item == null || !item.isInteractable || !item.gameObject.activeInHierarchy)
+                        continue;
+
+                    // 거리 예외 플래그가 있는 엘리베이터 버튼은 일반 SphereCast 경로에서
+                    // 처리하지 않고 위의 기존 정중앙 Raycast 경로만 사용합니다.
+                    if (item.ignorePlayerDistanceLimit)
+                        continue;
+
+                    // SphereCast가 감지한 콜라이더 표면의 접점까지 장애물이 있는지 검사합니다.
+                    // 접점 바로 앞까지만 검사해 대상 자신의 Collider를 장애물로 오인하지 않습니다.
+                    Vector3 toTarget = targetHits[i].point - ray.origin;
+                    float targetDistance = toTarget.magnitude;
+                    if (targetDistance > 0.001f)
+                    {
+                        float obstructionCheckDistance = Mathf.Max(0f, targetDistance - 0.01f);
+                        if (obstructionCheckDistance > 0f &&
+                            Physics.Raycast(ray.origin, toTarget.normalized, out RaycastHit blockingHit,
+                                obstructionCheckDistance, obstacleMask, QueryTriggerInteraction.Ignore))
+                        {
+                            continue;
+                        }
+                    }
+
+                    ProcessTargetHover(item);
+                    return;
+                }
+            }
+        }
+
+        // 떨어진 휴대폰은 바닥에 놓이는 위치 특성상 일반 물체의 짧은 탐색 거리
+        // (maxGazeDistance)에 걸릴 수 있으므로 별도 거리로 한 번 더 탐색합니다.
+        // 이 예외는 PhoneController + Dropped 상태에만 적용하며 다른 물체와
+        // 엘리베이터 버튼의 거리 규칙은 변경하지 않습니다.
+        // 휴대폰은 바닥에 놓인 작은 오브젝트라 일반 targetMask / SphereCast 결과에
+        // 의존하면 레이어나 바닥 충돌에 의해 누락될 수 있습니다. 전용 판정은 매 프레임
+        // 독립적으로 실행하고, 실제 PhoneController가 Dropped 상태일 때만 포커스합니다.
+        float phoneScanDistance = Mathf.Max(normalInteractionDistance, droppedPhoneInteractionDistance);
+        if (TryFocusDroppedPhone(ray, castRadius, phoneScanDistance))
+            return;
+
+        bool floorWasValid = IsFloorValid;
+        ClearAllFocus();
+        IsFloorValid = floorWasValid;
     }
 
-    private void ProcessTargetHover(Transform hitTransform)
+    private bool TryFocusDroppedPhone(Ray ray, float castRadius, float scanDistance)
     {
-        if (CurrentHoverTarget == hitTransform)
+        PhoneController phone = PhoneController.Instance;
+        if (phone == null)
+        {
+            PhoneController[] phones = FindObjectsOfType<PhoneController>(true);
+            for (int i = 0; i < phones.Length; i++)
+            {
+                if (phones[i] != null && phones[i].currentState == PhoneState.Dropped)
+                {
+                    phone = phones[i];
+                    break;
+                }
+            }
+        }
+
+        if (phone == null || phone.currentState != PhoneState.Dropped ||
+            !phone.isInteractable || !phone.gameObject.activeInHierarchy ||
+            phone.ignorePlayerDistanceLimit)
+            return false;
+
+        // Collider가 비활성화되었거나 Interactable 레이어가 누락된 경우에도
+        // 휴대폰의 실제 Renderer bounds를 기준으로 시선 접근을 판정합니다.
+        Renderer[] renderers = phone.GetComponentsInChildren<Renderer>(true);
+        Bounds phoneBounds = new Bounds(phone.transform.position, Vector3.one * 0.15f);
+        bool hasBounds = false;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer targetRenderer = renderers[i];
+            if (targetRenderer == null || !targetRenderer.enabled ||
+                !targetRenderer.gameObject.activeInHierarchy)
+                continue;
+
+            if (!hasBounds)
+            {
+                phoneBounds = targetRenderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                phoneBounds.Encapsulate(targetRenderer.bounds);
+            }
+        }
+
+        Collider[] phoneColliders = phone.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < phoneColliders.Length; i++)
+        {
+            Collider phoneCollider = phoneColliders[i];
+            if (phoneCollider == null || !phoneCollider.enabled ||
+                !phoneCollider.gameObject.activeInHierarchy)
+                continue;
+
+            if (!hasBounds)
+            {
+                phoneBounds = phoneCollider.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                phoneBounds.Encapsulate(phoneCollider.bounds);
+            }
+        }
+
+        Vector3 boundsCenter = hasBounds ? phoneBounds.center : phone.transform.position;
+        float projection = Vector3.Dot(boundsCenter - ray.origin, ray.direction);
+        if (projection < 0f || projection > scanDistance)
+            return false;
+
+        Vector3 pointOnRay = ray.GetPoint(projection);
+        Vector3 targetPoint = hasBounds ? phoneBounds.ClosestPoint(pointOnRay) : boundsCenter;
+        float lateralDistance = Vector3.Distance(pointOnRay, targetPoint);
+
+        // 휴대폰의 크기만큼의 여유를 두되, 화면 중앙에서 지나치게 벗어난 물체는 선택하지 않습니다.
+        float allowedLateralDistance = castRadius + 0.05f;
+        if (lateralDistance > allowedLateralDistance)
+            return false;
+
+        Vector3 toTarget = targetPoint - ray.origin;
+        float targetDistance = toTarget.magnitude;
+        if (targetDistance > scanDistance)
+            return false;
+
+        // 바닥에 놓인 휴대폰은 바닥(Walkable) 콜라이더가 시야 판정을 가로막을 수 있습니다.
+        // 휴대폰 자신과 Walkable은 무시하고, 그 외 장애물만 실제 가림 물체로 처리합니다.
+        if (targetDistance > 0.001f && obstacleMask.value != 0)
+        {
+            RaycastHit[] blockers = Physics.RaycastAll(
+                ray.origin,
+                toTarget.normalized,
+                Mathf.Max(0f, targetDistance - 0.01f),
+                obstacleMask,
+                QueryTriggerInteraction.Ignore);
+
+            int walkableLayer = LayerMask.NameToLayer("Walkable");
+            for (int i = 0; i < blockers.Length; i++)
+            {
+                Collider blocker = blockers[i].collider;
+                if (blocker == null) continue;
+                if (blocker.transform == phone.transform || blocker.transform.IsChildOf(phone.transform))
+                    continue;
+                if (walkableLayer >= 0 && blocker.gameObject.layer == walkableLayer)
+                    continue;
+
+                return false;
+            }
+        }
+
+        ProcessTargetHover(phone);
+        return true;
+    }
+
+    private void ProcessTargetHover(InteractableItem interactable)
+    {
+        if (interactable == null || !interactable.isInteractable)
+        {
+            ClearAllFocus();
+            return;
+        }
+
+        Transform targetTransform = interactable.transform;
+        if (CurrentHoverTarget == targetTransform)
         {
             if (!IsTargetReady)
             {
@@ -227,31 +468,36 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            CurrentHoverTarget = hitTransform;
+            ClearObjectFocus();
+            CurrentHoverTarget = targetTransform;
             _currentReadyTimer = 0f;
             IsTargetReady = false;
         }
 
-        IInteractable interactable = hitTransform.GetComponent<IInteractable>();
-        if (interactable != null)
-        {
-            if (_currentFocusedObject != interactable) ChangeObjectFocus(interactable);
-            else if (IsTargetReady)
-            {
-                if (!_isObjectReadyTriggered)
-                {
-                    _isObjectReadyTriggered = true;
-                    _currentFocusedObject.OnReadyStateReached();
-                }
+        if (_currentFocusedObject != interactable)
+            ChangeObjectFocus(interactable);
 
-                if (IsGripTriggered)
-                {
-                    OnInteractTriggered?.Invoke(hitTransform);
-                    _currentFocusedObject.OnInteract();
-                    ClearObjectFocus();
-                }
+        if (IsTargetReady)
+        {
+            if (!_isObjectReadyTriggered)
+            {
+                _isObjectReadyTriggered = true;
+                _currentFocusedObject.OnReadyStateReached();
             }
-            else _isObjectReadyTriggered = false;
+
+            if (IsGripTriggered)
+            {
+                OnInteractTriggered?.Invoke(targetTransform);
+                _currentFocusedObject.OnInteract();
+                ClearObjectFocus();
+                CurrentHoverTarget = null;
+                _currentReadyTimer = 0f;
+                IsTargetReady = false;
+            }
+        }
+        else
+        {
+            _isObjectReadyTriggered = false;
         }
     }
 

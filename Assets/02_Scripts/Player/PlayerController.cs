@@ -11,6 +11,20 @@ public class PlayerController : MonoBehaviour
     public bool useWebcam = true;
     public bool forceFallbackMode = false;
     public bool canMove = true;
+    private bool _inputSetupComplete;
+
+    internal bool IsInputSetupComplete => _inputSetupComplete || !useWebcam;
+
+    internal bool AllowsKeyboardMouse
+    {
+        get
+        {
+            if (!IsInputSetupComplete) return false;
+            VisionTrackingManager tracking = VisionTrackingManager.Instance;
+            return !useWebcam || forceFallbackMode || tracking == null ||
+                (!tracking.IsCameraReady && !tracking.IsCameraOpening);
+        }
+    }
 
     [Header("Gaze & Interaction Settings")]
     public Camera mainCamera;
@@ -109,14 +123,22 @@ public class PlayerController : MonoBehaviour
         IsCameraLocked = isLocked;
     }
 
+    internal void CompleteInputSetup(bool useFallback)
+    {
+        if (CamLook != null) CamLook.SyncToCurrentLocalRotation();
+        forceFallbackMode = useFallback;
+        _inputSetupComplete = true;
+    }
+
     private void Update()
     {
-        if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame) forceFallbackMode = !forceFallbackMode;
-
         IsGripTriggered = false;
         IsLeanTriggered = false;
 
-        if (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking())
+        bool dialogueActive = UIManager.Instance != null && UIManager.Instance.IsDialogueActive;
+        if (!IsInputSetupComplete ||
+            (UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking() &&
+            (UIManager.Instance.IsPaused || !dialogueActive)))
         {
             IsFreezeActive = false;
             IsGripHeld = false;
@@ -127,8 +149,17 @@ public class PlayerController : MonoBehaviour
         }
 
         GazeScreenPosition = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-
         ProcessInputs();
+
+        // 대사/선택 중에는 주먹 입력을 계속 읽어 진행할 수 있게 하되, 이동과 오브젝트 상호작용은 잠급니다.
+        if (dialogueActive)
+        {
+            IsMoving = false;
+            StopMovement();
+            ClearAllFocus();
+            return;
+        }
+
         ProcessGazeAndInteraction();
 
         if (LeanMovementInput.sqrMagnitude > 0.01f && !IsMovementLocked && canMove) MoveContinuously();
@@ -142,7 +173,7 @@ public class PlayerController : MonoBehaviour
         IsGripHeld = false;
         IsFreezeActive = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
 
-        if (forceFallbackMode || !useWebcam || VisionTrackingManager.Instance == null || !VisionTrackingManager.Instance.isTracking)
+        if (AllowsKeyboardMouse)
         {
             _wasReachHeldLastFrame = false;
 
@@ -175,6 +206,13 @@ public class PlayerController : MonoBehaviour
         }
 
         VisionTrackingManager tracking = VisionTrackingManager.Instance;
+        if (tracking == null || !tracking.isTracking || !tracking.IsCalibrated)
+        {
+            _wasReachHeldLastFrame = false;
+            _wasLeanHeldLastFrame = false;
+            IsLeanHeld = false;
+            return;
+        }
         IsFreezeActive = HidingSpotManager.Instance != null && HidingSpotManager.Instance.IsHiding;
         bool isCurrentlyReaching = tracking.GetReachState();
         IsGripHeld = isCurrentlyReaching;

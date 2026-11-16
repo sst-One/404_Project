@@ -21,21 +21,28 @@ public class Stage12_13_Controller : MonoBehaviour
     public VideoPlayer tvVideoPlayer;
 
     [Header("Audio Clip Names")]
-    public string policeMessageAlertClip = "SND-058_PhoneRing_Loop";
+    public string policeMessageAlertClip = NarrativeData.PoliceMessageSound;
     public string tvNewsClipName = "SND-060_NewsReport_Loop";
     public string tinnitusClipName = "SND-061_TinnitusRing_Loop_Timed";
     public string gemDropClipName = "SND-062_GemDrop_OneShot";
     public string flashbackSnd1 = "SND-068_MemoryCut_OneShot";
     public string flashbackSnd2 = "SND-069_Flashback_Layer2";
     public string flashbackSnd3 = "SND-070_Flashback_Layer3";
+    private const float NewsVolumeScale = 0.75f;
 
     private RawImage[] dynamicFlashbackImages = new RawImage[3];
     private bool isTvTurnedOn = false;
 
     private void Start()
     {
+        if (PhoneController.Instance != null) PhoneController.Instance.HidePhone();
         if (StateManager.Instance != null) StateManager.Instance.ResetHeartbeat();
-        if (endingGem != null) endingGem.gameObject.SetActive(false);
+        if (endingGem != null)
+        {
+            StageVisuals.ReplaceGem(endingGem);
+            endingGem.isInteractable = false;
+            endingGem.gameObject.SetActive(false);
+        }
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(false);
 
         if (sceneRingObject != null) sceneRingObject.SetActive(false);
@@ -65,32 +72,31 @@ public class Stage12_13_Controller : MonoBehaviour
 
         PhoneController phone = PhoneController.Instance;
         if (phone == null) phone = FindObjectOfType<PhoneController>(true);
+        bool hasMessageScreen = phone != null && phone.phoneUI != null && phone.phoneUI.policeReceiveScreen != null;
 
-        if (phone != null)
+        if (hasMessageScreen)
         {
             phone.ShowPhoneInHand();
-            if (phone.phoneUI != null)
-            {
-                phone.phoneUI.SetCrackedScreen(true);
-                phone.phoneUI.ShowPoliceReceiveScreen();
-            }
+            phone.phoneUI.ShowLockDay5();
+        }
+        else
+        {
+            Debug.LogWarning("Day 5 police message screen is unavailable.", this);
         }
 
-        if (AudioManager.Instance != null && !string.IsNullOrEmpty(policeMessageAlertClip))
+        if (hasMessageScreen && AudioManager.Instance != null && !string.IsNullOrEmpty(policeMessageAlertClip))
         {
-            AudioManager.Instance.PlayGlobal2D(policeMessageAlertClip, AudioManager.Instance.sfxMixerGroup);
+            AudioManager.Instance.PlayGlobal2D(policeMessageAlertClip, AudioManager.Instance.uiMixerGroup, 0.75f);
         }
 
-        yield return new WaitForSeconds(3.0f);
-
-        if (phone != null)
+        if (hasMessageScreen)
         {
+            yield return new WaitForSeconds(1f);
+            phone.phoneUI.ShowPoliceReceiveScreen();
+            phone.phoneUI.SetCrackedScreen(true);
+            yield return new WaitForSeconds(7f);
             phone.HidePhone();
         }
-
-        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_Police);
-        yield return new WaitForSeconds(3.0f);
-        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
         isTvTurnedOn = false;
         if (tvRemote != null) tvRemote.EnableInteractionWithLight();
@@ -103,7 +109,18 @@ public class Stage12_13_Controller : MonoBehaviour
         // 2단계 : 뉴스 시청
         if (tvCanvas != null) tvCanvas.gameObject.SetActive(true);
         if (tvScreenDisplay != null) tvScreenDisplay.SetActive(true);
-        if (tvVideoPlayer != null) tvVideoPlayer.Play();
+        AudioSource videoAudio = null;
+        if (tvVideoPlayer != null)
+        {
+            if (tvVideoPlayer.controlledAudioTrackCount > 0 && tvVideoPlayer.audioOutputMode == VideoAudioOutputMode.AudioSource)
+            {
+                videoAudio = tvVideoPlayer.GetTargetAudioSource(0);
+                if (videoAudio != null) videoAudio.volume *= NewsVolumeScale;
+            }
+            else if (tvVideoPlayer.controlledAudioTrackCount > 0 && tvVideoPlayer.audioOutputMode == VideoAudioOutputMode.Direct)
+                tvVideoPlayer.SetDirectAudioVolume(0, tvVideoPlayer.GetDirectAudioVolume(0) * NewsVolumeScale);
+            tvVideoPlayer.Play();
+        }
 
         float newsDuration = 10.0f; // 기본 안전 대기 시간
         if (tvAudioSource != null && AudioManager.Instance != null)
@@ -111,19 +128,21 @@ public class Stage12_13_Controller : MonoBehaviour
             AudioClip clip = AudioManager.Instance.GetClip(tvNewsClipName);
             if (clip != null)
             {
+                if (tvAudioSource != videoAudio) tvAudioSource.volume *= NewsVolumeScale;
                 tvAudioSource.clip = clip;
                 tvAudioSource.Play();
                 newsDuration = clip.length; // 실제 오디오 클립 길이 적용
             }
         }
 
-        if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day5_TVNews);
-        if (AudioManager.Instance != null) AudioManager.Instance.PlayStatusSound(tinnitusClipName);
-
-        // [완벽한 해결] 복잡한 while문 대신 오디오 클립 길이에 기반한 안전한 대기로 교체하여 무한 대기 방지
-        yield return new WaitForSeconds(newsDuration);
-
-        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
+        float halfNewsDuration = Mathf.Max(2.0f, newsDuration * 0.5f);
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(NarrativeData.Day5_TVNews_1, halfNewsDuration));
+            if (endingGem != null) endingGem.gameObject.SetActive(true);
+            yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(NarrativeData.Day5_TVNews_2, Mathf.Max(2f, newsDuration - halfNewsDuration)));
+        }
+        else yield return new WaitForSeconds(newsDuration);
 
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(gemDropClipName, AudioManager.Instance.sfxMixerGroup);
 
@@ -167,8 +186,10 @@ public class Stage12_13_Controller : MonoBehaviour
             sceneRingObject.SetActive(true);
         }
         OnGemReached();
-
-        yield return new WaitForSeconds(2.0f);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(NarrativeData.Day5_Gem, 2.8f));
+        else
+            yield return new WaitForSeconds(2.8f);
 
         yield return StartCoroutine(FlashbackAndEndingSequence());
     }
@@ -225,7 +246,7 @@ public class Stage12_13_Controller : MonoBehaviour
             foreach (Transform child in panelTransform)
             {
                 RawImage ri = child.GetComponent<RawImage>();
-                if (ri != null && imgCount < 3)
+                if (ri != null && imgCount < dynamicFlashbackImages.Length)
                 {
                     dynamicFlashbackImages[imgCount] = ri;
                     ri.gameObject.SetActive(false);
@@ -234,14 +255,14 @@ public class Stage12_13_Controller : MonoBehaviour
             }
         }
 
-        if (dynamicFlashbackImages[0] != null)
+        if (dynamicFlashbackImages[0] != null && dynamicFlashbackImages[0].texture != null)
         {
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd1, AudioManager.Instance.playerStatusMixerGroup);
             dynamicFlashbackImages[0].gameObject.SetActive(true);
         }
-        yield return new WaitForSeconds(3.0f);
+        yield return new WaitForSeconds(4.5f);
 
-        if (dynamicFlashbackImages[1] != null)
+        if (dynamicFlashbackImages[1] != null && dynamicFlashbackImages[1].texture != null)
         {
             if (AudioManager.Instance != null)
             {
@@ -251,14 +272,14 @@ public class Stage12_13_Controller : MonoBehaviour
             }
             dynamicFlashbackImages[1].gameObject.SetActive(true);
         }
-        yield return new WaitForSeconds(3.0f);
+        yield return new WaitForSeconds(4.5f);
 
-        if (dynamicFlashbackImages[2] != null)
+        if (dynamicFlashbackImages[2] != null && dynamicFlashbackImages[2].texture != null)
         {
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(flashbackSnd3, AudioManager.Instance.playerStatusMixerGroup);
             dynamicFlashbackImages[2].gameObject.SetActive(true);
         }
-        yield return new WaitForSeconds(3.0f);
+        yield return new WaitForSeconds(4.5f);
 
         if (AudioManager.Instance != null) AudioManager.Instance.StopStatusSound();
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(2.0f));

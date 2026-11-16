@@ -12,6 +12,9 @@ public class Stage5_6_Controller : MonoBehaviour
     public InteractableItem fuseBox;
     public InteractableItem clueItem;
     public GameObject hallucinationDecals;
+    [SerializeField] private Transform hallucinationRoom;
+    private GameObject _hallucinationVisual;
+    private PhoneController _day3MessagePhone;
 
     [Header("Item Audio Reference")]
     public AudioSource lightFlickerSource;
@@ -48,52 +51,58 @@ public class Stage5_6_Controller : MonoBehaviour
 
         if (clueItem != null)
         {
-            clueItem.onInteractAction -= OnClueFound;
-            clueItem.onInteractAction += OnClueFound;
+            clueItem.onInteractAction += OnRingFound;
+            clueItem.isInteractable = false;
         }
+        else Debug.LogError("Stage 5 ring interaction is missing.", this);
+        StartCoroutine(Day3Message());
+    }
 
-        StartCoroutine(Day3IntroSequence());
+    private IEnumerator Day3Message()
+    {
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowDayTransition(3));
+        yield return new WaitForSeconds(1f);
+        PhoneController phone = PhoneController.Instance;
+        if (phone != null)
+        {
+            _day3MessagePhone = phone;
+            phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowLockDay3();
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayGlobal2D(NarrativeData.EmergencyMessageSound, AudioManager.Instance.uiMixerGroup);
+            yield return new WaitForSeconds(1f);
+            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay3();
+            yield return new WaitForSeconds(5f);
+            phone.HidePhone();
+            _day3MessagePhone = null;
+        }
+        if (clueItem != null) clueItem.EnableInteractionWithLight();
     }
 
     private void OnDestroy()
     {
+        if (_day3MessagePhone != null) _day3MessagePhone.HidePhone();
         if (fuseBox != null) fuseBox.onInteractAction -= OnFuseBoxReached;
-        if (clueItem != null) clueItem.onInteractAction -= OnClueFound;
+        if (clueItem != null) clueItem.onInteractAction -= OnRingFound;
         HideFuseBoxFloorRoute();
     }
 
-    private IEnumerator Day3IntroSequence()
-    {
-        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.ShowDayTransition(3));
-        yield return new WaitForSeconds(1.0f);
-
-        PhoneController phone = PhoneController.Instance;
-        if (phone == null) phone = FindObjectOfType<PhoneController>(true);
-
-        if (phone != null)
-        {
-            phone.ShowPhoneInHand();
-            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay3();
-
-            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
-            yield return new WaitForSeconds(5.0f);
-            phone.HidePhone();
-        }
-
-        if (clueItem != null) clueItem.EnableInteractionWithLight();
-    }
-
-    private void OnClueFound()
+    private void OnRingFound()
     {
         if (hasFoundClue || isBlackout) return;
         hasFoundClue = true;
+        if (clueItem != null) clueItem.gameObject.SetActive(false);
+        StartCoroutine(RingReactionThenHallucination());
+    }
 
-        if (clueItem != null)
-        {
-            clueItem.gameObject.SetActive(false);
-        }
-
-        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(clueMonologueClip, AudioManager.Instance.voiceMixerGroup);
+    private IEnumerator RingReactionThenHallucination()
+    {
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(clueMonologueClip, AudioManager.Instance.voiceMixerGroup);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Clue));
+        yield return StartCoroutine(Stage6_HallucinationSequence());
         TriggerBlackout();
     }
 
@@ -126,14 +135,16 @@ public class Stage5_6_Controller : MonoBehaviour
         if (phone != null)
         {
             phone.ShowPhoneInHand();
-            if (phone.phoneUI != null) phone.phoneUI.ShowDefaultScreen();
+            if (phone.phoneUI != null) phone.phoneUI.ShowLockDay3();
         }
 
-        StartCoroutine(DelayedEnableFuseBox());
+        StartCoroutine(BlackoutSubtitleThenEnableFuseBox());
     }
 
-    private IEnumerator DelayedEnableFuseBox()
+    private IEnumerator BlackoutSubtitleThenEnableFuseBox()
     {
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_FuseBox));
         yield return new WaitForSeconds(0.1f);
         if (fuseBox != null) fuseBox.EnableInteractionWithLight();
     }
@@ -199,18 +210,19 @@ public class Stage5_6_Controller : MonoBehaviour
             if (fuseBox.GetComponent<Collider>() != null) fuseBox.GetComponent<Collider>().enabled = false;
         }
 
-        StartCoroutine(Stage6_HallucinationSequence());
+        StartCoroutine(RestorePowerAndFinishDay());
     }
 
     private IEnumerator Stage6_HallucinationSequence()
     {
-        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
-        if (affectAmbientLight) RenderSettings.ambientLight = _originalAmbientColor;
-        isBlackout = false;
-
+        bool previousDialogueState = UIManager.Instance != null && UIManager.Instance.IsDialogueActive;
+        if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = true;
         yield return new WaitForSeconds(0.5f);
 
-        if (hallucinationDecals != null) hallucinationDecals.SetActive(true);
+        if (_hallucinationVisual == null)
+            _hallucinationVisual = StageVisuals.CreateHallucination(hallucinationRoom);
+        if (_hallucinationVisual != null) _hallucinationVisual.SetActive(true);
+        else Debug.LogWarning("The hallucination model could not be aligned to the room.", this);
 
         if (AudioManager.Instance != null)
             AudioManager.Instance.PlayGlobal2D(hallucinationClipName, AudioManager.Instance.playerStatusMixerGroup);
@@ -220,7 +232,10 @@ public class Stage5_6_Controller : MonoBehaviour
             PlayerController.Instance.StartCameraShake(0.3f, 0.15f);
         }
 
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(1.2f);
+
+        // 환각을 바라보는 동안 잠시 유지하고, 시야를 돌리면 암전 연출로 넘어갑니다.
+        yield return StartCoroutine(WaitForHallucinationGaze(lookAt: false, timeout: 5.0f));
 
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(false);
         if (affectAmbientLight) RenderSettings.ambientLight = Color.black;
@@ -231,15 +246,28 @@ public class Stage5_6_Controller : MonoBehaviour
             if (clip != null) { lightFlickerSource.clip = clip; lightFlickerSource.loop = true; lightFlickerSource.Play(); }
         }
 
-        yield return new WaitForSeconds(0.4f);
-
-        if (hallucinationDecals != null) hallucinationDecals.SetActive(false);
+        yield return new WaitForSeconds(0.12f);
         if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
         if (affectAmbientLight) RenderSettings.ambientLight = _originalAmbientColor;
-
-        if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
+        if (_hallucinationVisual != null) _hallucinationVisual.SetActive(false);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.FlashSceneEdges());
         if (lightFlickerSource != null && lightFlickerSource.isPlaying) lightFlickerSource.Stop();
 
+        yield return StartCoroutine(WaitForHallucinationGaze(lookAt: true, timeout: 3f));
+        if (UIManager.Instance != null) UIManager.Instance.IsDialogueActive = previousDialogueState;
+
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Hallucination));
+    }
+
+    private IEnumerator RestorePowerAndFinishDay()
+    {
+        isBlackout = false;
+        if (mainRoomLightGroup != null) mainRoomLightGroup.SetActive(true);
+        if (affectAmbientLight) RenderSettings.ambientLight = _originalAmbientColor;
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGlobal2D(lightRestoreClipName, AudioManager.Instance.sfxMixerGroup);
         PhoneController phone = PhoneController.Instance;
         if (phone == null) phone = FindObjectOfType<PhoneController>(true);
         if (phone != null) phone.HidePhone();
@@ -247,4 +275,27 @@ public class Stage5_6_Controller : MonoBehaviour
         yield return new WaitForSeconds(2.0f);
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage7_Gem);
     }
+
+    private IEnumerator WaitForHallucinationGaze(bool lookAt, float timeout)
+    {
+        if (hallucinationDecals == null || PlayerController.Instance == null || PlayerController.Instance.mainCamera == null)
+        {
+            yield return new WaitForSeconds(0.5f);
+            yield break;
+        }
+
+        Camera cam = PlayerController.Instance.mainCamera;
+        Vector3 target = hallucinationDecals.transform.position;
+        float timer = 0f;
+        while (timeout <= 0f || timer < timeout)
+        {
+            Vector3 direction = target - cam.transform.position;
+            float dot = direction.sqrMagnitude > 0.001f ? Vector3.Dot(cam.transform.forward, direction.normalized) : 1f;
+            bool lookingAt = dot >= 0.55f;
+            if (lookingAt == lookAt) break;
+            timer += Time.deltaTime;
+            yield return null;
+        }
+    }
+
 }

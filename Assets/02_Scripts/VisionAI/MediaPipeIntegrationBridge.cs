@@ -23,6 +23,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
     private Vector3 _rawHandPos;
     private float _rawHandScale;
     private bool _rawHandIsFist;
+    private int _rawExtendedFingerCount;
 
     private void OnEnable()
     {
@@ -44,7 +45,7 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
         {
             if (_hasNewHandData)
             {
-                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos, _rawHandScale, _rawHandIsFist);
+                VisionTrackingManager.Instance.UpdateHandData(_rawHandPos, _rawHandScale, _rawHandIsFist, _rawExtendedFingerCount);
                 _hasNewHandData = false;
             }
 
@@ -96,12 +97,14 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
                 }
 
                 bool isFist = curledFingerCount >= 3;
+                int extendedFingerCount = 4 - curledFingerCount;
 
                 lock (_dataLock)
                 {
                     _rawHandPos = pos;
                     _rawHandScale = palmScale;
                     _rawHandIsFist = isFist;
+                    _rawExtendedFingerCount = extendedFingerCount;
                     _hasNewHandData = true;
                 }
             }
@@ -151,7 +154,8 @@ public class MediaPipeIntegrationBridge : MonoBehaviour
 
                 Quaternion rot = Quaternion.LookRotation(forwardVec, upVec);
                 headRot = rot.eulerAngles;
-                headRot.x = NormalizeAngle(headRot.x);
+                // The landmark basis points away from the face. Unity camera pitch uses the opposite sign.
+                headRot.x = -NormalizeAngle(headRot.x);
                 headRot.y = NormalizeAngle(headRot.y);
                 headRot.z = NormalizeAngle(headRot.z);
 

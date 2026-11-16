@@ -24,8 +24,6 @@ namespace Mediapipe.Unity
 
     private readonly ResolutionStruct[] _defaultAvailableResolutions;
 
-    private string forcedDeviceName = "OBS Virtual Camera";
-
     public WebCamSource(int preferableDefaultWidth, ResolutionStruct[] defaultAvailableResolutions)
     {
       _preferableDefaultWidth = preferableDefaultWidth;
@@ -35,19 +33,7 @@ namespace Mediapipe.Unity
     private static readonly object _PermissionLock = new object();
     private static bool _IsPermitted = false;
 
-    private WebCamTexture _webCamTexture;
-    private WebCamTexture webCamTexture
-    {
-      get => _webCamTexture;
-      set
-      {
-        if (_webCamTexture != null)
-        {
-          _webCamTexture.Stop();
-        }
-        _webCamTexture = value;
-      }
-    }
+    private WebCamTexture webCamTexture { get; set; }
 
     public override int textureWidth => !isPrepared ? 0 : webCamTexture.width;
     public override int textureHeight => !isPrepared ? 0 : webCamTexture.height;
@@ -185,7 +171,6 @@ namespace Mediapipe.Unity
       }
 
       webCamDevice = availableSources[sourceId];
-      forcedDeviceName = availableSources[sourceId].name;
     }
 
     public override IEnumerator Play()
@@ -224,11 +209,11 @@ namespace Mediapipe.Unity
 
     public override void Stop()
     {
-      if (webCamTexture != null)
-      {
-        webCamTexture.Stop();
-      }
+      var texture = webCamTexture;
       webCamTexture = null;
+      if (texture == null) return;
+      if (texture.isPlaying) texture.Stop();
+      UnityEngine.Object.Destroy(texture);
     }
 
     public override Texture GetCurrentTexture() => webCamTexture;
@@ -255,10 +240,10 @@ namespace Mediapipe.Unity
       Stop();
       
       // [핫픽스] MediaPipe 내부 인덱스 누락 충돌 방지: 강제 지정된 OBS 가상 카메라 이름으로 직접 텍스처 생성
-      string activeName = string.IsNullOrEmpty(forcedDeviceName) ? "OBS Virtual Camera" : forcedDeviceName;
+      string activeName = sourceName;
       
       Debug.Log($"[WebCamSource 핫픽스] 최종 텍스처 생성 대상 장치명: {activeName}");
-      webCamTexture = new WebCamTexture(activeName);
+      webCamTexture = string.IsNullOrEmpty(activeName) ? new WebCamTexture() : new WebCamTexture(activeName);
       return;
     }
 

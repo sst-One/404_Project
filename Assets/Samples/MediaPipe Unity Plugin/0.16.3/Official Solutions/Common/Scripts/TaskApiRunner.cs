@@ -25,6 +25,8 @@ namespace Mediapipe.Unity.Sample
 
     protected Bootstrap bootstrap;
     protected bool isPaused;
+    public bool UsesSharedImageSource { get; set; }
+    public bool IsInitialized => bootstrap != null && bootstrap.isFinished;
 
     private readonly Stopwatch _stopwatch = new();
 
@@ -33,7 +35,7 @@ namespace Mediapipe.Unity.Sample
       bootstrap = FindBootstrap();
       yield return new WaitUntil(() => bootstrap.isFinished);
 
-      Play();
+      if (!UsesSharedImageSource) Play();
     }
 
     /// <summary>

@@ -17,7 +17,8 @@ public class FirstPersonCameraLook : MonoBehaviour
 
     [Header("회전 방향 반전 설정")]
     public bool invertYaw = false;
-    public bool invertPitch = true;
+    public bool invertPitch;
+    internal const string PitchPreferenceKey = "CameraPitchInvertedV2";
 
     private float _targetYaw = 0f;
     private float _targetPitch = 0f;
@@ -43,6 +44,7 @@ public class FirstPersonCameraLook : MonoBehaviour
         verticalSensitivity = PlayerPrefs.GetFloat("VerticalSensitivity", headRotationSpeed);
         deadzoneRadius = PlayerPrefs.GetFloat("DeadzoneRadius", 2.0f);
         invertYaw = PlayerPrefs.GetInt("InvertYaw", 0) == 1;
+        invertPitch = PlayerPrefs.GetInt(PitchPreferenceKey, invertPitch ? 1 : 0) == 1;
     }
 
     public void SyncToCurrentLocalRotation()
@@ -62,6 +64,13 @@ public class FirstPersonCameraLook : MonoBehaviour
     {
         invertYaw = value;
         PlayerPrefs.SetInt("InvertYaw", value ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    public void SetInvertPitch(bool value)
+    {
+        invertPitch = value;
+        PlayerPrefs.SetInt(PitchPreferenceKey, value ? 1 : 0);
         PlayerPrefs.Save();
     }
 
@@ -92,16 +101,22 @@ public class FirstPersonCameraLook : MonoBehaviour
     private void Update()
     {
         bool isPaused = UIManager.Instance != null && UIManager.Instance.IsPaused;
-        bool isUIBlocking = UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking();
+        bool isUIBlocking = UIManager.Instance != null && UIManager.Instance.IsAnyUIBlocking() && !UIManager.Instance.IsDialogueActive;
 
+        // 대사/선택 중에는 이동·상호작용은 잠그되, 환각을 바라보거나 시선을 돌리는 카메라 입력은 허용합니다.
         if (isPaused || isUIBlocking) return;
 
         // 중앙 통제소인 PlayerController의 락 상태만 확인하도록 구조 개선
-        if (PlayerController.Instance != null && PlayerController.Instance.IsCameraLocked) return;
+        PlayerController player = PlayerController.Instance;
+        if (player != null && (!player.IsInputSetupComplete || player.IsCameraLocked)) return;
+        if (TutorialController.Instance != null && TutorialController.Instance.IsCameraLocked) return;
 
         float speedMultiplier = (PlayerController.Instance != null && PlayerController.Instance.IsFreezeActive) ? 0.2f : 1f;
 
-        if (VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.isTracking)
+        bool allowTracking = PlayerController.Instance == null ||
+            (PlayerController.Instance.useWebcam && !PlayerController.Instance.forceFallbackMode);
+        if (allowTracking && VisionTrackingManager.Instance != null &&
+            VisionTrackingManager.Instance.IsCalibrated && VisionTrackingManager.Instance.isTracking)
         {
             float deltaYaw = Mathf.DeltaAngle(VisionTrackingManager.Instance.baselineHeadRotation.y, VisionTrackingManager.Instance.currentHeadRotation.y);
             float deltaPitch = Mathf.DeltaAngle(VisionTrackingManager.Instance.baselineHeadRotation.x, VisionTrackingManager.Instance.currentHeadRotation.x);
@@ -125,7 +140,8 @@ public class FirstPersonCameraLook : MonoBehaviour
             _targetYaw = _baseYaw;
             _targetPitch = _basePitch;
         }
-        else if (Mouse.current != null && Mouse.current.rightButton.isPressed)
+        else if (player != null && player.AllowsKeyboardMouse && Mouse.current != null &&
+            Cursor.lockState == CursorLockMode.Locked)
         {
             Vector2 mouseDelta = Mouse.current.delta.ReadValue();
             _targetYaw += mouseDelta.x * horizontalSensitivity * 0.05f * speedMultiplier;
@@ -133,6 +149,10 @@ public class FirstPersonCameraLook : MonoBehaviour
             _targetPitch = Mathf.Clamp(_targetPitch, -maxPitchAngle, maxPitchAngle);
             _baseYaw = _targetYaw;
             _basePitch = _targetPitch;
+        }
+        else
+        {
+            return;
         }
 
         _currentYaw = Mathf.SmoothDamp(_currentYaw, _targetYaw, ref _yawVelocity, rotationSmoothTime);

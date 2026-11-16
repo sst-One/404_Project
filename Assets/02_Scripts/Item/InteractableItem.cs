@@ -16,6 +16,8 @@ public class InteractableItem : MonoBehaviour, IInteractable
     [Header("상호작용 거리 설정")]
     [Tooltip("활성화하면 플레이어와의 거리 제한을 무시하고 화면 중앙 조준으로만 상호작용합니다. 엘리베이터 버튼 전용으로 사용합니다.")]
     public bool ignorePlayerDistanceLimit = false;
+    [Tooltip("시선 Ready 판정만으로 상호작용합니다. 특정 단서처럼 Gaze만 요구하는 오브젝트에 사용합니다.")]
+    public bool interactOnGazeReady = false;
 
     [Header("메시 자체 발광")]
     public Color interactionGlowColor = Color.white;
@@ -80,7 +82,10 @@ public class InteractableItem : MonoBehaviour, IInteractable
 
     public virtual void OnFocusEnter() { IsFocused = true; }
     public virtual void OnFocusExit() { IsFocused = false; }
-    public virtual void OnReadyStateReached() { }
+    public virtual void OnReadyStateReached()
+    {
+        if (interactOnGazeReady) OnInteract();
+    }
 
     public virtual void OnInteract()
     {
@@ -152,6 +157,12 @@ public class InteractableItem : MonoBehaviour, IInteractable
             _glowBlock = new MaterialPropertyBlock();
     }
 
+    internal void InvalidateGlowRenderers()
+    {
+        StopMeshGlow();
+        _glowMaterials.Clear();
+    }
+
     private void CacheGlowMaterials()
     {
         EnsureGlowBlock();
@@ -217,7 +228,7 @@ public class InteractableItem : MonoBehaviour, IInteractable
         while (_glowActive)
         {
             float t = Mathf.PingPong(Time.time * glowPulseSpeed, 1f);
-            float intensity = Mathf.Lerp(glowMinIntensity, glowMaxIntensity, t);
+            float intensity = Mathf.Lerp(glowMinIntensity, glowMaxIntensity, t) * 0.55f;
             Color emission = interactionGlowColor * intensity;
 
             for (int i = 0; i < _glowMaterials.Count; i++)

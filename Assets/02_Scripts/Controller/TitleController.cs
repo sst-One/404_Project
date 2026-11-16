@@ -3,6 +3,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Video;
 using UnityEngine.InputSystem;
+using UnityEngine.EventSystems;
+using TMPro;
 
 public class TitleController : MonoBehaviour
 {
@@ -30,25 +32,147 @@ public class TitleController : MonoBehaviour
     private Coroutine _transitionCoroutine;
     private bool _isTransitioning;
     private bool _isPlayingIntroVideo;
+    private float _introSkipHeldTime;
     private GameStage _stageAfterIntro = GameStage.Stage1_Elevator;
+    internal Texture MenuBackdrop { get; private set; }
 
     private void Awake()
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        AddButtonListener(btnStartGame, OnClickStartGame);
+        ApplyReferenceLayout();
+        AddButtonListener(btnStartGame, RequestNewGame);
         AddButtonListener(btnContinueGame, OnClickContinueGame);
         AddButtonListener(btnSettings, OnClickSettings);
         AddButtonListener(btnCredits, OnClickCredits);
         AddButtonListener(btnCloseCredits, OnClickCloseCredits);
-        AddButtonListener(btnQuitGame, OnClickQuitGame);
+        AddButtonListener(btnQuitGame, RequestQuitGame);
+
+        // 메인 메뉴 주요 버튼에 마우스 오버 시 텍스트 강조와 세로 바를 함께 표시합니다.
+        AddHoverFeedback(btnStartGame);
+        AddHoverFeedback(btnContinueGame);
+        AddHoverFeedback(btnSettings);
+        AddHoverFeedback(btnCredits);
+        AddHoverFeedback(btnQuitGame);
 
         if (titlePanel != null) titlePanel.SetActive(false);
         if (creditsPanel != null) creditsPanel.SetActive(false);
         if (introVideoPanel != null) introVideoPanel.SetActive(false);
         if (introVideoPlayer != null) introVideoPlayer.Stop();
         if (skipPromptUI != null) skipPromptUI.SetActive(false);
+    }
+
+    private void ApplyReferenceLayout()
+    {
+        if (titlePanel != null)
+        {
+            Transform background = titlePanel.transform.Find("TitleBackground");
+            if (background != null && background.TryGetComponent(out RawImage image))
+            {
+                MenuBackdrop = image.texture;
+                image.raycastTarget = false;
+            }
+
+            Transform heading = titlePanel.transform.Find("GameTitle_Txt");
+            if (heading != null && heading.TryGetComponent(out TMP_Text title))
+            {
+                Place(title.rectTransform, 0.10f, 0.69f, 0.43f, 0.86f);
+                title.text = "<cspace=0.18em>404</cspace>";
+                title.alignment = TextAlignmentOptions.MidlineLeft;
+                title.fontStyle = FontStyles.Bold;
+                title.enableAutoSizing = true;
+                title.fontSizeMin = 56f;
+                title.fontSizeMax = 128f;
+            }
+        }
+
+        PlaceMainAction(btnContinueGame, "이어하기", 0.63f);
+        PlaceMainAction(btnStartGame, "새 게임", 0.562f);
+        PlaceMainAction(btnSettings, "설정", 0.494f);
+        PlaceMainAction(btnQuitGame, "게임 종료", 0.426f);
+        PlaceMainAction(btnCredits, "제작진", 0.358f);
+
+        if (skipPromptUI != null && skipPromptUI.TryGetComponent(out TMP_Text skip))
+        {
+            Place(skip.rectTransform, 0.59f, 0.03f, 0.95f, 0.09f);
+            skip.alignment = TextAlignmentOptions.MidlineRight;
+            skip.fontSize = 22f;
+            skip.text = "S 키를 길게 눌러 건너뛰기";
+        }
+    }
+
+    private void PlaceMainAction(Button button, string label, float top)
+    {
+        if (button == null) return;
+        Place((RectTransform)button.transform, 0.095f, top - 0.058f, 0.30f, top);
+        if (button.targetGraphic != null)
+            button.targetGraphic.color = new Color(0f, 0f, 0f, 0.025f);
+        TMP_Text text = button.GetComponentInChildren<TMP_Text>(true);
+        if (text == null) return;
+        Place(text.rectTransform, 0.09f, 0f, 1f, 1f);
+        text.text = label;
+        text.alignment = TextAlignmentOptions.MidlineLeft;
+        text.fontSize = 27f;
+    }
+
+    private static void Place(RectTransform rect, float left, float bottom, float right, float top)
+    {
+        rect.anchorMin = new Vector2(left, bottom);
+        rect.anchorMax = new Vector2(right, top);
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+    }
+
+
+    private void AddHoverFeedback(Button button)
+    {
+        if (button == null) return;
+
+        TMP_Text label = button.GetComponentInChildren<TMP_Text>(true);
+        Text legacyLabel = label == null ? button.GetComponentInChildren<Text>(true) : null;
+        if (label == null && legacyLabel == null) return;
+        Color normalColor = label != null ? label.color : legacyLabel.color;
+        Color hoverColor = Color.white;
+        FontStyles normalTmpStyle = label != null ? label.fontStyle : FontStyles.Normal;
+        FontStyle normalLegacyStyle = legacyLabel != null ? legacyLabel.fontStyle : FontStyle.Normal;
+
+        Transform existing = button.transform.Find("Runtime_Hover_Bar");
+        GameObject barObject = existing != null ? existing.gameObject : new GameObject("Runtime_Hover_Bar", typeof(RectTransform), typeof(Image));
+        if (existing == null) barObject.transform.SetParent(button.transform, false);
+
+        RectTransform barRect = barObject.GetComponent<RectTransform>();
+        barRect.anchorMin = new Vector2(0f, 0.18f);
+        barRect.anchorMax = new Vector2(0f, 0.82f);
+        barRect.pivot = new Vector2(0f, 0.5f);
+        barRect.anchoredPosition = new Vector2(2f, 0f);
+        barRect.sizeDelta = new Vector2(4f, 0f);
+        Image barImage = barObject.GetComponent<Image>();
+        barImage.color = Color.white;
+        barImage.raycastTarget = false;
+        barObject.SetActive(false);
+
+        EventTrigger trigger = button.GetComponent<EventTrigger>();
+        if (trigger == null) trigger = button.gameObject.AddComponent<EventTrigger>();
+        if (trigger.triggers == null) trigger.triggers = new System.Collections.Generic.List<EventTrigger.Entry>();
+
+        EventTrigger.Entry enter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+        enter.callback.AddListener(_ =>
+        {
+            if (label != null) { label.color = hoverColor; label.fontStyle = FontStyles.Bold; }
+            if (legacyLabel != null) { legacyLabel.color = hoverColor; legacyLabel.fontStyle = FontStyle.Bold; }
+            if (barObject != null) barObject.SetActive(true);
+        });
+        trigger.triggers.Add(enter);
+
+        EventTrigger.Entry exit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+        exit.callback.AddListener(_ =>
+        {
+            if (label != null) { label.color = normalColor; label.fontStyle = normalTmpStyle; }
+            if (legacyLabel != null) { legacyLabel.color = normalColor; legacyLabel.fontStyle = normalLegacyStyle; }
+            if (barObject != null) barObject.SetActive(false);
+        });
+        trigger.triggers.Add(exit);
     }
 
     private void AddButtonListener(Button button, UnityEngine.Events.UnityAction action)
@@ -69,8 +193,10 @@ public class TitleController : MonoBehaviour
 
     private void Update()
     {
-        if (_isPlayingIntroVideo && Keyboard.current != null && Keyboard.current.sKey.wasPressedThisFrame)
-            SkipIntroSequence();
+        if (!_isPlayingIntroVideo || (skipPromptUI != null && !skipPromptUI.activeInHierarchy)) return;
+        bool isHeld = Keyboard.current != null && Keyboard.current.sKey.isPressed;
+        _introSkipHeldTime = isHeld ? _introSkipHeldTime + Time.unscaledDeltaTime : 0f;
+        if (_introSkipHeldTime >= 0.8f) SkipIntroSequence();
     }
 
     public void ShowMainMenu()
@@ -106,6 +232,16 @@ public class TitleController : MonoBehaviour
         _transitionCoroutine = StartCoroutine(StartTutorialRoutine());
     }
 
+    private void RequestNewGame()
+    {
+        if (_isTransitioning) return;
+        if (GameFlowManager.Instance != null && GameFlowManager.Instance.HasSavedGame() && UIManager.Instance != null && titlePanel != null)
+            UIManager.Instance.ShowMenuDialog(titlePanel.transform, "현재 진행 기록을 초기화할까요?",
+                "새 게임을 시작하면 기존 저장 기록이 삭제됩니다.", "새 게임 시작", OnClickStartGame);
+        else
+            OnClickStartGame();
+    }
+
     private IEnumerator StartTutorialRoutine()
     {
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1.0f));
@@ -130,6 +266,29 @@ public class TitleController : MonoBehaviour
 
     private IEnumerator ContinueGameRoutine(GameStage savedStage)
     {
+        PlayerController player = PlayerController.Instance;
+        VisionTrackingManager tracking = VisionTrackingManager.Instance;
+        bool wantsCamera = player != null && player.useWebcam && tracking != null &&
+            (tracking.HasSavedCalibration || tracking.IsCalibrated);
+        bool restored = false;
+        if (wantsCamera)
+        {
+            yield return StartCoroutine(tracking.RestoreCameraForContinue());
+            restored = tracking.IsCameraReady && tracking.IsCalibrated && tracking.isTracking;
+            if (restored) player.CompleteInputSetup(false);
+        }
+
+        if (UIManager.Instance != null && player != null && (!player.IsInputSetupComplete || (wantsCamera && !restored)))
+        {
+            yield return StartCoroutine(UIManager.Instance.RunCameraSetup(requireDecision: true));
+            if (!PlayerController.Instance.IsInputSetupComplete)
+            {
+                _isTransitioning = false;
+                ShowMainMenu();
+                yield break;
+            }
+        }
+
         if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen(1f));
         HideMainMenu();
         if (UIManager.Instance != null) UIManager.Instance.ResetTransientUI();
@@ -154,6 +313,7 @@ public class TitleController : MonoBehaviour
         {
             introVideoPanel.SetActive(true);
             introVideoPlayer.time = 0;
+            _introSkipHeldTime = 0f;
             _isPlayingIntroVideo = true;
             introVideoPlayer.Play();
             yield return null;
@@ -206,7 +366,7 @@ public class TitleController : MonoBehaviour
 
     private void OnClickSettings()
     {
-        if (UIManager.Instance != null) UIManager.Instance.TogglePause();
+        if (UIManager.Instance != null) UIManager.Instance.OpenSettings();
     }
 
     private void OnClickCredits()
@@ -226,6 +386,15 @@ public class TitleController : MonoBehaviour
 #else
         Application.Quit();
 #endif
+    }
+
+    private void RequestQuitGame()
+    {
+        if (UIManager.Instance != null && titlePanel != null)
+            UIManager.Instance.ShowMenuDialog(titlePanel.transform, "게임을 종료할까요?",
+                "게임을 종료합니다.", "종료", OnClickQuitGame);
+        else
+            OnClickQuitGame();
     }
 
     private void OnDestroy()

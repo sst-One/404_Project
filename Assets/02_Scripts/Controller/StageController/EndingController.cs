@@ -26,6 +26,8 @@ public class EndingController : MonoBehaviour
     private bool _isReturningToTitle;
     private Coroutine _endingRoutine;
     private GameObject _skipButtonObject;
+    private GameObject _interpretationPanel;
+    private Canvas _endingCanvas;
 
     private void Start()
     {
@@ -36,6 +38,7 @@ public class EndingController : MonoBehaviour
             GameFlowManager.Instance.ResetSavedGameProgress();
 
         StartEndingMusic();
+        PrepareEndingTexts();
         _endingRoutine = StartCoroutine(EndingSequenceRoutine());
     }
 
@@ -103,14 +106,62 @@ public class EndingController : MonoBehaviour
             AudioManager.Instance.PlayBGM(endingBgmClipName);
     }
 
+    private void PrepareEndingTexts()
+    {
+        if (titleCanvasGroup != null)
+        {
+            TMP_Text title = titleCanvasGroup.GetComponentInChildren<TMP_Text>(true);
+            if (title != null) title.text = "THE END";
+            _endingCanvas = titleCanvasGroup.GetComponentInParent<Canvas>();
+        }
+        if (_endingCanvas == null && creditsRectTransform != null)
+            _endingCanvas = creditsRectTransform.GetComponentInParent<Canvas>();
+
+        if (creditsRectTransform != null)
+        {
+            TMP_Text credits = creditsRectTransform.GetComponent<TMP_Text>();
+            if (credits != null)
+            {
+                credits.text = "제작진\n\n404\n\n" +
+                    "<color=#999999>기획 · 디자인</color>\n김혜진\n\n" +
+                    "<color=#999999>개발</color>\n양석원\n\n" +
+                    "<color=#999999>사운드 · 디자인</color>\n이우현\n\n" +
+                    "<color=#999999>3D 디자인</color>\n주연선";
+                credits.alignment = TextAlignmentOptions.Center;
+                credits.lineSpacing = 6f;
+                credits.enableAutoSizing = true;
+                credits.fontSizeMin = 15f;
+                credits.fontSizeMax = 30f;
+                creditsRectTransform.anchorMin = new Vector2(0.2f, 0.25f);
+                creditsRectTransform.anchorMax = new Vector2(0.8f, 0.93f);
+                creditsRectTransform.sizeDelta = Vector2.zero;
+                credits.ForceMeshUpdate();
+                RectTransform parent = creditsRectTransform.parent as RectTransform;
+                float height = parent != null ? parent.rect.height : Screen.height;
+                float riseDistance = Mathf.Max(1f, height * (creditsRectTransform.anchorMax.y + 0.04f));
+                creditsRectTransform.anchoredPosition = Vector2.down * riseDistance;
+                creditsRectTransform.gameObject.SetActive(false);
+            }
+        }
+    }
+
     private IEnumerator EndingSequenceRoutine()
     {
-        // 기존 엔딩 타이틀 페이드 연출을 유지합니다.
+        // v07 TITLE-030: THE END를 먼저 보여주고 404 타이틀로 전환한 뒤 크레딧을 시작합니다.
         if (titleCanvasGroup != null)
         {
             titleCanvasGroup.alpha = 1f;
             if (titleHoldTime > 0f)
                 yield return new WaitForSecondsRealtime(titleHoldTime);
+            TMP_Text title = titleCanvasGroup.GetComponentInChildren<TMP_Text>(true);
+            if (title != null) title.text = "404";
+            for (int flash = 0; flash < 3; flash++)
+            {
+                titleCanvasGroup.alpha = 0.15f;
+                yield return new WaitForSecondsRealtime(0.12f);
+                titleCanvasGroup.alpha = 1f;
+                yield return new WaitForSecondsRealtime(0.2f);
+            }
 
             float duration = Mathf.Max(0f, titleFadeTime);
             if (duration > 0f)
@@ -124,82 +175,76 @@ public class EndingController : MonoBehaviour
                 }
             }
             titleCanvasGroup.alpha = 0f;
+            titleCanvasGroup.gameObject.SetActive(false);
         }
 
-        // 크레딧이 시작되는 시점에 언제든 메인 화면으로 이동할 수 있는 스킵 버튼을 표시합니다.
-        CreateSkipButton();
-
-        // 크레딧 전체가 화면 위로 완전히 빠져나갈 때까지 스크롤합니다.
+        if (UIManager.Instance != null) UIManager.Instance.IsEndingPointerEnabled = true;
+        if (creditsRectTransform != null) creditsRectTransform.gameObject.SetActive(true);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        // 하단까지 화면을 벗어난 뒤 해석 버튼을 표시합니다.
         if (creditsRectTransform != null && creditScrollSpeed > 0f)
         {
-            TMP_Text creditsText = creditsRectTransform.GetComponent<TMP_Text>();
-            if (creditsText != null)
-                creditsText.ForceMeshUpdate();
-
-            // RectTransform 높이가 짧게 설정되어 있어도 실제 텍스트 전체 높이를 기준으로
-            // 스크롤 종료 지점을 계산해 마지막 줄까지 화면 밖으로 이동시킵니다.
-            float contentHeight = creditsRectTransform.rect.height;
-            if (creditsText != null)
-                contentHeight = Mathf.Max(contentHeight, creditsText.preferredHeight);
-
-            float targetY = Mathf.Approximately(overrideTargetY, 0f)
-                ? Screen.height + contentHeight
-                : overrideTargetY;
+            RectTransform parent = creditsRectTransform.parent as RectTransform;
+            float parentHeight = parent != null ? parent.rect.height : Screen.height;
+            float targetY = Mathf.Max(overrideTargetY, parentHeight * (1f - creditsRectTransform.anchorMin.y) + 24f);
+            float speed = Mathf.Max(creditScrollSpeed, (targetY - creditsRectTransform.anchoredPosition.y) / 15f);
 
             while (creditsRectTransform != null &&
                    creditsRectTransform.anchoredPosition.y < targetY)
             {
                 Vector2 position = creditsRectTransform.anchoredPosition;
-                position.y = Mathf.Min(targetY, position.y + creditScrollSpeed * Time.unscaledDeltaTime);
+                position.y = Mathf.Min(targetY, position.y + speed * Time.unscaledDeltaTime);
                 creditsRectTransform.anchoredPosition = position;
                 yield return null;
             }
+        }
+        else if (creditsRectTransform != null)
+        {
+            creditsRectTransform.anchoredPosition = new Vector2(0f, overrideTargetY);
         }
         else if (creditsRectTransform == null)
         {
             Debug.LogWarning("[EndingController] 크레딧 RectTransform이 연결되지 않아 크레딧 스크롤을 건너뜁니다.", this);
         }
 
-        // 기존 씬 설정의 endDelay(기본 3초)를 유지한 뒤 자동으로 메인 화면으로 복귀합니다.
-        if (endDelay > 0f)
-            yield return new WaitForSecondsRealtime(endDelay);
-
-        ReturnToTitle();
+        // v07: 크레딧 종료 후 자동으로 타이틀로 빠져나가지 않고 해석 보기 버튼을 대기합니다.
+        CreateEndingActionButton("해석 보기", ShowInterpretation);
     }
 
-    private void CreateSkipButton()
+    private void CreateEndingActionButton(string labelText, UnityEngine.Events.UnityAction action)
     {
-        if (_skipButtonObject != null || creditsRectTransform == null) return;
+        if (_skipButtonObject != null) Destroy(_skipButtonObject);
+        if (_endingCanvas == null && creditsRectTransform != null)
+            _endingCanvas = creditsRectTransform.GetComponentInParent<Canvas>();
+        if (_endingCanvas == null) return;
 
-        Canvas canvas = creditsRectTransform.GetComponentInParent<Canvas>();
-        if (canvas == null)
-        {
-            Debug.LogWarning("[EndingController] 엔딩 Canvas를 찾지 못해 크레딧 스킵 버튼을 만들 수 없습니다.", this);
-            return;
-        }
-
-        _skipButtonObject = new GameObject("Credits_SkipButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        _skipButtonObject = new GameObject("Ending_ActionButton", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(Button));
         RectTransform buttonRect = _skipButtonObject.GetComponent<RectTransform>();
-        buttonRect.SetParent(canvas.transform, false);
-        buttonRect.anchorMin = new Vector2(1f, 0f);
-        buttonRect.anchorMax = new Vector2(1f, 0f);
-        buttonRect.pivot = new Vector2(1f, 0f);
-        buttonRect.sizeDelta = new Vector2(190f, 64f);
-        buttonRect.anchoredPosition = new Vector2(-48f, 48f);
+        buttonRect.SetParent(_endingCanvas.transform.Find("Game_Viewport") ?? _endingCanvas.transform, false);
+        buttonRect.anchorMin = new Vector2(0.5f, 0f);
+        buttonRect.anchorMax = new Vector2(0.5f, 0f);
+        buttonRect.pivot = new Vector2(0.5f, 0f);
+        buttonRect.sizeDelta = new Vector2(240f, 64f);
+        buttonRect.anchoredPosition = new Vector2(0f, 48f);
 
         Image background = _skipButtonObject.GetComponent<Image>();
-        background.color = new Color(0.06f, 0.06f, 0.06f, 0.88f);
+        background.color = new Color(0.02f, 0.02f, 0.02f, 0.92f);
         background.raycastTarget = true;
+        background.type = Image.Type.Simple;
+        Outline border = _skipButtonObject.GetComponent<Outline>();
+        border.effectColor = new Color(0.35f, 0.35f, 0.35f, 1f);
+        border.effectDistance = new Vector2(1f, -1f);
 
         Button button = _skipButtonObject.GetComponent<Button>();
         button.targetGraphic = background;
         button.navigation = new Navigation { mode = Navigation.Mode.None };
         ColorBlock colors = button.colors;
-        colors.normalColor = new Color(1f, 1f, 1f, 1f);
-        colors.highlightedColor = new Color(0.82f, 0.9f, 1f, 1f);
-        colors.pressedColor = new Color(0.65f, 0.75f, 0.9f, 1f);
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.78f, 0.84f, 0.9f, 1f);
+        colors.pressedColor = new Color(0.6f, 0.68f, 0.76f, 1f);
         button.colors = colors;
-        button.onClick.AddListener(ReturnToTitle);
+        button.onClick.AddListener(action);
 
         GameObject labelObject = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
         RectTransform labelRect = labelObject.GetComponent<RectTransform>();
@@ -210,16 +255,68 @@ public class EndingController : MonoBehaviour
         labelRect.offsetMax = new Vector2(-8f, -4f);
 
         TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
-        TMP_Text sourceCredits = creditsRectTransform.GetComponent<TMP_Text>();
+        TMP_Text sourceCredits = creditsRectTransform != null ? creditsRectTransform.GetComponent<TMP_Text>() : null;
         if (sourceCredits != null) label.font = sourceCredits.font;
-        label.text = "SKIP  ▶";
-        label.fontSize = 26f;
-        label.fontStyle = FontStyles.Bold;
+        label.text = labelText;
+        label.fontSize = 22f;
         label.alignment = TextAlignmentOptions.Center;
         label.color = Color.white;
         label.raycastTarget = false;
-
         buttonRect.SetAsLastSibling();
+    }
+
+    private void ShowInterpretation()
+    {
+        if (_skipButtonObject != null) { Destroy(_skipButtonObject); _skipButtonObject = null; }
+        if (_interpretationPanel != null)
+        {
+            _interpretationPanel.SetActive(true);
+            CreateEndingActionButton("메인 화면으로", ReturnToTitle);
+            return;
+        }
+        if (_endingCanvas == null) return;
+
+        if (creditsRectTransform != null) creditsRectTransform.gameObject.SetActive(false);
+        _interpretationPanel = new GameObject("Ending_Interpretation_Panel", typeof(RectTransform), typeof(Image));
+        RectTransform panelRect = _interpretationPanel.GetComponent<RectTransform>();
+        panelRect.SetParent(_endingCanvas.transform.Find("Game_Viewport") ?? _endingCanvas.transform, false);
+        panelRect.anchorMin = Vector2.zero;
+        panelRect.anchorMax = Vector2.one;
+        panelRect.offsetMin = Vector2.zero;
+        panelRect.offsetMax = Vector2.zero;
+        Image panelBackground = _interpretationPanel.GetComponent<Image>();
+        panelBackground.color = Color.black;
+        panelBackground.raycastTarget = true;
+
+        CreateInterpretationText("엔딩 해석", new Vector2(0.25f, 0.89f), new Vector2(0.75f, 0.96f), 30f, TextAlignmentOptions.Center, FontStyles.Bold);
+        CreateInterpretationText("404", new Vector2(0.35f, 0.75f), new Vector2(0.65f, 0.88f), 92f, TextAlignmentOptions.Center, FontStyles.Bold);
+        CreateInterpretationText("01  반전\n그가 건넨 빨간 보석은 주인공의 새끼손가락 반지에 꼭 들어맞습니다.\n되살아난 살인의 기억이 밝히는 범인은, 쫓기던 주인공 자신입니다.", new Vector2(0.16f, 0.59f), new Vector2(0.84f, 0.72f), 20f, TextAlignmentOptions.Center, FontStyles.Normal);
+        CreateInterpretationText("02  숨겨진 단서\n발견된 얼굴 가면과 사라지는 피의 환영은 감춰진 범행의 흔적입니다.\n주인공이 믿었던 회사 생활도 착각이었고, 아내를 잃은 경찰은 그를 홀로 추적했습니다.", new Vector2(0.13f, 0.42f), new Vector2(0.87f, 0.55f), 20f, TextAlignmentOptions.Center, FontStyles.Normal);
+        CreateInterpretationText("03  404 / NOT FOUND\n찾지 못한 것은 방이 아니라, 주인공이 잃어버린 자신의 얼굴과 기억입니다.", new Vector2(0.18f, 0.29f), new Vector2(0.82f, 0.37f), 20f, TextAlignmentOptions.Center, FontStyles.Normal);
+        CreateEndingActionButton("메인 화면으로", ReturnToTitle);
+    }
+
+    private void CreateInterpretationText(string value, Vector2 anchorMin, Vector2 anchorMax, float fontSize, TextAlignmentOptions alignment, FontStyles style)
+    {
+        GameObject textObject = new GameObject("Interpretation_Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(_interpretationPanel.transform, false);
+        RectTransform rect = textObject.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+        TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+        TMP_Text sourceCredits = creditsRectTransform != null ? creditsRectTransform.GetComponent<TMP_Text>() : null;
+        if (sourceCredits != null) text.font = sourceCredits.font;
+        text.text = value;
+        text.fontSize = fontSize;
+        text.enableAutoSizing = true;
+        text.fontSizeMin = 13f;
+        text.fontSizeMax = fontSize;
+        text.alignment = alignment;
+        text.fontStyle = style;
+        text.color = Color.white;
+        text.raycastTarget = false;
     }
 
     private void ReturnToTitle()
@@ -254,6 +351,7 @@ public class EndingController : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (UIManager.Instance != null) UIManager.Instance.IsEndingPointerEnabled = false;
         RestorePlayerControls();
     }
 }

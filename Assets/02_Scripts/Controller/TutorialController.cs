@@ -1,8 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
 
 public class TutorialController : MonoBehaviour
 {
@@ -10,7 +8,7 @@ public class TutorialController : MonoBehaviour
 
     private enum TutorialStep
     {
-        Intro, CameraSetup, Calibration, Rotation, Movement, Sensitivity, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
+        Intro, CameraSetup, Rotation, Movement, Sensitivity, Interaction, HidingEnter, HidingGuide, HidingExit, Complete
     }
 
     private TutorialStep currentStep = TutorialStep.Intro;
@@ -37,8 +35,6 @@ public class TutorialController : MonoBehaviour
     }
     public bool IsCameraLocked { get; private set; } = true;
     private Renderer[] _activeHighlightRenderers;
-    private GameObject _calibrationGuideRoot;
-    private CanvasGroup _calibrationGuideCanvasGroup;
 
     private void Awake() { Instance = this; }
 
@@ -53,7 +49,7 @@ public class TutorialController : MonoBehaviour
         _tutorialPlayer = GetTutorialPlayer();
         if (hidingFloorRoute == null)
             hidingFloorRoute = FindObjectOfType<TutorialFloorRoute>(true);
-        highlightColor = Color.white;
+        highlightColor = new Color(0.36f, 0.36f, 0.36f);
 
         if (_tutorialPlayer != null)
             _tutorialPlayer.SetMovementLock(true);
@@ -94,36 +90,17 @@ public class TutorialController : MonoBehaviour
             UIManager.Instance.ShowSubtitle("404에 오신 것을 환영합니다. 화면의 안내에 따라 조작을 익혀보세요.");
         yield return new WaitForSeconds(2.5f);
 
-        // 첫 번째 ESC는 감도 설정이 아니라 사용할 카메라를 선택하기 위한 단계입니다.
         currentStep = TutorialStep.CameraSetup;
         if (VisionTrackingManager.Instance != null)
             VisionTrackingManager.Instance.allowCameraActivation = true;
 
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("[ESC]를 눌러 사용할 카메라를 선택한 뒤 메뉴를 닫아주세요.");
-        yield return StartCoroutine(WaitForSystemMenuOpenAndClose());
-
-        // 카메라가 준비된 뒤 영점을 맞춥니다.
-        yield return new WaitUntil(() =>
-            VisionTrackingManager.Instance != null &&
-            VisionTrackingManager.Instance.IsCameraReady);
-
-        currentStep = TutorialStep.Calibration;
-        ShowCalibrationGuide("정면을 바라보세요\n영점 조절 중");
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("화면 중앙을 바라보고 바른 자세를 유지하세요. 약 3초 동안 영점을 맞춥니다.");
-
-        if (VisionTrackingManager.Instance != null)
         {
-            VisionTrackingManager.Instance.StartCalibration();
-            yield return new WaitUntil(() =>
-                VisionTrackingManager.Instance == null ||
-                VisionTrackingManager.Instance.IsCalibrated);
+            UIManager.Instance.HideSubtitle();
+            yield return StartCoroutine(UIManager.Instance.RunCameraSetup(requireDecision: true));
         }
 
-        HideCalibrationGuide();
-        if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
-        if (AudioManager.Instance != null)
+        if (AudioManager.Instance != null && VisionTrackingManager.Instance != null && VisionTrackingManager.Instance.IsCalibrated)
             AudioManager.Instance.PlayGlobal2D("SND-072_CalibrationComplete_OneShot", AudioManager.Instance.uiMixerGroup, 0.8f);
         yield return new WaitForSeconds(0.4f);
 
@@ -131,7 +108,8 @@ public class TutorialController : MonoBehaviour
         currentStep = TutorialStep.Rotation;
         IsCameraLocked = false;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("고개를 천천히 위·아래·좌·우로 움직여 주변을 둘러보세요.");
+            UIManager.Instance.ShowSubtitle(IsUsingFallback() ? "마우스를 움직여 주변을 둘러보세요." :
+                "고개를 천천히 위·아래·좌·우로 움직여 주변을 둘러보세요.");
         yield return new WaitForSeconds(3.5f);
 
         // 이어서 실제 이동을 직접 수행하게 합니다.
@@ -174,7 +152,7 @@ public class TutorialController : MonoBehaviour
         // 감도 조절은 플레이어가 기본 이동을 경험한 다음 안내합니다.
         currentStep = TutorialStep.Sensitivity;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("[ESC]를 눌러 '조작 설정'에서 상하·좌우 회전 감도를 조절해보세요. 완료하면 메뉴를 닫으세요.");
+            UIManager.Instance.ShowSubtitle("[ESC] → 설정 → 시선에서 상하·좌우 시선 감도를 조절해보세요. 완료하면 게임으로 돌아오세요.");
         yield return StartCoroutine(WaitForSystemMenuOpenAndClose());
 
         // 수동 숨참기 튜토리얼은 제거했습니다.
@@ -182,7 +160,8 @@ public class TutorialController : MonoBehaviour
         // PlayerController와 StateManager가 자동으로 처리합니다.
         currentStep = TutorialStep.Interaction;
         if (UIManager.Instance != null)
-            UIManager.Instance.ShowSubtitle("흰색으로 빛나는 사물을 바라보세요. 손을 뻗은 상태에서 가볍게 주먹을 쥐었다가 다시 펴면 상호작용합니다.");
+            UIManager.Instance.ShowSubtitle(IsUsingFallback() ? "흰색으로 빛나는 사물을 바라보고 마우스 왼쪽 버튼을 눌러 상호작용하세요." :
+                "흰색으로 빛나는 사물을 바라보세요. 손을 뻗은 상태에서 가볍게 주먹을 쥐었다가 다시 펴면 상호작용합니다.");
 
         bool interactionDone = false;
         System.Action interactCallback = () => { interactionDone = true; };
@@ -292,91 +271,17 @@ public class TutorialController : MonoBehaviour
         }
     }
 
-    private void ShowCalibrationGuide(string message)
+    private bool IsUsingFallback()
     {
-        if (_calibrationGuideRoot == null)
-        {
-            _calibrationGuideRoot = new GameObject("Tutorial_CalibrationGuide");
-            Canvas canvas = _calibrationGuideRoot.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 1000;
-            CanvasScaler guideScaler = _calibrationGuideRoot.AddComponent<CanvasScaler>();
-            guideScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            guideScaler.referenceResolution = new Vector2(1920f, 1080f);
-            guideScaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            guideScaler.matchWidthOrHeight = 0.5f;
-            _calibrationGuideRoot.AddComponent<GraphicRaycaster>();
-            _calibrationGuideCanvasGroup = _calibrationGuideRoot.AddComponent<CanvasGroup>();
-            _calibrationGuideCanvasGroup.blocksRaycasts = false;
-            _calibrationGuideCanvasGroup.interactable = false;
-
-            CreateGuideBar("Guide_Top", new Vector2(0f, 36f), new Vector2(4f, 30f));
-            CreateGuideBar("Guide_Bottom", new Vector2(0f, -36f), new Vector2(4f, 30f));
-            CreateGuideBar("Guide_Left", new Vector2(-36f, 0f), new Vector2(30f, 4f));
-            CreateGuideBar("Guide_Right", new Vector2(36f, 0f), new Vector2(30f, 4f));
-            CreateGuideBar("Guide_CenterDot", Vector2.zero, new Vector2(8f, 8f));
-
-            GameObject textObject = new GameObject(
-                "Guide_Message",
-                typeof(RectTransform),
-                typeof(TextMeshProUGUI)
-            );
-            textObject.transform.SetParent(_calibrationGuideRoot.transform, false);
-            RectTransform textRect = textObject.GetComponent<RectTransform>();
-            textRect.anchorMin = new Vector2(0.5f, 0.5f);
-            textRect.anchorMax = new Vector2(0.5f, 0.5f);
-            textRect.anchoredPosition = new Vector2(0f, 110f);
-            textRect.sizeDelta = new Vector2(700f, 90f);
-
-            TextMeshProUGUI guideText = textObject.GetComponent<TextMeshProUGUI>();
-            guideText.name = "Guide_Message_Text";
-            if (UIManager.Instance != null &&
-                UIManager.Instance.subtitleText != null &&
-                UIManager.Instance.subtitleText.font != null)
-                guideText.font = UIManager.Instance.subtitleText.font;
-            else if (TMP_Settings.defaultFontAsset != null)
-                guideText.font = TMP_Settings.defaultFontAsset;
-            guideText.fontSize = 30f;
-            guideText.alignment = TextAlignmentOptions.Center;
-            guideText.color = Color.white;
-            guideText.enableWordWrapping = true;
-            guideText.text = message;
-        }
-        else
-        {
-            TextMeshProUGUI guideText = _calibrationGuideRoot.GetComponentInChildren<TextMeshProUGUI>(true);
-            if (guideText != null) guideText.text = message;
-        }
-
-        _calibrationGuideRoot.SetActive(true);
-        if (_calibrationGuideCanvasGroup != null) _calibrationGuideCanvasGroup.alpha = 1f;
-    }
-
-    private void CreateGuideBar(string objectName, Vector2 position, Vector2 size)
-    {
-        GameObject bar = new GameObject(objectName, typeof(RectTransform), typeof(Image));
-        bar.transform.SetParent(_calibrationGuideRoot.transform, false);
-        RectTransform rect = bar.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = size;
-
-        Image image = bar.GetComponent<Image>();
-        image.color = new Color(1f, 1f, 1f, 0.92f);
-        image.raycastTarget = false;
-    }
-
-    private void HideCalibrationGuide()
-    {
-        if (_calibrationGuideRoot != null)
-            _calibrationGuideRoot.SetActive(false);
+        PlayerController player = GetTutorialPlayer();
+        return player != null && player.AllowsKeyboardMouse;
     }
 
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
-        HideCalibrationGuide();
+        if (currentStep == TutorialStep.CameraSetup && UIManager.Instance != null)
+            UIManager.Instance.CloseCameraSetup();
     }
 
     // 튜토리얼에서 강조한 렌더러만 원래 발광/PropertyBlock 상태를 복구하기 위한 캐시입니다.
@@ -425,7 +330,8 @@ public class TutorialController : MonoBehaviour
         while (true)
         {
             float lerp = Mathf.PingPong(Time.time * highlightPulseSpeed, 1f);
-            Color finalColor = Color.Lerp(Color.black, highlightColor, lerp);
+            Color peak = testObject != null && targetTransform == testObject.transform ? highlightColor * 1.5f : highlightColor;
+            Color finalColor = Color.Lerp(Color.black, peak, lerp);
 
             foreach (Renderer r in _activeHighlightRenderers)
             {

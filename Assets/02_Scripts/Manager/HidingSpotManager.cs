@@ -22,9 +22,10 @@ public class HidingSpotManager : MonoBehaviour
     public string creakClipName = "";
 
     public event Action onForceEject;
+    public event Action onFirstHide;
 
-    // [핫픽스 3] 외부(폰)에서 은신처 진입 여부를 알 수 있도록 프로퍼티 개방
     public bool IsHiding => _isHiding;
+    public bool HasHiddenOnce { get; private set; }
 
     private float _timeInSpot = 0f;
     private int _currentStage = 0;
@@ -55,6 +56,11 @@ public class HidingSpotManager : MonoBehaviour
     public void StartHiding()
     {
         _isHiding = true;
+        if (!HasHiddenOnce)
+        {
+            HasHiddenOnce = true;
+            onFirstHide?.Invoke();
+        }
         _timeInSpot = 0f;
         _currentStage = 0;
 

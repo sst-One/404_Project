@@ -3,6 +3,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 
 public enum GameStage
 {
@@ -19,6 +20,8 @@ public class GameFlowManager : MonoBehaviour
     public GameStage currentStage = GameStage.Title;
     private GameStage _lastCheckpoint = GameStage.Title;
     private string _currentLoadedStageScene = "";
+    private readonly Queue<GameStage> _pendingStages = new Queue<GameStage>();
+    private GameStage? _lastRequestedStage;
 
     [Header("Bootstrapper & Persistence")]
     public GameObject[] persistentRoots;
@@ -111,32 +114,57 @@ public class GameFlowManager : MonoBehaviour
 
     public void AdvanceToStage(GameStage nextStage)
     {
-        if (currentStage == nextStage && _currentLoadedStageScene != "") return;
+        if (_lastRequestedStage == nextStage) return;
 
-        string targetScene = GetSceneNameForStage(nextStage);
+        bool isProcessing = _lastRequestedStage.HasValue;
+        _lastRequestedStage = nextStage;
+        _pendingStages.Enqueue(nextStage);
+        if (!isProcessing) StartCoroutine(ProcessStageRequests());
+    }
 
-        if (nextStage == GameStage.Title)
+    private IEnumerator ProcessStageRequests()
+    {
+        try
         {
-            StartCoroutine(ReturnToTitleRoutine());
-            return;
-        }
+            while (_pendingStages.Count > 0)
+            {
+                GameStage nextStage = _pendingStages.Dequeue();
+                if (currentStage == nextStage && _currentLoadedStageScene != "") continue;
 
-        if (_currentLoadedStageScene != targetScene)
-        {
-            StartCoroutine(LoadSceneAdditiveWithFade(nextStage, targetScene));
+                string targetScene = GetSceneNameForStage(nextStage);
+                if (nextStage == GameStage.Title)
+                    yield return ReturnToTitleRoutine();
+                else if (_currentLoadedStageScene == targetScene)
+                {
+                    currentStage = nextStage;
+                    PublishStageChange(nextStage);
+                }
+                else if (Application.CanStreamedLevelBeLoaded(targetScene))
+                    yield return LoadSceneAdditiveWithFade(nextStage, targetScene);
+                else
+                    Debug.LogError($"Cannot load stage {nextStage}: scene '{targetScene}' is unavailable.", this);
+            }
         }
-        else
+        finally
         {
-            currentStage = nextStage;
-            OnStageChanged?.Invoke(currentStage);
-            SaveCheckpointIfNecessary(nextStage);
-            SaveGameStageIfPlayable(nextStage);
+            _pendingStages.Clear();
+            _lastRequestedStage = null;
         }
+    }
+
+    private void PublishStageChange(GameStage nextStage)
+    {
+        OnStageChanged?.Invoke(currentStage);
+        SaveCheckpointIfNecessary(nextStage);
+        SaveGameStageIfPlayable(nextStage);
     }
 
     private IEnumerator ReturnToTitleRoutine()
     {
-        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+        }
         yield return new WaitForSecondsRealtime(0.5f);
 
         if (!string.IsNullOrEmpty(_currentLoadedStageScene))
@@ -156,12 +184,19 @@ public class GameFlowManager : MonoBehaviour
 
     private IEnumerator LoadSceneAdditiveWithFade(GameStage nextStage, string targetScene)
     {
-        if (UIManager.Instance != null) yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+        if (UIManager.Instance != null)
+        {
+            yield return StartCoroutine(UIManager.Instance.FadeOutScreen());
+        }
         yield return new WaitForSecondsRealtime(0.5f);
 
         if (currentStage == GameStage.Title && TitleController.Instance != null) TitleController.Instance.HideMainMenu();
 
-        if (!string.IsNullOrEmpty(_currentLoadedStageScene)) yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
+        if (!string.IsNullOrEmpty(_currentLoadedStageScene))
+        {
+            yield return SceneManager.UnloadSceneAsync(_currentLoadedStageScene);
+            _currentLoadedStageScene = "";
+        }
         yield return SceneManager.LoadSceneAsync(targetScene, LoadSceneMode.Additive);
 
         _currentLoadedStageScene = targetScene;
@@ -177,9 +212,7 @@ public class GameFlowManager : MonoBehaviour
             ReleaseStage2PresentationLocks();
         }
 
-        OnStageChanged?.Invoke(currentStage);
-        SaveCheckpointIfNecessary(nextStage);
-        SaveGameStageIfPlayable(nextStage);
+        PublishStageChange(nextStage);
 
         yield return new WaitForSecondsRealtime(0.2f);
 

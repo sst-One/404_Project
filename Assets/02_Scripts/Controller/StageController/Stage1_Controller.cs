@@ -37,6 +37,10 @@ public class Stage1_Controller : MonoBehaviour
             yield return StartCoroutine(UIManager.Instance.ShowDayTransition(1));
         }
 
+        // v07 MON-003: 로비 진입 후 엘리베이터 이동 전에 주인공의 혼잣말을 표시합니다.
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle("또 야근이네."));
+
         if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
     }
 

@@ -14,13 +14,14 @@ public class BrightnessManager : MonoBehaviour
     public float Brightness { get; private set; } = 1f;
 
     [Header("Interior Lighting")]
-    [Tooltip("실내 조명 기본 배율. 1.35는 기존 조명보다 35% 밝습니다.")]
-    [Range(1f, 2.5f)] public float defaultInteriorBrightness = 1.35f;
-    public float InteriorBrightness { get; private set; } = 1.35f;
+    [Tooltip("실내 조명 기본 배율. 1.6은 씬에 설정된 기본 조명보다 60% 밝습니다.")]
+    [Range(1f, 2.5f)] public float defaultInteriorBrightness = 1.6f;
+    public float InteriorBrightness { get; private set; } = 1.6f;
 
     private readonly System.Collections.Generic.Dictionary<Light, float> _baseLightIntensities =
         new System.Collections.Generic.Dictionary<Light, float>();
     private float _baseAmbientIntensity = 1f;
+    private const float SceneBrightnessScale = 1.15f;
 
     private void Awake()
     {
@@ -32,9 +33,27 @@ public class BrightnessManager : MonoBehaviour
 
         Instance = this;
         UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
         if (brightnessOverlay == null) brightnessOverlay = GetComponent<Image>();
-        Brightness = PlayerPrefs.GetFloat("PlayerBrightness", defaultBrightness);
-        InteriorBrightness = PlayerPrefs.GetFloat("InteriorBrightness", defaultInteriorBrightness);
+        // 기존 밝기 저장값은 이전 범위/씬 조명 기준으로 저장되어 있어
+        // 이번 조정 버전에서 한 번만 기본 밝기 기준을 새로 적용합니다.
+        const int brightnessSettingsVersion = 1;
+        int savedVersion = PlayerPrefs.GetInt("BrightnessSettingsVersion", 0);
+        if (savedVersion < brightnessSettingsVersion)
+        {
+            Brightness = defaultBrightness;
+            InteriorBrightness = Mathf.Clamp(defaultInteriorBrightness, 1f, 2.5f);
+            PlayerPrefs.SetFloat("PlayerBrightness", Brightness);
+            PlayerPrefs.SetFloat("InteriorBrightness", InteriorBrightness);
+            PlayerPrefs.SetInt("BrightnessSettingsVersion", brightnessSettingsVersion);
+            PlayerPrefs.Save();
+        }
+        else
+        {
+            Brightness = Mathf.Clamp(PlayerPrefs.GetFloat("PlayerBrightness", defaultBrightness), 0.2f, 1f);
+            InteriorBrightness = Mathf.Clamp(
+                PlayerPrefs.GetFloat("InteriorBrightness", defaultInteriorBrightness), 1f, 2.5f);
+        }
         _baseAmbientIntensity = RenderSettings.ambientIntensity;
         CacheSceneLights();
         ApplyBrightness();
@@ -74,7 +93,7 @@ public class BrightnessManager : MonoBehaviour
         foreach (var pair in _baseLightIntensities)
         {
             if (pair.Key != null)
-                pair.Key.intensity = pair.Value * InteriorBrightness;
+                pair.Key.intensity = pair.Value * InteriorBrightness * SceneBrightnessScale;
         }
         RenderSettings.ambientIntensity = _baseAmbientIntensity * InteriorBrightness;
     }
@@ -93,7 +112,16 @@ public class BrightnessManager : MonoBehaviour
 
     private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
     {
-        // 씬마다 설정된 원래 환경광 강도를 새 기준값으로 저장한 뒤 사용자 배율을 적용합니다.
+        // Additive 로드는 이 시점에 새 씬이 Active Scene이 아닐 수 있으므로
+        // 조명만 캐시하고, 환경광 기준값은 activeSceneChanged에서 갱신합니다.
+        CacheSceneLights();
+        ApplyInteriorBrightness();
+    }
+
+    private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene previousScene,
+        UnityEngine.SceneManagement.Scene newScene)
+    {
+        // RenderSettings는 Active Scene 기준이므로 씬 활성화가 끝난 뒤 원본값을 저장합니다.
         _baseAmbientIntensity = RenderSettings.ambientIntensity;
         CacheSceneLights();
         ApplyInteriorBrightness();
@@ -102,6 +130,7 @@ public class BrightnessManager : MonoBehaviour
     private void OnDestroy()
     {
         UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
         if (Instance == this) Instance = null;
     }
 }

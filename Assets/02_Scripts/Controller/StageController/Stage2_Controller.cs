@@ -12,6 +12,7 @@ public class Stage2_Controller : MonoBehaviour
 
     [Header("Settings")]
     public float fadeDuration = 1.2f;
+    private const float NewsVolumeScale = 0.75f;
     public Transform tvLookTarget;
 
     private bool hasTriggered = false;
@@ -24,9 +25,8 @@ public class Stage2_Controller : MonoBehaviour
         {
             tvRemote.onInteractAction -= OnTvReachAction;
             tvRemote.onInteractAction += OnTvReachAction;
+            tvRemote.EnableInteractionWithLight();
         }
-
-        tvRemote.EnableInteractionWithLight();
     }
 
     public void OnTvReachAction()
@@ -65,11 +65,19 @@ public class Stage2_Controller : MonoBehaviour
 
         if (tvVideoPlayer != null)
         {
+            if (tvVideoPlayer.controlledAudioTrackCount > 0 && tvVideoPlayer.audioOutputMode == VideoAudioOutputMode.AudioSource)
+            {
+                AudioSource videoAudio = tvVideoPlayer.GetTargetAudioSource(0);
+                if (videoAudio != null) videoAudio.volume *= NewsVolumeScale;
+            }
+            else if (tvVideoPlayer.controlledAudioTrackCount > 0 && tvVideoPlayer.audioOutputMode == VideoAudioOutputMode.Direct)
+                tvVideoPlayer.SetDirectAudioVolume(0, tvVideoPlayer.GetDirectAudioVolume(0) * NewsVolumeScale);
             tvVideoPlayer.Play();
             if (tvVideoPlayer.clip != null) playDuration = (float)tvVideoPlayer.clip.length;
         }
         else if (tvNewsSource != null && tvNewsSource.clip != null)
         {
+            tvNewsSource.volume *= NewsVolumeScale;
             tvNewsSource.Play();
             playDuration = tvNewsSource.clip.length;
         }
@@ -94,9 +102,7 @@ public class Stage2_Controller : MonoBehaviour
         }
 
         if (UIManager.Instance != null) UIManager.Instance.ShowSubtitle(NarrativeData.Day1_TVNews);
-
-        yield return new WaitForSeconds(Mathf.Max(0f, playDuration - 1.0f));
-
+        yield return new WaitForSeconds(Mathf.Max(0f, playDuration - 1f));
         if (UIManager.Instance != null) UIManager.Instance.HideSubtitle();
 
         if (tvVideoPlayer != null && tvVideoPlayer.isPlaying) tvVideoPlayer.Stop();

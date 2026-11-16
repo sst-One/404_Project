@@ -9,6 +9,57 @@ public class VisionTrackingManager : MonoBehaviour
 
     public string SelectedDeviceName { get; private set; }
     public bool IsCameraReady { get; private set; }
+    internal bool IsCameraOpening { get; private set; }
+    internal Texture CameraPreview { get; private set; }
+    private const string SavedCalibrationKey = "404.CameraCalibration.v1";
+
+    [Serializable]
+    private sealed class CameraCalibration
+    {
+        public string deviceName;
+        public Vector3 headPosition;
+        public Vector3 headRotation;
+        public Vector3 handPosition;
+        public float handScale;
+    }
+
+    internal bool HasSavedCalibration => PlayerPrefs.HasKey(SavedCalibrationKey);
+
+    internal IEnumerator RestoreCameraForContinue()
+    {
+        if (IsCameraReady && IsCalibrated && isTracking) yield break;
+        if (!HasSavedCalibration) yield break;
+
+        CameraCalibration saved = null;
+        try
+        {
+            saved = JsonUtility.FromJson<CameraCalibration>(PlayerPrefs.GetString(SavedCalibrationKey));
+        }
+        catch (ArgumentException)
+        {
+            Debug.LogWarning("The saved camera calibration could not be read.", this);
+        }
+        if (saved == null || string.IsNullOrEmpty(saved.deviceName)) yield break;
+        if (!Array.Exists(WebCamTexture.devices, device => device.name == saved.deviceName)) yield break;
+
+        if ((!IsCameraReady && !IsCameraOpening) || SelectedDeviceName != saved.deviceName)
+            ReceiveCameraSelection(saved.deviceName);
+        float deadline = Time.realtimeSinceStartup + 16f;
+        while ((IsCameraOpening || IsCameraReady) && !isTracking && Time.realtimeSinceStartup < deadline)
+            yield return null;
+        if (!IsCameraReady || !isTracking || SelectedDeviceName != saved.deviceName) yield break;
+
+        baselineHeadPosition = saved.headPosition;
+        baselineHeadRotation = saved.headRotation;
+        baselineHandPosition = saved.handPosition;
+        _baselineHandScale = baselineHandScale = saved.handScale;
+        _hasValidHeadBaseline = true;
+        _hasValidHandBaseline = saved.handScale > 0.001f;
+        currentGazePosition = _rawGazePos;
+        currentHeadPosition = _rawHeadPos;
+        currentHeadRotation = _rawHeadRot;
+        IsCalibrated = true;
+    }
     public event Action<string> OnCameraConfirmed;
 
     [HideInInspector] public bool allowCameraActivation;
@@ -26,6 +77,9 @@ public class VisionTrackingManager : MonoBehaviour
     [Tooltip("MediaPipe 손 랜드마크로 판정한 주먹 쥠 상태입니다.")]
     public bool currentHandIsFist;
 
+    [Tooltip("검지~새끼손가락 중 펼쳐진 손가락 수. 대화 A/B 선택에 사용합니다.")]
+    public int currentExtendedFingerCount;
+
     [Tooltip("손바닥의 중립 자세 기준 크기. 디버깅용입니다.")]
     public float baselineHandScale;
 
@@ -35,6 +89,7 @@ public class VisionTrackingManager : MonoBehaviour
     public Vector3 baselineHandPosition;
     public float calibrationDuration = 3f;
     public bool IsCalibrated { get; private set; }
+    internal float CalibrationProgress { get; private set; }
 
     [Header("Movement / Interaction Thresholds")]
     [Tooltip("앞뒤 기울임 판정 기준. 얼굴 크기 기반 깊이 대용값의 변화량입니다.")]
@@ -92,6 +147,7 @@ public class VisionTrackingManager : MonoBehaviour
     private bool _rawHandIsFist;
     private float _threadHandScale;
     private bool _threadHandIsFist;
+    private int _threadExtendedFingerCount;
     private float _baselineHandScale;
 
     private readonly object _dataLock = new object();
@@ -160,7 +216,17 @@ public class VisionTrackingManager : MonoBehaviour
         );
 
         SelectedDeviceName = deviceName;
-        IsCameraReady = true;
+        IsCameraReady = false;
+        IsCameraOpening = true;
+        CameraPreview = null;
+        lock (_dataLock)
+        {
+            _hasNewFaceData = false;
+            _hasNewHandData = false;
+            _hasReceivedFaceData = false;
+            _hasReceivedHandData = false;
+        }
+        isTracking = false;
 
         if (changedDevice)
         {
@@ -174,6 +240,15 @@ public class VisionTrackingManager : MonoBehaviour
         }
 
         OnCameraConfirmed?.Invoke(SelectedDeviceName);
+    }
+
+    internal void SetCameraResult(string deviceName, Texture preview)
+    {
+        if (!string.Equals(SelectedDeviceName, deviceName, StringComparison.Ordinal)) return;
+        CameraPreview = preview;
+        IsCameraReady = preview != null;
+        IsCameraOpening = false;
+        if (!IsCameraReady) isTracking = false;
     }
 
     public void UpdateFaceData(Vector3 gazePos, Vector3 headPos, Vector3 headRot)
@@ -193,26 +268,31 @@ public class VisionTrackingManager : MonoBehaviour
     // 기존 호출부 호환용 오버로드
     public void UpdateHandData(Vector3 pos)
     {
-        UpdateHandData(pos, 0f, false);
+        UpdateHandData(pos, 0f, false, 0);
     }
 
     // 기존 호출부 호환용 오버로드입니다.
     public void UpdateHandData(Vector3 pos, float apparentScale)
     {
-        UpdateHandData(pos, apparentScale, false);
+        UpdateHandData(pos, apparentScale, false, 0);
     }
 
-    // apparentScale은 손바닥 크기, isFist는 손가락 랜드마크로 계산한 주먹 상태입니다.
+    // 기존 호출부 호환용 오버로드입니다.
     public void UpdateHandData(Vector3 pos, float apparentScale, bool isFist)
     {
-        if (!IsCameraReady)
-            return;
+        UpdateHandData(pos, apparentScale, isFist, 0);
+    }
 
+    // apparentScale은 손바닥 크기, isFist는 주먹, extendedFingerCount는 펼쳐진 네 손가락 수입니다.
+    public void UpdateHandData(Vector3 pos, float apparentScale, bool isFist, int extendedFingerCount)
+    {
+        if (!IsCameraReady) return;
         lock (_dataLock)
         {
             _threadHandPos = pos;
             _threadHandScale = apparentScale;
             _threadHandIsFist = isFist;
+            _threadExtendedFingerCount = Mathf.Clamp(extendedFingerCount, 0, 4);
             _hasNewHandData = true;
         }
     }
@@ -235,7 +315,7 @@ public class VisionTrackingManager : MonoBehaviour
                 _rawHeadPos = _threadHeadPos;
                 _rawHeadRot = _threadHeadRot;
                 _hasReceivedFaceData = true;
-                _lastFaceDataReceivedTime = Time.time;
+                _lastFaceDataReceivedTime = Time.unscaledTime;
 
                 if (IsCalibrated)
                 {
@@ -252,8 +332,9 @@ public class VisionTrackingManager : MonoBehaviour
                 _rawHandPos = _threadHandPos;
                 _rawHandScale = _threadHandScale;
                 _rawHandIsFist = _threadHandIsFist;
+                currentExtendedFingerCount = _threadExtendedFingerCount;
                 _hasReceivedHandData = true;
-                _lastHandDataReceivedTime = Time.time;
+                _lastHandDataReceivedTime = Time.unscaledTime;
 
                 if (IsCalibrated)
                 {
@@ -280,24 +361,27 @@ public class VisionTrackingManager : MonoBehaviour
             }
         }
 
-        bool faceFresh = HasFreshFaceData();
+        bool faceFresh = IsCameraReady && HasFreshFaceData();
         isTracking = faceFresh;
         IsInFallbackMode = !faceFresh;
 
         if (!HasFreshHandData())
+        {
             currentHandIsFist = false;
+            currentExtendedFingerCount = 0;
+        }
     }
 
     private bool HasFreshFaceData()
     {
         return _hasReceivedFaceData &&
-               Time.time - _lastFaceDataReceivedTime <= trackingTimeoutTolerance;
+               Time.unscaledTime - _lastFaceDataReceivedTime <= trackingTimeoutTolerance;
     }
 
     private bool HasFreshHandData()
     {
         return _hasReceivedHandData &&
-               Time.time - _lastHandDataReceivedTime <= handTrackingTimeout;
+               Time.unscaledTime - _lastHandDataReceivedTime <= handTrackingTimeout;
     }
 
     // 손 추적이 끊긴 프레임에서는 이전 주먹 상태를 재사용하지 않습니다.
@@ -314,8 +398,17 @@ public class VisionTrackingManager : MonoBehaviour
         _calibrationRoutine = StartCoroutine(CalibrationRoutine());
     }
 
+    internal void CancelCalibration()
+    {
+        if (_calibrationRoutine == null) return;
+        StopCoroutine(_calibrationRoutine);
+        _calibrationRoutine = null;
+        CalibrationProgress = 0f;
+    }
+
     private IEnumerator CalibrationRoutine()
     {
+        CalibrationProgress = 0f;
         IsCalibrated = false;
         _hasValidHeadBaseline = false;
         _hasValidHandBaseline = false;
@@ -351,11 +444,13 @@ public class VisionTrackingManager : MonoBehaviour
                 calibrationElapsed += Time.unscaledDeltaTime;
             }
 
+            CalibrationProgress = Mathf.Clamp01(calibrationElapsed / calibrationDuration);
             yield return null;
         }
 
         if (RecalibrateOrigin())
         {
+            CalibrationProgress = 1f;
             OnCalibrationSuccess?.Invoke();
         }
 
@@ -402,6 +497,19 @@ public class VisionTrackingManager : MonoBehaviour
         }
 
         IsCalibrated = true;
+        if (IsCameraReady && !string.IsNullOrEmpty(SelectedDeviceName))
+        {
+            var saved = new CameraCalibration
+            {
+                deviceName = SelectedDeviceName,
+                headPosition = baselineHeadPosition,
+                headRotation = baselineHeadRotation,
+                handPosition = baselineHandPosition,
+                handScale = baselineHandScale
+            };
+            PlayerPrefs.SetString(SavedCalibrationKey, JsonUtility.ToJson(saved));
+            PlayerPrefs.Save();
+        }
 
         if (showTrackingDebugLogs)
         {

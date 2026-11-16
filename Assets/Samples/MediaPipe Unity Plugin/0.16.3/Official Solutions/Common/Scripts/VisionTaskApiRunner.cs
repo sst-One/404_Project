@@ -31,20 +31,25 @@ namespace Mediapipe.Unity.Sample
     public override void Pause()
     {
       base.Pause();
-      ImageSourceProvider.ImageSource.Pause();
+      if (!UsesSharedImageSource) ImageSourceProvider.ImageSource?.Pause();
     }
 
     public override void Resume()
     {
       base.Resume();
-      var _ = StartCoroutine(ImageSourceProvider.ImageSource.Resume());
+      if (!UsesSharedImageSource && ImageSourceProvider.ImageSource != null)
+        StartCoroutine(ImageSourceProvider.ImageSource.Resume());
     }
 
     public override void Stop()
     {
       base.Stop();
-      StopCoroutine(_coroutine);
-      ImageSourceProvider.ImageSource.Stop();
+      if (_coroutine != null)
+      {
+        StopCoroutine(_coroutine);
+        _coroutine = null;
+        if (!UsesSharedImageSource) ImageSourceProvider.ImageSource?.Stop();
+      }
       taskApi?.Close();
       taskApi = null;
     }

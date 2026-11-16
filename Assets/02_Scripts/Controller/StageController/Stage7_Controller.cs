@@ -6,16 +6,21 @@ public class Stage7_Controller : MonoBehaviour
     [Header("References")]
     public InteractableItem gemItem;
     public GameObject suspiciousMan;
+    [Tooltip("선택 A에서 보석을 제시할 남자의 손 위치. 씬에 손 소켓을 만들면 연결하세요.")]
+    public Transform gemHandPoint;
+    [Tooltip("선택 B에서 보석을 내려놓을 현관 문턱 위치. 씬에 위치점을 만들면 연결하세요.")]
+    public Transform gemDoorThresholdPoint;
 
     [Header("Audio Clip Names")]
-    public string disasterAlertClip = "SND-028_Alert_OneShot";
+    public string disasterAlertClip = NarrativeData.EmergencyMessageSound;
     public string gemGetClipName = "SND-041_JemRecieve_OneShot";
 
     private void Start()
     {
         if (suspiciousMan != null)
         {
-            suspiciousMan.SetActive(true);
+            // v07: Day4 재난문자를 먼저 보여준 뒤 남자가 등장합니다.
+            suspiciousMan.SetActive(false);
             EnemyAI ai = suspiciousMan.GetComponent<EnemyAI>();
             if (ai != null) ai.isNarrativeMode = true;
         }
@@ -26,6 +31,7 @@ public class Stage7_Controller : MonoBehaviour
             gemItem.isInteractable = false;
             gemItem.onInteractAction -= OnGemReached;
             gemItem.onInteractAction += OnGemReached;
+            StageVisuals.ReplaceGem(gemItem);
             gemItem.gameObject.SetActive(false);
         }
 
@@ -49,27 +55,32 @@ public class Stage7_Controller : MonoBehaviour
         if (phone != null)
         {
             phone.ShowPhoneInHand();
+            if (phone.phoneUI != null) phone.phoneUI.ShowLockDay4();
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+            yield return new WaitForSeconds(1f);
             if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay4();
-
-            if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
 
             yield return new WaitForSeconds(5.0f);
             phone.HidePhone();
         }
 
-        if (UIManager.Instance != null)
-            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day3_Man_1));
-
-        // 음성 대사와 자막을 동시에 시작하고, 다음 대사로 넘어가는 시점은 음원 길이로 결정합니다.
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "아… 선생님도 여기 사세요?", "SND-035_6_선생님도여기사세요_OneShot"));
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "조심해서 들어가요.", "SND-035_7_조심해서들어가요_OneShot"));
+        // v07 EVT-017: 재난문자를 읽은 뒤에 남자를 등장시킵니다.
+        if (suspiciousMan != null) suspiciousMan.SetActive(true);
+        if (suspiciousMan != null && PlayerController.Instance != null)
+        {
+            const float conversationDistance = 1.75f;
+            Transform player = PlayerController.Instance.transform;
+            while (suspiciousMan != null && player != null &&
+                Vector3.ProjectOnPlane(suspiciousMan.transform.position - player.position, Vector3.up).sqrMagnitude >
+                conversationDistance * conversationDistance)
+                yield return null;
+        }
+        yield return StartCoroutine(ShowNarrativeLine("아… 선생님도 여기 사세요?", "SND-035_6_선생님도여기사세요_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("조심해서 들어가요.", "SND-035_7_조심해서들어가요_OneShot"));
 
         if (gemItem != null)
         {
-            // 아저씨의 마지막 대사와 음성이 모두 끝난 뒤 보석을 등장시키고
-            // 기존 상호작용 및 발광을 활성화합니다.
             gemItem.gameObject.SetActive(true);
             gemItem.EnableInteractionWithLight();
             Physics.SyncTransforms();
@@ -86,20 +97,22 @@ public class Stage7_Controller : MonoBehaviour
     private IEnumerator EndStage7Sequence()
     {
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
-        yield return new WaitForSeconds(2.0f);
+        yield return new WaitForSeconds(0.5f);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle(NarrativeData.Day4_OpenDoor));
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage8_Intruder);
     }
 
-    private IEnumerator PlayVoiceSubtitle(string message, string clipName)
+    private IEnumerator ShowNarrativeLine(string message, string clipName = null)
     {
-        AudioClip clip = AudioManager.Instance != null ? AudioManager.Instance.GetClip(clipName) : null;
-        float duration = clip != null ? clip.length : Mathf.Max(2.5f, message.Length * 0.1f);
-
-        if (AudioManager.Instance != null && clip != null)
-            AudioManager.Instance.PlayGlobal2D(clipName, AudioManager.Instance.voiceMixerGroup);
-        else
-            Debug.LogWarning($"[Stage7_Controller] 대사 음원을 찾을 수 없습니다: {clipName}");
-
+        float duration = Mathf.Clamp(message.Length * 0.085f, 2.2f, 6.0f);
+        AudioManager audio = AudioManager.Instance;
+        AudioClip clip = audio != null && clipName != null ? audio.GetClip(clipName) : null;
+        if (clip != null)
+        {
+            duration = clip.length;
+            audio.PlayGlobal2D(clipName, audio.voiceMixerGroup);
+        }
         if (UIManager.Instance != null)
             yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(message, duration));
         else

@@ -30,7 +30,7 @@ namespace Mediapipe.Unity.Sample.FaceLandmarkDetection
             yield return new WaitUntil(() => ImageSourceProvider.ImageSource != null);
             var imageSource = ImageSourceProvider.ImageSource;
 
-            yield return imageSource.Play();
+            if (!UsesSharedImageSource) yield return imageSource.Play();
 
             if (!imageSource.isPrepared)
             {

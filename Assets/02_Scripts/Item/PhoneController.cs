@@ -22,6 +22,7 @@ public class PhoneController : InteractableItem
     [Header("카메라 연동 (왼손 위치)")]
     public Vector3 leftHandPosition = new Vector3(-1.75f, -0.7f, 2.3f);
     public Vector3 leftHandRotation = new Vector3(15f, 30f, 0f);
+    [SerializeField] private bool showOnlyScreenInHand = true;
 
     [Header("오디오 설정")]
     public AudioSource sfxSource;
@@ -39,6 +40,16 @@ public class PhoneController : InteractableItem
     private bool _isInteracting = false;
     private Vector3 _phoneInitialLocalScale;
     private bool _hasCachedPhoneInitialScale;
+    private Coroutine _phoneRaise;
+    private Camera _handCamera;
+    private RectTransform _heldScreen;
+    private Quaternion _heldScreenRotation;
+    private Vector3 _heldScreenCenter;
+    private Vector2 _heldScreenSize;
+    private float _raiseProgress;
+    private readonly Vector3[] _screenCorners = new Vector3[4];
+    private readonly System.Collections.Generic.List<Renderer> _hiddenPhoneRenderers =
+        new System.Collections.Generic.List<Renderer>();
 
     private void Awake()
     {
@@ -95,30 +106,100 @@ public class PhoneController : InteractableItem
 
     public void ShowPhoneInHand()
     {
+        StopPhoneRaise();
+        RestorePhoneBody();
         gameObject.SetActive(true);
         isInteractable = false;
 
         Camera targetCam = GetItemCamera();
         if (targetCam != null)
         {
-            // 카메라에 재부모화할 때마다 프리팹에 처음 설정된 로컬 스케일을 복원합니다.
-            // 이전 스테이지의 부모/월드 스케일을 기준으로 재계산하지 않아 크기 변화가 누적되지 않습니다.
-            transform.SetParent(targetCam.transform, false);
+            transform.SetParent(null, true);
+            DontDestroyOnLoad(gameObject);
             CachePhoneInitialScale();
-            transform.localScale = _phoneInitialLocalScale;
+            transform.localScale = _phoneInitialLocalScale * 0.5f;
+            _handCamera = targetCam;
+            Canvas phoneCanvas = phoneUI != null ? phoneUI.GetComponentInChildren<Canvas>(true) : null;
+            _heldScreen = phoneCanvas != null ? phoneCanvas.transform as RectTransform : null;
+            if (_heldScreen != null)
+            {
+                _heldScreen.GetWorldCorners(_screenCorners);
+                _heldScreenSize = new Vector2(Vector3.Distance(_screenCorners[0], _screenCorners[3]),
+                    Vector3.Distance(_screenCorners[0], _screenCorners[1]));
+                _heldScreenCenter = transform.InverseTransformPoint((_screenCorners[0] + _screenCorners[2]) * 0.5f);
+                _heldScreenRotation = Quaternion.Inverse(transform.rotation) * _heldScreen.rotation;
+                if (showOnlyScreenInHand)
+                    foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (renderer.forceRenderingOff || renderer.transform.IsChildOf(_heldScreen)) continue;
+                        renderer.forceRenderingOff = true;
+                        _hiddenPhoneRenderers.Add(renderer);
+                    }
+            }
             gameObject.layer = LayerMask.NameToLayer("FP_Item");
             foreach (Transform child in GetComponentsInChildren<Transform>(true))
             {
                 child.gameObject.layer = LayerMask.NameToLayer("FP_Item");
             }
-            transform.localPosition = leftHandPosition;
-            transform.localRotation = Quaternion.Euler(leftHandRotation);
+            _phoneRaise = StartCoroutine(RaisePhone());
         }
+    }
+
+    private IEnumerator RaisePhone()
+    {
+        const float duration = 0.32f;
+        for (float elapsed = 0f; elapsed < duration; elapsed += Time.deltaTime)
+        {
+            _raiseProgress = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+            UpdateHeldPose();
+            yield return null;
+        }
+        _raiseProgress = 1f;
+        UpdateHeldPose();
+        _phoneRaise = null;
+    }
+
+    private void LateUpdate()
+    {
+        UpdateHeldPose();
+    }
+
+    private void UpdateHeldPose()
+    {
+        if (_handCamera == null) return;
+        Transform cameraTransform = _handCamera.transform;
+        if (_heldScreen == null || _heldScreenSize.x < 0.0001f || _heldScreenSize.y < 0.0001f)
+        {
+            transform.SetPositionAndRotation(cameraTransform.position + cameraTransform.rotation *
+                ((leftHandPosition + Vector3.down * (1f - _raiseProgress) * 0.65f) * 0.5f),
+                cameraTransform.rotation * Quaternion.Euler(leftHandRotation.x, leftHandRotation.y, -180f));
+            return;
+        }
+
+        float depth = Mathf.Max(_handCamera.nearClipPlane + 0.05f, leftHandPosition.z * 0.5f);
+        Vector3 bottom = _handCamera.ViewportToWorldPoint(new Vector3(0f, 0f, depth));
+        float viewportWidth = Vector3.Distance(bottom, _handCamera.ViewportToWorldPoint(new Vector3(1f, 0f, depth)));
+        float viewportHeight = Vector3.Distance(bottom, _handCamera.ViewportToWorldPoint(new Vector3(0f, 1f, depth)));
+        float fit = Mathf.Min(viewportWidth / (3f * _heldScreenSize.x), viewportHeight * 2f / (3f * _heldScreenSize.y));
+        transform.localScale = _phoneInitialLocalScale * (0.5f * fit);
+        Quaternion rotation = cameraTransform.rotation * Quaternion.Inverse(_heldScreenRotation);
+        Vector3 center = _handCamera.ViewportToWorldPoint(new Vector3(0.205f, Mathf.Lerp(0.15f, 0.46f, _raiseProgress), depth));
+        transform.SetPositionAndRotation(center - rotation * Vector3.Scale(_heldScreenCenter, transform.localScale), rotation);
+    }
+
+    private void StopPhoneRaise()
+    {
+        if (_phoneRaise == null) return;
+        StopCoroutine(_phoneRaise);
+        _phoneRaise = null;
     }
 
     public void HidePhone()
     {
         StopAllCoroutines();
+        _phoneRaise = null;
+        _handCamera = null;
+        RestorePhoneBody();
         if (sfxSource != null)
         {
             sfxSource.Stop();
@@ -132,9 +213,17 @@ public class PhoneController : InteractableItem
         gameObject.SetActive(false);
     }
 
+    private void RestorePhoneBody()
+    {
+        foreach (Renderer renderer in _hiddenPhoneRenderers)
+            if (renderer != null) renderer.forceRenderingOff = false;
+        _hiddenPhoneRenderers.Clear();
+    }
+
     public void TriggerDrop(Transform targetFloorPoint)
     {
         if (currentState != PhoneState.Idle) return;
+        StopPhoneRaise();
         if (targetFloorPoint == null)
         {
             Debug.LogError("[PhoneController] 휴대폰 낙하 위치(phoneDropTarget)가 연결되지 않았습니다.", this);
@@ -142,6 +231,8 @@ public class PhoneController : InteractableItem
         }
 
         gameObject.SetActive(true);
+        _handCamera = null;
+        RestorePhoneBody();
         StartCoroutine(DropRoutine(targetFloorPoint));
     }
 
@@ -196,12 +287,17 @@ public class PhoneController : InteractableItem
 
         Physics.SyncTransforms();
 
-        // 단순히 bool만 켜면 상호작용 메시 발광 초기화가 누락될 수 있으므로
-        // 공통 활성화 함수를 호출해 Collider와 메시 발광을 함께 복구합니다.
-        EnableInteractionWithLight();
+        HidingSpotManager hiding = HidingSpotManager.Instance;
+        if (hiding == null || hiding.HasHiddenOnce)
+            EnableDroppedPhoneRecovery();
+        if (phoneUI != null) phoneUI.ShowLockDay4();
+    }
 
+    public void EnableDroppedPhoneRecovery()
+    {
+        if (currentState != PhoneState.Dropped) return;
+        EnableInteractionWithLight();
         StartVibration();
-        if (phoneUI != null) phoneUI.ShowDefaultScreen();
     }
 
     private void StartVibration()
@@ -253,6 +349,8 @@ public class PhoneController : InteractableItem
 
         ShowPhoneInHand();
         _isInteracting = false;
+        if (UIManager.Instance != null)
+            StartCoroutine(UIManager.Instance.ShowGameplayHint("휴대폰을 찾았어. 다시 안전한 곳에 숨어서 신고하자.", 3.5f));
         StartCoroutine(WaitToCallRoutine());
     }
 
@@ -325,17 +423,36 @@ public class PhoneController : InteractableItem
 
         currentState = PhoneState.Success;
         if (phoneUI != null) phoneUI.ShowPoliceCallScreen();
-            if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
+        if (sfxSource != null && sfxSource.isPlaying) sfxSource.Stop();
 
-        float voiceLength = 4.0f;
-        if (voiceSource != null && AudioManager.Instance != null)
+        AudioClip breath = AudioManager.Instance != null
+            ? AudioManager.Instance.GetClip("SND-019_NervousBreath_Loop_Layer") : null;
+        if (sfxSource != null && breath != null)
         {
-            AudioClip clip = AudioManager.Instance.GetClip(policeVoiceClipName);
-            if (clip != null) { voiceSource.clip = clip; voiceSource.Play(); voiceLength = clip.length; }
+            sfxSource.clip = breath;
+            sfxSource.loop = true;
+            sfxSource.Play();
         }
-
+        yield return StartCoroutine(ShowCallDialogueLine(NarrativeData.Call112_Opening));
+        yield return StartCoroutine(ShowCallDialogueLine(NarrativeData.Call112_ChoiceA_Line));
+        yield return StartCoroutine(ShowCallDialogueLine(NarrativeData.Call112_ChoiceA_Reply));
+        if (sfxSource != null)
+        {
+            sfxSource.Stop();
+            sfxSource.loop = false;
+        }
         onCallSuccess?.Invoke();
-        yield return new WaitForSeconds(voiceLength);
-        if (phoneUI != null) phoneUI.HideAllScreens();
+        yield return new WaitForSeconds(0.5f);
+        HidePhone();
     }
+
+    private IEnumerator ShowCallDialogueLine(string message)
+    {
+        float duration = Mathf.Clamp(message.Length * 0.08f, 2.0f, 5.5f);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(message, duration));
+        else
+            yield return new WaitForSecondsRealtime(duration);
+    }
+
 }

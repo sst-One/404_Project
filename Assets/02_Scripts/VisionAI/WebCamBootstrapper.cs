@@ -1,123 +1,210 @@
+using System;
+using System.Collections;
 using Mediapipe.Unity;
 using Mediapipe.Unity.Sample;
-using System.Collections;
-using System.Collections.Generic;
+using Mediapipe.Unity.Sample.FaceLandmarkDetection;
+using Mediapipe.Unity.Sample.HandLandmarkDetection;
 using UnityEngine;
-using System;
 
 public class WebCamBootstrapper : MonoBehaviour
 {
+    private const float CameraStartupTimeout = 10f;
+
+    private VisionTrackingManager _trackingManager;
+    private bool _isSwitching;
+    private bool _hasPendingSelection;
+    private string _pendingDeviceName;
+    private FaceLandmarkerRunner _faceRunner;
+    private HandLandmarkerRunner _handRunner;
+    private WebCamSource _ownedSource;
+    private string _streamingDeviceName;
+    private float _lastFrameTime;
+
+    private void Update()
+    {
+        if (_streamingDeviceName == null || _isSwitching) return;
+        if (_ownedSource != null && IsCameraReady(_ownedSource))
+        {
+            _lastFrameTime = Time.unscaledTime;
+            return;
+        }
+        if (Time.unscaledTime - _lastFrameTime >= 3f)
+        {
+            if (_trackingManager != null) _trackingManager.SetCameraResult(_streamingDeviceName, null);
+            StopSharedCamera();
+        }
+    }
+
+    private void Awake()
+    {
+        _faceRunner = GetComponentInChildren<FaceLandmarkerRunner>(true);
+        _handRunner = GetComponentInChildren<HandLandmarkerRunner>(true);
+        if (_faceRunner == null) _faceRunner = FindFirstObjectByType<FaceLandmarkerRunner>();
+        if (_handRunner == null) _handRunner = FindFirstObjectByType<HandLandmarkerRunner>();
+        if (_faceRunner != null) _faceRunner.UsesSharedImageSource = true;
+        if (_handRunner != null) _handRunner.UsesSharedImageSource = true;
+    }
+
     private void Start()
     {
-        if (VisionTrackingManager.Instance != null)
-        {
-            VisionTrackingManager.Instance.OnCameraConfirmed += InitializeCamera;
-        }
+        _trackingManager = VisionTrackingManager.Instance;
+        if (_trackingManager != null)
+            _trackingManager.OnCameraConfirmed += InitializeCamera;
     }
 
     private void OnDestroy()
     {
-        if (VisionTrackingManager.Instance != null)
-        {
-            VisionTrackingManager.Instance.OnCameraConfirmed -= InitializeCamera;
-        }
+        if (_trackingManager != null)
+            _trackingManager.OnCameraConfirmed -= InitializeCamera;
+        StopSharedCamera();
     }
 
     private void InitializeCamera(string selectedDeviceName)
     {
-        StartCoroutine(SwitchCameraRoutine(selectedDeviceName));
+        _pendingDeviceName = selectedDeviceName;
+        _hasPendingSelection = true;
+        if (_isSwitching) return;
+
+        _isSwitching = true;
+        StartCoroutine(ProcessCameraSelections());
+    }
+
+    private IEnumerator ProcessCameraSelections()
+    {
+        try
+        {
+            while (_hasPendingSelection)
+            {
+                string deviceName = _pendingDeviceName;
+                _hasPendingSelection = false;
+                yield return SwitchCameraRoutine(deviceName);
+            }
+        }
+        finally
+        {
+            _isSwitching = false;
+        }
     }
 
     private IEnumerator SwitchCameraRoutine(string selectedDeviceName)
     {
-        Debug.Log($"[WebCamBootstrapper] 카메라 전환 프로세스 시작: {selectedDeviceName}");
-
-        List<MonoBehaviour> activeAIEngines = new List<MonoBehaviour>();
-        var allScripts = FindObjectsOfType<MonoBehaviour>();
-        foreach (var script in allScripts)
+        if (WebCamTexture.devices.Length == 0)
         {
-            string scriptName = script.GetType().Name;
-            if (scriptName.EndsWith("Solution") || scriptName.EndsWith("Runner"))
-            {
-                activeAIEngines.Add(script);
-            }
+            if (_trackingManager != null) _trackingManager.SetCameraResult(selectedDeviceName, null);
+            Debug.LogWarning("No webcam is available.", this);
+            yield break;
         }
 
-        // 모든 엔진 Stop
-        foreach (var engine in activeAIEngines)
-        {
-            try
-            {
-                var stopMethod = engine.GetType().GetMethod("Stop");
-                stopMethod?.Invoke(engine, null);
-            }
-            catch (Exception) { }
-        }
-        yield return new WaitForSeconds(0.3f);
+        StopSharedCamera();
+        yield return new WaitForSecondsRealtime(0.2f);
 
-        // 하드웨어 Stop
+        var resolutions = new[] { new ImageSource.ResolutionStruct(1280, 720, 30) };
+        var source = new WebCamSource(1280, resolutions);
+        string[] deviceNames = source.sourceCandidateNames;
+        int index = deviceNames == null ? -1 : Array.IndexOf(deviceNames, selectedDeviceName);
+        if (index < 0)
+        {
+            if (_trackingManager != null) _trackingManager.SetCameraResult(selectedDeviceName, null);
+            Debug.LogWarning("The webcam disconnected during camera selection.", this);
+            yield break;
+        }
+        source.SelectSource(index);
+        _ownedSource = source;
+        ImageSourceProvider.ImageSource = source;
+        Coroutine sourceStartup = StartCoroutine(source.Play());
+
+        float deadline = Time.realtimeSinceStartup + CameraStartupTimeout;
+        while (!_hasPendingSelection && !IsCameraReady(source) && Time.realtimeSinceStartup < deadline)
+            yield return null;
+
+        if (_hasPendingSelection || !IsCameraReady(source))
+        {
+            StopCoroutine(sourceStartup);
+            StopSharedCamera();
+            if (!_hasPendingSelection)
+            {
+                if (_trackingManager != null) _trackingManager.SetCameraResult(selectedDeviceName, null);
+                Debug.LogWarning($"Webcam '{selectedDeviceName}' did not produce a frame within {CameraStartupTimeout} seconds.", this);
+            }
+            yield break;
+        }
+
+        _streamingDeviceName = selectedDeviceName;
+        if (_trackingManager != null) _trackingManager.SetCameraResult(selectedDeviceName, source.GetCurrentTexture());
+
+        float initializationDeadline = Time.realtimeSinceStartup + CameraStartupTimeout;
+        while (!_hasPendingSelection && !AreRunnersInitialized() && Time.realtimeSinceStartup < initializationDeadline)
+            yield return null;
+        if (_hasPendingSelection) yield break;
+        _lastFrameTime = Time.unscaledTime;
+        if (!AreRunnersInitialized())
+        {
+            Debug.LogWarning("The webcam opened, but the MediaPipe models were not initialized.", this);
+            yield break;
+        }
+
+        // Bootstrap may have set its sample input while the selected camera was opening.
+        ImageSourceProvider.ImageSource = source;
+        if (_faceRunner != null) TryStartRunner(_faceRunner);
+        if (_handRunner != null) TryStartRunner(_handRunner);
+    }
+
+    private bool AreRunnersInitialized()
+    {
+        return (_faceRunner == null || _faceRunner.IsInitialized) &&
+            (_handRunner == null || _handRunner.IsInitialized);
+    }
+
+    private static bool IsCameraReady(WebCamSource source)
+    {
+        return source.GetCurrentTexture() is WebCamTexture texture &&
+            texture.isPlaying && texture.didUpdateThisFrame && texture.width > 16 && texture.height > 16;
+    }
+
+    private bool TryStartRunner(BaseRunner runner)
+    {
         try
         {
-            if (ImageSourceProvider.ImageSource != null && ImageSourceProvider.ImageSource.isPlaying)
-            {
-                ImageSourceProvider.ImageSource.Stop();
-            }
+            runner.Play();
+            return true;
         }
-        catch (Exception) { }
-        yield return new WaitForSeconds(0.2f);
-
-        // 물리 기기 인덱스 할당
-        WebCamDevice[] devices = WebCamTexture.devices;
-        int targetIndex = -1;
-        for (int i = 0; i < devices.Length; i++)
+        catch (Exception exception)
         {
-            if (devices[i].name == selectedDeviceName)
-            {
-                targetIndex = i;
-                break;
-            }
+            Debug.LogWarning($"Could not start {runner.GetType().Name}: {exception.Message}", this);
+            TryStopRunner(runner);
+            return false;
         }
-        if (targetIndex == -1) targetIndex = 0;
+    }
 
-        // 순수 객체 주입 (수동 Play 절대 금지)
-        var dummyResolutions = new ImageSource.ResolutionStruct[] {
-            new ImageSource.ResolutionStruct(1280, 720, 30)
-        };
-        WebCamSource webCamSource = new WebCamSource(1280, dummyResolutions);
-        webCamSource.SelectSource(targetIndex);
-        ImageSourceProvider.ImageSource = webCamSource;
-        Debug.Log($"[WebCamBootstrapper] 하드웨어 인덱스({targetIndex}) 주입 완료. (AI 주도 부팅 대기)");
-
-        // [핵심 픽스] 메인 AI 단독 선행 기동 및 서브 AI 순차 합류 아키텍처
-        if (activeAIEngines.Count > 0)
+    private void TryStopRunner(BaseRunner runner)
+    {
+        if (runner == null) return;
+        try
         {
-            // 1. 첫 번째 AI에게 카메라 기동 및 텍스처 장악 권한 위임 (트래킹 정상화의 핵심)
-            var firstEngine = activeAIEngines[0];
-            var playMethod1 = firstEngine.GetType().GetMethod("Play");
-            playMethod1?.Invoke(firstEngine, null);
-            Debug.Log($"[WebCamBootstrapper] 메인 AI 엔진({firstEngine.GetType().Name}) 선행 가동. 카메라 제어 위임.");
-
-            // 2. 메인 AI가 카메라를 성공적으로 켜고 텍스처를 할당할 때까지 대기 (크래시 방어)
-            yield return new WaitUntil(() =>
-                ImageSourceProvider.ImageSource != null &&
-                ImageSourceProvider.ImageSource.GetCurrentTexture() != null &&
-                ImageSourceProvider.ImageSource.GetCurrentTexture().width > 16
-            );
-            yield return new WaitForSeconds(0.5f); // 텍스처 버퍼 완벽 안정화 대기
-
-            // 3. 나머지 AI 순차 합류
-            for (int i = 1; i < activeAIEngines.Count; i++)
-            {
-                var subEngine = activeAIEngines[i];
-                var playMethodSub = subEngine.GetType().GetMethod("Play");
-                playMethodSub?.Invoke(subEngine, null);
-                Debug.Log($"[WebCamBootstrapper] 서브 AI 엔진({subEngine.GetType().Name}) 합류 가동 완료.");
-                yield return new WaitForSeconds(0.5f);
-            }
+            runner.Stop();
         }
-        else
+        catch (Exception exception)
         {
-            yield return ImageSourceProvider.ImageSource.Play();
+            Debug.LogWarning($"Could not stop {runner.GetType().Name}: {exception.Message}", this);
+        }
+    }
+
+    private void StopSharedCamera()
+    {
+        TryStopRunner(_faceRunner);
+        TryStopRunner(_handRunner);
+        WebCamSource source = _ownedSource;
+        _ownedSource = null;
+        _streamingDeviceName = null;
+        if (source == null) return;
+        if (ImageSourceProvider.ImageSource == source) ImageSourceProvider.ImageSource = null;
+        try
+        {
+            source.Stop();
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"Could not stop the webcam source: {exception.Message}", this);
         }
     }
 }

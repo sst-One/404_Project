@@ -241,18 +241,25 @@ public class EnemyAI : MonoBehaviour
         OnPlayerCaught?.Invoke(this.transform);
     }
 
-    public void ResetEnemy()
+    public void ResetEnemy(Vector3 restartPosition, Quaternion restartRotation)
     {
-        if (patrolPoints != null && patrolPoints.Length > 0 && patrolPoints[0] != null)
+        if (_animator != null)
         {
-            if (_agent.isOnNavMesh)
-            {
-                _agent.Warp(patrolPoints[0].position);
-                _agent.isStopped = false;
-            }
-            _currentPatrolIndex = 0;
+            _animator.Rebind();
+            _animator.Update(0f);
+            _animator.ResetTrigger(_attackHash);
         }
-
+        if (_agent != null)
+        {
+            _agent.enabled = false;
+            transform.SetPositionAndRotation(restartPosition, restartRotation);
+            _agent.enabled = true;
+            if (!_agent.isOnNavMesh &&
+                NavMesh.SamplePosition(restartPosition, out NavMeshHit nearby, 0.3f, _agent.areaMask))
+                _agent.Warp(nearby.position);
+        }
+        else transform.SetPositionAndRotation(restartPosition, restartRotation);
+        _currentPatrolIndex = 0;
         ChangeState(EnemyState.Patrol);
         MoveToNextPatrolPoint();
     }

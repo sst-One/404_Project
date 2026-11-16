@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class Stage3_4_Controller : MonoBehaviour
 {
@@ -7,18 +8,21 @@ public class Stage3_4_Controller : MonoBehaviour
     public InteractableItem elevatorButton;
     public ElevatorDoorController doorController;
     public EnemyAI suspiciousMan;
+    [SerializeField] private Vector3 passengerEntryOffset = new Vector3(0f, 0f, -0.48f);
+    [SerializeField, Min(0.1f)] private float passengerEntryDuration = 1.35f;
 
     [Header("Item Audio Reference")]
     public AudioSource elevatorAudioSource;
 
     [Header("Audio Clip Names")]
-    public string disasterAlertClip = "SND-028_Alert_OneShot";
+    public string disasterAlertClip = NarrativeData.EmergencyMessageSound;
     public string malfunctionClipName = "SND-014_ButtonMalfunction_OneShot";
     public string moveClipName = "SND-004_ElevatorMove_Loop_Timed";
     public string doorGrabClipName = "SND-015_ElevatorDoorGrab_OneShot";
     public string suspectVoiceClipName = "SND-035_SuspectVoice_OneShot_임시";
 
     private int buttonPressCount = 0;
+    private PhoneController _introPhone;
 
     private void Start()
     {
@@ -42,14 +46,13 @@ public class Stage3_4_Controller : MonoBehaviour
             elevatorButton.onInteractAction += OnElevatorButtonPressed;
         }
 
-        PhoneController.Instance.gameObject.SetActive(true);
-
         StartCoroutine(Day2IntroSequence());
     }
 
     private void OnDestroy()
     {
         if (elevatorButton != null) elevatorButton.onInteractAction -= OnElevatorButtonPressed;
+        if (_introPhone != null) _introPhone.HidePhone();
     }
 
     private IEnumerator Day2IntroSequence()
@@ -62,16 +65,15 @@ public class Stage3_4_Controller : MonoBehaviour
 
         if (phone != null)
         {
-            // [결함 2 픽스] SetParent 수정안 파기. 대신 앞뒤로 SetActive를 명시하여 씬 전환 미노출을 억지로 방어
-            phone.gameObject.SetActive(true);
+            _introPhone = phone;
             phone.ShowPhoneInHand();
-            phone.gameObject.SetActive(true);
-
-            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay2();
-
+            if (phone.phoneUI != null) phone.phoneUI.ShowLockDay2();
             if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(disasterAlertClip, AudioManager.Instance.uiMixerGroup);
+            yield return new WaitForSeconds(1f);
+            if (phone.phoneUI != null) phone.phoneUI.ShowMsgDay2();
             yield return new WaitForSeconds(5.0f);
             phone.HidePhone();
+            _introPhone = null;
         }
 
         if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
@@ -95,9 +97,11 @@ public class Stage3_4_Controller : MonoBehaviour
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage3_Anomaly);
         if (AudioManager.Instance != null) AudioManager.Instance.PlayGlobal2D(malfunctionClipName, AudioManager.Instance.sfxMixerGroup);
 
-        yield return new WaitForSeconds(1.5f);
+        yield return new WaitForSeconds(0.8f);
+        if (UIManager.Instance != null)
+            yield return StartCoroutine(UIManager.Instance.ShowInteractiveSubtitle("분명 눌렀는데."));
         if (StateManager.Instance != null) StateManager.Instance.AddHeartbeat(1);
-        yield return new WaitForSeconds(3.5f);
+        yield return new WaitForSeconds(0.5f);
 
         if (elevatorButton != null) elevatorButton.EnableInteractionWithLight();
     }
@@ -131,38 +135,59 @@ public class Stage3_4_Controller : MonoBehaviour
             PlayerController.Instance.StartCameraShake(0.5f, 0.2f);
         }
 
-        yield return new WaitForSeconds(1.0f);
+        yield return new WaitForSeconds(1.35f);
 
         if (suspiciousMan != null)
         {
-            suspiciousMan.TriggerNarrativeAnimation("Idle");
+            yield return StartCoroutine(BoardElevator());
         }
 
-        // 각 대사를 전용 음원과 연결하고, 자막 유지 시간은 해당 음원의 길이를 따릅니다.
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "하하 죄송합니다. 같이 타도 될까요?", "SND-035_1_같이타도될까요_OneShot"));
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "요즘 좀 무섭잖아요.", "SND-035_2_요즘좀무섭잖아요_OneShot"));
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "4층 사시는구나.", "SND-035_3_4층사시는구나_OneShot"));
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "늦었는데…", "SND-035_4_늦었는데_OneShot"));
-        yield return StartCoroutine(PlayVoiceSubtitle(
-            "들어가세요.", "SND-035_5_들어가세요_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("하하 죄송합니다. 같이 타도 될까요?", "SND-035_1_같이타도될까요_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("요즘 좀 무섭잖아요.", "SND-035_2_요즘좀무섭잖아요_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("4층 사시는구나.", "SND-035_3_4층사시는구나_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("늦었는데…", "SND-035_4_늦었는데_OneShot"));
+        yield return StartCoroutine(ShowNarrativeLine("들어가세요.", "SND-035_5_들어가세요_OneShot"));
+
+        if (doorController != null) doorController.OpenDoors();
+        yield return new WaitForSeconds(0.8f);
 
         if (GameFlowManager.Instance != null) GameFlowManager.Instance.AdvanceToStage(GameStage.Stage5_Clue);
     }
 
-    private IEnumerator PlayVoiceSubtitle(string message, string clipName)
+    private IEnumerator BoardElevator()
     {
-        AudioClip clip = AudioManager.Instance != null ? AudioManager.Instance.GetClip(clipName) : null;
-        float duration = clip != null ? clip.length : Mathf.Max(2.5f, message.Length * 0.1f);
+        Transform passenger = suspiciousMan.transform;
+        if (suspiciousMan.TryGetComponent(out NavMeshAgent agent)) agent.enabled = false;
+        Vector3 start = passenger.position;
+        Vector3 destination = start + passengerEntryOffset;
+        suspiciousMan.TriggerNarrativeAnimation("Walk");
+        float duration = Mathf.Max(0.1f, passengerEntryDuration);
+        for (float elapsed = 0f; elapsed < duration; elapsed += Time.deltaTime)
+        {
+            passenger.position = Vector3.Lerp(start, destination, elapsed / duration);
+            yield return null;
+        }
+        passenger.position = destination;
+        PlayerController player = PlayerController.Instance;
+        if (player != null)
+        {
+            Vector3 towardPlayer = Vector3.ProjectOnPlane(player.transform.position - destination, Vector3.up);
+            if (towardPlayer.sqrMagnitude > 0.001f)
+                passenger.rotation = Quaternion.LookRotation(towardPlayer);
+        }
+        suspiciousMan.TriggerNarrativeAnimation("Idle");
+    }
 
-        if (AudioManager.Instance != null && clip != null)
-            AudioManager.Instance.PlayGlobal2D(clipName, AudioManager.Instance.voiceMixerGroup);
-        else
-            Debug.LogWarning($"[Stage3_4_Controller] 대사 음원을 찾을 수 없습니다: {clipName}");
-
+    private IEnumerator ShowNarrativeLine(string message, string clipName = null)
+    {
+        float duration = Mathf.Clamp(message.Length * 0.085f, 2.2f, 5.5f);
+        AudioManager audio = AudioManager.Instance;
+        AudioClip clip = audio != null && clipName != null ? audio.GetClip(clipName) : null;
+        if (clip != null)
+        {
+            duration = clip.length;
+            audio.PlayGlobal2D(clipName, audio.voiceMixerGroup);
+        }
         if (UIManager.Instance != null)
             yield return StartCoroutine(UIManager.Instance.ShowSubtitleForDuration(message, duration));
         else

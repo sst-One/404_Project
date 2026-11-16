@@ -17,6 +17,7 @@ public class TutorialFloorRoute : MonoBehaviour
     private LineRenderer line;
     private NavMeshPath path;
     private float timer;
+    private Material _routeMaterial;
 
     private void Awake()
     {
@@ -30,24 +31,25 @@ public class TutorialFloorRoute : MonoBehaviour
         line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         line.receiveShadows = false;
         line.sortingOrder = 20;
-        line.startWidth = Mathf.Max(0.10f, lineWidth);
-        line.endWidth = Mathf.Max(0.10f, lineWidth);
-        line.startColor = routeColor;
-        line.endColor = routeColor;
+        line.startWidth = Mathf.Clamp(lineWidth, 0.035f, 0.065f);
+        line.endWidth = line.startWidth * 0.8f;
+        line.startColor = new Color(routeColor.r, routeColor.g, routeColor.b, 0.8f);
+        line.endColor = new Color(routeColor.r, routeColor.g, routeColor.b, 1f);
         line.positionCount = 0;
         line.enabled = false;
-        if (line.sharedMaterial == null)
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader != null)
         {
-            Shader shader = Shader.Find("Sprites/Default");
-            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
-            if (shader != null)
-            {
-                Material routeMaterial = new Material(shader);
-                if (routeMaterial.HasProperty("_Color")) routeMaterial.SetColor("_Color", routeColor);
-                line.sharedMaterial = routeMaterial;
-            }
+            _routeMaterial = new Material(shader);
+            if (_routeMaterial.HasProperty("_Color")) _routeMaterial.SetColor("_Color", Color.white);
+            line.sharedMaterial = _routeMaterial;
         }
+    }
+
+    private void OnDestroy()
+    {
+        if (_routeMaterial != null) Destroy(_routeMaterial);
     }
 
     private void Update()
@@ -90,17 +92,47 @@ public class TutorialFloorRoute : MonoBehaviour
         if (startOnMesh && endOnMesh && NavMesh.CalculatePath(startHit.position, endHit.position, NavMesh.AllAreas, path) &&
             path.status == NavMeshPathStatus.PathComplete && path.corners.Length > 1)
         {
-            line.positionCount = path.corners.Length;
-            for (int i = 0; i < path.corners.Length; i++)
+            Vector3[] corners = path.corners;
+            if (corners.Length > 1)
+                corners[0] = Vector3.MoveTowards(corners[0], corners[1], 0.20f);
+            line.positionCount = corners.Length;
+            for (int i = 0; i < corners.Length; i++)
             {
-                Vector3 p = path.corners[i]; p.y += floorOffset; line.SetPosition(i, p);
+                line.SetPosition(i, OnFloor(corners[i], LayerMask.GetMask("Walkable")));
             }
         }
         else
         {
-            Vector3 a = player.position; Vector3 b = hidingSpot.position;
-            a.y += floorOffset; b.y += floorOffset;
-            line.positionCount = 2; line.SetPosition(0, a); line.SetPosition(1, b);
+            DrawVisibleFloorSegment();
         }
+    }
+
+    private void DrawVisibleFloorSegment()
+    {
+        int walkable = LayerMask.GetMask("Walkable");
+        int obstacles = LayerMask.GetMask("Obstacle");
+        Vector3 start = Vector3.MoveTowards(player.position, hidingSpot.position, 0.20f);
+        Vector3 end = hidingSpot.position;
+        const int samples = 12;
+        Vector3 previous = default;
+        int count = 0;
+        line.positionCount = samples;
+        for (int i = 0; i < samples; i++)
+        {
+            Vector3 probe = Vector3.Lerp(start, end, i / (float)(samples - 1));
+            Vector3 position = OnFloor(probe, walkable);
+            if (count >= 2 && Physics.Linecast(previous + Vector3.up * 0.12f, position + Vector3.up * 0.12f, obstacles, QueryTriggerInteraction.Ignore))
+                break;
+            line.SetPosition(count++, position);
+            previous = position;
+        }
+        line.positionCount = count >= 2 ? count : 0;
+    }
+
+    private Vector3 OnFloor(Vector3 probe, int walkable)
+    {
+        if (Physics.Raycast(probe + Vector3.up * 0.35f, Vector3.down, out RaycastHit floor, 0.85f, walkable, QueryTriggerInteraction.Ignore))
+            probe = floor.point;
+        return probe + Vector3.up * Mathf.Clamp(floorOffset, 0.025f, 0.065f);
     }
 }
